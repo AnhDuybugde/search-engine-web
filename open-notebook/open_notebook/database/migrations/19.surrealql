@@ -1,0 +1,2 @@
+-- Migration 19: Search Run table for web search history and metrics
+DEFINE TABLE IF NOT EXISTS search_run SCHEMALESS;
