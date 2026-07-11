@@ -13,6 +13,10 @@ class RankedChunk(BaseModel):
     chunk: Chunk
     bm25_score: float = 0.0
     bm25_rank: int = 0
+    dense_score: float = 0.0
+    dense_rank: int = 0
+    rrf_score: float = 0.0
+    rrf_rank: int = 0
     reranker_score: float = 0.0
     reranker_rank: int = 0
 

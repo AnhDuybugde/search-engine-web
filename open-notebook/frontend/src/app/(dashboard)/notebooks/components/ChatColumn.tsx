@@ -1,8 +1,6 @@
 'use client'
 
 import { useMemo } from 'react'
-import { useNotebookChat } from '@/lib/hooks/useNotebookChat'
-import { useNotes } from '@/lib/hooks/use-notes'
 import { ChatPanel } from '@/components/source/ChatPanel'
 import { LoadingSpinner } from '@/components/common/LoadingSpinner'
 import { Card, CardContent } from '@/components/ui/card'
@@ -16,21 +14,12 @@ interface ChatColumnProps {
   contextSelections: ContextSelections
   sources: SourceListResponse[]
   sourcesLoading: boolean
+  notes: any[]
+  chat: any
 }
 
-export function ChatColumn({ notebookId, contextSelections, sources, sourcesLoading }: ChatColumnProps) {
+export function ChatColumn({ notebookId, contextSelections, sources, sourcesLoading, notes, chat }: ChatColumnProps) {
   const { t } = useTranslation()
-
-  // Fetch notes for this notebook
-  const { data: notes = [], isLoading: notesLoading } = useNotes(notebookId)
-
-  // Initialize notebook chat hook
-  const chat = useNotebookChat({
-    notebookId,
-    sources,
-    notes,
-    contextSelections
-  })
 
   // Calculate context stats for indicator
   const contextStats = useMemo(() => {
@@ -65,8 +54,8 @@ export function ChatColumn({ notebookId, contextSelections, sources, sourcesLoad
     }
   }, [sources, notes, contextSelections, chat.tokenCount, chat.charCount])
 
-  // Show loading state while sources/notes are being fetched
-  if (sourcesLoading || notesLoading) {
+  // Show loading state while sources are being fetched
+  if (sourcesLoading) {
     return (
       <Card className="h-full flex flex-col">
         <CardContent className="flex-1 flex items-center justify-center">
@@ -109,6 +98,7 @@ export function ChatColumn({ notebookId, contextSelections, sources, sourcesLoad
       onDeleteSession={chat.deleteSession}
       loadingSessions={chat.loadingSessions}
       notebookContextStats={contextStats}
+      notebookMetrics={chat.lastMetrics}
       notebookId={notebookId}
     />
   )

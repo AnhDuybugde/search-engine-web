@@ -31,11 +31,14 @@ async def seed():
     models = await Model.get_all()
     qwen_chat = None
     qwen_coder = None
+    qwen_3b = None
     for model in models:
         if model.name == "qwen2.5:latest":
             qwen_chat = model
         elif model.name == "qwen2.5-coder:14b":
             qwen_coder = model
+        elif model.name == "qwen2.5:3b":
+            qwen_3b = model
             
     if not qwen_chat:
         print("Creating qwen2.5:latest model...")
@@ -58,6 +61,17 @@ async def seed():
         )
         await qwen_coder.save()
         print(f"Created qwen2.5-coder:14b model with ID: {qwen_coder.id}")
+
+    if not qwen_3b:
+        print("Creating qwen2.5:3b model...")
+        qwen_3b = Model(
+            name="qwen2.5:3b",
+            provider="ollama",
+            type="language",
+            credential=ollama_cred.id
+        )
+        await qwen_3b.save()
+        print(f"Created qwen2.5:3b model with ID: {qwen_3b.id}")
 
     # Set default models
     print("Setting default models...")

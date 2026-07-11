@@ -1,1 +1,7 @@
 venv/
+
+# Local embedding/reranker model weights. Keep these on disk, but do not push
+# large model binaries to GitHub.
+bge-small-scifact-rrf/**/model.safetensors
+bge-small-scifact-rrf/**/*.bin
+bge-small-scifact-rrf/**/*.onnx

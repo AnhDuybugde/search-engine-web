@@ -43,8 +43,10 @@ services:
       - SURREAL_PASSWORD=${SURREAL_PASSWORD:-root}
       - SURREAL_NAMESPACE=open_notebook
       - SURREAL_DATABASE=open_notebook
+      - OUR_METHOD_MODEL_PATH=/app/models/bge-small-scifact-rrf
     volumes:
       - ./notebook_data:/app/data
+      - ../bge-small-scifact-rrf/bge-small-scifact-rrf:/app/models/bge-small-scifact-rrf:ro
     depends_on:
       - surrealdb
     restart: always

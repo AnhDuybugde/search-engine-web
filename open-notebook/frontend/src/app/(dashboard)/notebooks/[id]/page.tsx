@@ -27,6 +27,8 @@ import {
   type NoteContextDefault,
 } from '@/lib/utils/source-context'
 
+import { useNotebookChat } from '@/lib/hooks/useNotebookChat'
+
 // Re-exported from the shared types module for backward compatibility; several
 // components historically import these from this route file.
 import type { ContextMode, ContextSelections, NoteContextMode } from '@/lib/types/notebook-context'
@@ -53,17 +55,59 @@ export default function NotebookPage() {
   // Get collapse states for dynamic layout
   const { sourcesCollapsed, notesCollapsed } = useNotebookColumnsStore()
 
-  // Detect desktop to avoid double-mounting ChatColumn
-  const isDesktop = useIsDesktop()
-
-  // Mobile tab state (Sources, Notes, or Chat)
-  const [mobileActiveTab, setMobileActiveTab] = useState<'sources' | 'notes' | 'chat'>('chat')
+  // Resize states
+  const [sourcesWidth, setSourcesWidth] = useState(300)
+  const [studioWidth, setStudioWidth] = useState(300)
+  const [isResizingSources, setIsResizingSources] = useState(false)
+  const [isResizingStudio, setIsResizingStudio] = useState(false)
+  const [focusMode, setFocusMode] = useState(false)
 
   // Context selection state
   const [contextSelections, setContextSelections] = useState<ContextSelections>({
     sources: {},
     notes: {}
   })
+
+  // Initialize notebook chat hook at page level so both Chat and Studio columns share it
+  const chat = useNotebookChat({
+    notebookId,
+    sources: sources ?? [],
+    notes: notes ?? [],
+    contextSelections
+  })
+
+  // Resize mouse events hook
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isResizingSources) {
+        setSourcesWidth(Math.max(220, Math.min(450, e.clientX - 60)))
+      }
+      if (isResizingStudio) {
+        setStudioWidth(Math.max(220, Math.min(450, window.innerWidth - e.clientX - 60)))
+      }
+    }
+
+    const handleMouseUp = () => {
+      setIsResizingSources(false)
+      setIsResizingStudio(false)
+    }
+
+    if (isResizingSources || isResizingStudio) {
+      window.addEventListener('mousemove', handleMouseMove)
+      window.addEventListener('mouseup', handleMouseUp)
+    }
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mouseup', handleMouseUp)
+    }
+  }, [isResizingSources, isResizingStudio])
+
+  // Detect desktop to avoid double-mounting ChatColumn
+  const isDesktop = useIsDesktop()
+
+  // Mobile tab state (Sources, Notes, or Chat)
+  const [mobileActiveTab, setMobileActiveTab] = useState<'sources' | 'notes' | 'chat'>('chat')
 
   // The default context mode applied to sources as they load. A bulk
   // include/exclude updates this so sources loaded later via pagination follow
@@ -155,7 +199,11 @@ export default function NotebookPage() {
     <AppShell>
       <div className="flex flex-col flex-1 min-h-0">
         <div className="flex-shrink-0 p-6 pb-0">
-          <NotebookHeader notebook={notebook} />
+          <NotebookHeader
+            notebook={notebook}
+            focusMode={focusMode}
+            onFocusModeToggle={() => setFocusMode(!focusMode)}
+          />
         </div>
 
         <div className="flex-1 p-6 pt-6 overflow-x-auto flex flex-col">
@@ -206,6 +254,9 @@ export default function NotebookPage() {
                     contextSelections={contextSelections.notes}
                     onContextModeChange={handleNoteContextModeChange}
                     onBulkContextModeChange={handleBulkNoteContext}
+                    lastContext={chat.lastContext}
+                    tokenCount={chat.tokenCount}
+                    charCount={chat.charCount}
                   />
                 )}
                 {mobileActiveTab === 'chat' && (
@@ -214,61 +265,97 @@ export default function NotebookPage() {
                     contextSelections={contextSelections}
                     sources={sources}
                     sourcesLoading={sourcesLoading}
+                    notes={notes ?? []}
+                    chat={chat}
                   />
                 )}
               </div>
             </>
           )}
 
-          {/* Desktop: Collapsible columns layout */}
-          <div className={cn(
-            'hidden lg:flex h-full min-h-0 gap-6 transition-all duration-150',
-            'flex-row'
-          )}>
+          {/* Desktop: Collapsible and resizable columns layout */}
+          <div className="hidden lg:flex h-full min-h-0 gap-3 transition-all duration-150 flex-row">
             {/* Sources Column */}
-            <div className={cn(
-              'transition-all duration-150',
-              sourcesCollapsed ? 'w-12 flex-shrink-0' : 'flex-none basis-1/3'
-            )}>
-              <SourcesColumn
-                sources={sources}
-                isLoading={sourcesLoading}
-                notebookId={notebookId}
-                notebookName={notebook?.name}
-                onRefresh={refetchSources}
-                contextSelections={contextSelections.sources}
-                onContextModeChange={handleSourceContextModeChange}
-                onBulkContextModeChange={handleBulkSourceContext}
-                hasNextPage={hasNextPage}
-                isFetchingNextPage={isFetchingNextPage}
-                fetchNextPage={fetchNextPage}
-              />
-            </div>
+            {!focusMode && (
+              <div
+                className={cn(
+                  'transition-all duration-150 h-full flex-shrink-0 overflow-hidden',
+                  sourcesCollapsed ? 'w-12' : ''
+                )}
+                style={sourcesCollapsed ? undefined : { width: `${sourcesWidth}px` }}
+              >
+                <SourcesColumn
+                  sources={sources}
+                  isLoading={sourcesLoading}
+                  notebookId={notebookId}
+                  notebookName={notebook?.name}
+                  onRefresh={refetchSources}
+                  contextSelections={contextSelections.sources}
+                  onContextModeChange={handleSourceContextModeChange}
+                  onBulkContextModeChange={handleBulkSourceContext}
+                  hasNextPage={hasNextPage}
+                  isFetchingNextPage={isFetchingNextPage}
+                  fetchNextPage={fetchNextPage}
+                />
+              </div>
+            )}
 
-            {/* Notes Column */}
-            <div className={cn(
-              'transition-all duration-150',
-              notesCollapsed ? 'w-12 flex-shrink-0' : 'flex-none basis-1/3'
-            )}>
-              <NotesColumn
-                notes={notes}
-                isLoading={notesLoading}
-                notebookId={notebookId}
-                contextSelections={contextSelections.notes}
-                onContextModeChange={handleNoteContextModeChange}
-                onBulkContextModeChange={handleBulkNoteContext}
+            {/* Sources Resize Handle */}
+            {!sourcesCollapsed && !focusMode && (
+              <div
+                className="w-1.5 hover:bg-primary bg-border/40 hover:w-2 cursor-col-resize transition-all h-full flex-shrink-0 select-none rounded"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  setIsResizingSources(true)
+                }}
               />
-            </div>
+            )}
 
             {/* Chat Column - always expanded, takes remaining space */}
-            <div className="transition-all duration-150 flex-1 min-w-0 lg:pr-6 lg:-mr-6">
+            <div className="flex-1 min-w-0 h-full overflow-hidden">
               <ChatColumn
                 notebookId={notebookId}
                 contextSelections={contextSelections}
                 sources={sources}
                 sourcesLoading={sourcesLoading}
+                notes={notes ?? []}
+                chat={chat}
               />
             </div>
+
+            {/* Studio Resize Handle */}
+            {!notesCollapsed && !focusMode && (
+              <div
+                className="w-1.5 hover:bg-primary bg-border/40 hover:w-2 cursor-col-resize transition-all h-full flex-shrink-0 select-none rounded"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  setIsResizingStudio(true)
+                }}
+              />
+            )}
+
+            {/* Notes/Studio Column */}
+            {!focusMode && (
+              <div
+                className={cn(
+                  'transition-all duration-150 h-full flex-shrink-0 overflow-hidden',
+                  notesCollapsed ? 'w-12' : ''
+                )}
+                style={notesCollapsed ? undefined : { width: `${studioWidth}px` }}
+              >
+                <NotesColumn
+                  notes={notes}
+                  isLoading={notesLoading}
+                  notebookId={notebookId}
+                  contextSelections={contextSelections.notes}
+                  onContextModeChange={handleNoteContextModeChange}
+                  onBulkContextModeChange={handleBulkNoteContext}
+                  lastContext={chat.lastContext}
+                  tokenCount={chat.tokenCount}
+                  charCount={chat.charCount}
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>

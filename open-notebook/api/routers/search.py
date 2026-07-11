@@ -2,9 +2,9 @@ import json
 import os
 import time
 import asyncio
-from typing import AsyncGenerator, Dict, Any, List, Optional
+from typing import AsyncGenerator, Dict, Any, List, Optional, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from loguru import logger
 from pydantic import BaseModel
@@ -21,6 +21,7 @@ from open_notebook.retrieval import WordChunker, RetrievalPipeline, Chunk, Ranke
 from open_notebook.generation import OllamaClient
 from open_notebook.domain.search_run import SearchRun
 from open_notebook.domain.notebook import Notebook, Source
+from open_notebook.database.repository import repo_query
 
 router = APIRouter()
 
@@ -33,17 +34,61 @@ class SearchRunCreateRequest(BaseModel):
     rerank_top_k: int = 10
     context_top_k: int = 6
     generate_answer: bool = True
+    boost_speed: bool = False
+    retrieval_method: Literal["bm25", "our-method"] = "bm25"
 
 class NotebookRetrieveRequest(BaseModel):
     query: str
     source_ids: Optional[List[str]] = None
     limit: int = 10
+    retrieval_method: Literal["bm25", "our-method"] = "bm25"
 
 class NotebookAnswerRequest(BaseModel):
     query: str
     source_ids: Optional[List[str]] = None
     limit: int = 10
     generate_answer: bool = True
+    retrieval_method: Literal["bm25", "our-method"] = "bm25"
+
+
+def build_search_queries(query: str) -> List[str]:
+    """Build lightweight multilingual web-search variants for newsy questions."""
+    normalized = " ".join(query.split())
+    lower = normalized.lower()
+    queries = [normalized]
+
+    replacements = {
+        "kết quả": "result",
+        "bóng đá": "football",
+        "trận đấu": "match",
+        "trận": "match",
+        "gần nhất": "latest",
+        "pháp": "France",
+        "ma rốc": "Morocco",
+        "maroc": "Morocco",
+        "world cup": "World Cup",
+    }
+
+    translated = lower
+    for source, target in replacements.items():
+        translated = translated.replace(source, target)
+    translated = " ".join(translated.split())
+    if translated and translated != lower:
+        queries.append(translated)
+
+    if any(term in lower for term in ["world cup", "bóng đá", "kết quả", "trận", "score"]):
+        if "pháp" in lower or "france" in lower:
+            queries.append("France latest match World Cup 2026 result score")
+            queries.append("France World Cup 2026 last match result")
+
+    deduped = []
+    seen = set()
+    for candidate in queries:
+        key = candidate.lower()
+        if key not in seen:
+            deduped.append(candidate)
+            seen.add(key)
+    return deduped[:4]
 
 # --- Existing Endpoints (Kept Unchanged) ---
 
@@ -337,10 +382,34 @@ async def cancel_search_run(run_id: str):
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Search run {run_id} not found: {e}")
 
+@router.delete("/search/runs/{run_id}")
+async def delete_search_run(run_id: str):
+    """Delete a search run from history."""
+    try:
+        run = await SearchRun.get(run_id)
+        await run.delete()
+        return {"status": "success", "message": f"Run {run_id} deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Search run {run_id} not found: {e}")
+
 @router.get("/search/runs")
-async def get_all_search_runs():
+async def get_all_search_runs(
+    summary: bool = Query(False, description="Return lightweight rows without heavy results/answers"),
+    limit: int = Query(50, ge=1, le=200),
+):
     """Retrieve history of all search runs."""
     try:
+        if summary:
+            return await repo_query(
+                """
+                SELECT id, query, config, timing, metrics, status, error, created, updated
+                FROM search_run
+                ORDER BY created DESC
+                LIMIT $limit
+                """,
+                {"limit": limit},
+            )
+
         runs = await SearchRun.get_all(order_by="created desc")
         return runs
     except Exception as e:
@@ -367,7 +436,7 @@ async def execute_and_stream_run(run_id: str) -> AsyncGenerator[str, None]:
 
         timing: Dict[str, float] = {}
         metrics: Dict[str, Any] = {}
-        total_start = time.time()
+        total_start = time.perf_counter()
 
         query = run.query
         config = run.config
@@ -376,11 +445,13 @@ async def execute_and_stream_run(run_id: str) -> AsyncGenerator[str, None]:
         rerank_top_k = config.get("rerank_top_k", 10)
         context_top_k = config.get("context_top_k", 6)
         generate_answer = config.get("generate_answer", True)
+        boost_speed = config.get("boost_speed", False)
+        retrieval_method = config.get("retrieval_method", "bm25")
 
         # --- Step 1: SearXNG Web Search ---
         yield f"data: {json.dumps({'event': 'search_started', 'data': {'query': query}})}\n\n"
         
-        search_start = time.time()
+        search_start = time.perf_counter()
         searxng = SearXNGProvider()
         
         # Try local docker container host name if local fails
@@ -390,11 +461,28 @@ async def execute_and_stream_run(run_id: str) -> AsyncGenerator[str, None]:
             if os.getenv("SURREAL_URL", "").startswith("ws://surrealdb"):
                 searxng.base_url = "http://searxng:8080"
                 
-        search_results = await searxng.search(query, limit=search_limit)
-        timing["search_time"] = round(time.time() - search_start, 3)
+        search_results = []
+        seen_result_urls = set()
+        query_variants = build_search_queries(query)
+        per_query_limit = max(3, min(search_limit, (search_limit + len(query_variants) - 1) // len(query_variants) + 2))
+        for search_query in query_variants:
+            variant_results = await searxng.search(search_query, limit=per_query_limit)
+            for result in variant_results:
+                url = result.get("url")
+                key = url or f"{result.get('title', '')}:{result.get('content', '')}"
+                if key in seen_result_urls:
+                    continue
+                search_results.append(result)
+                seen_result_urls.add(key)
+                if len(search_results) >= search_limit:
+                    break
+            if len(search_results) >= search_limit:
+                break
+        timing["search_time"] = round(time.perf_counter() - search_start, 3)
 
         metrics["search_results_count"] = len(search_results)
-        yield f"data: {json.dumps({'event': 'search_results_received', 'data': {'count': len(search_results), 'results': search_results}})}\n\n"
+        metrics["search_query_variants"] = query_variants
+        yield f"data: {json.dumps({'event': 'search_results_received', 'data': {'count': len(search_results), 'results': search_results, 'queries': query_variants}})}\n\n"
 
         if run.status == "cancelled" or (await SearchRun.get(run_id)).status == "cancelled":
             return
@@ -404,23 +492,24 @@ async def execute_and_stream_run(run_id: str) -> AsyncGenerator[str, None]:
         unique_web_urls = unique_urls(raw_urls)
         metrics["duplicate_urls_removed"] = len(raw_urls) - len(unique_web_urls)
 
-        # Slice to max pages to fetch (max 15 as in plan.md)
-        unique_web_urls = unique_web_urls[:15]
+        # Slice to max pages to fetch (max 15 as in plan.md, 5 if boost_speed is active)
+        max_pages = 5 if boost_speed else 15
+        unique_web_urls = unique_web_urls[:max_pages]
 
         # --- Step 3: Fetch Pages ---
         yield f"data: {json.dumps({'event': 'fetch_started', 'data': {'urls': unique_web_urls}})}\n\n"
         
-        fetch_start = time.time()
+        fetch_start = time.perf_counter()
         fetcher = AsyncWebFetcher(concurrency=5, timeout=10.0)
         fetched_docs = await fetcher.fetch_urls(unique_web_urls)
-        timing["fetch_time"] = round(time.time() - fetch_start, 3)
+        timing["fetch_time"] = round(time.perf_counter() - fetch_start, 3)
 
         success_docs = []
         fetched_success_count = 0
         fetched_failed_count = 0
 
         extractor = ContentExtractor()
-        extraction_start = time.time()
+        extraction_start = time.perf_counter()
 
         for doc in fetched_docs:
             url = doc["url"]
@@ -446,7 +535,7 @@ async def execute_and_stream_run(run_id: str) -> AsyncGenerator[str, None]:
                 fetched_failed_count += 1
                 yield f"data: {json.dumps({'event': 'document_failed', 'data': {'url': url, 'error': doc.get('error', 'Unknown error')}})}\n\n"
 
-        timing["extraction_time"] = round(time.time() - extraction_start, 3)
+        timing["extraction_time"] = round(time.perf_counter() - extraction_start, 3)
         metrics["fetched_success_count"] = fetched_success_count
         metrics["fetched_failed_count"] = fetched_failed_count
 
@@ -455,7 +544,7 @@ async def execute_and_stream_run(run_id: str) -> AsyncGenerator[str, None]:
 
         # --- Step 4: Chunking ---
         chunker = WordChunker(chunk_size=350, chunk_overlap=60)
-        chunking_start = time.time()
+        chunking_start = time.perf_counter()
         
         all_chunks: List[Chunk] = []
         for doc in success_docs:
@@ -467,56 +556,69 @@ async def execute_and_stream_run(run_id: str) -> AsyncGenerator[str, None]:
             )
             all_chunks.extend(doc_chunks)
             
-        timing["chunking_time"] = round(time.time() - chunking_start, 3)
+        timing["chunking_time"] = round(time.perf_counter() - chunking_start, 3)
         metrics["chunks_created"] = len(all_chunks)
 
         yield f"data: {json.dumps({'event': 'chunking_completed', 'data': {'chunks_count': len(all_chunks)}})}\n\n"
 
         if not all_chunks:
             # No chunks, complete immediately with empty
-            timing["total_time"] = round(time.time() - total_start, 3)
+            timing["total_time"] = round(time.perf_counter() - total_start, 3)
             run.status = "completed"
             run.timing = timing
             run.metrics = metrics
             run.results = []
             await run.save()
             yield f"data: {json.dumps({'event': 'retrieval_ready', 'data': {'results': []}})}\n\n"
-            yield f"data: {json.dumps({'event': 'run_completed', 'data': {'run': run.model_dump()}})}\n\n"
+            yield f"data: {json.dumps({'event': 'run_completed', 'data': {'run': run.model_dump(mode='json')}})}\n\n"
             return
 
         # --- Step 5: Retrieval Pipeline (BM25 + Rerank + Packing) ---
-        pipeline_start = time.time()
+        pipeline_start = time.perf_counter()
         pipeline = RetrievalPipeline(
             bm25_top_k=retrieve_top_k,
             rerank_top_k=rerank_top_k,
             context_top_k=context_top_k,
-            device="cuda"
+            device="cuda",
+            retrieval_method=retrieval_method,
         )
 
-        # We do BM25 and rerank separately so we can stream progress events
-        bm25_start = time.time()
-        bm25_results = pipeline.bm25_retriever.retrieve(query, all_chunks, top_k=retrieve_top_k)
-        timing["bm25_time"] = round(time.time() - bm25_start, 3)
-        metrics["chunks_retrieved"] = len(bm25_results)
-        yield f"data: {json.dumps({'event': 'bm25_completed', 'data': {'count': len(bm25_results)}})}\n\n"
+        # We do retrieval and rerank separately so we can stream progress events
+        retrieval_start = time.perf_counter()
+        candidate_results = pipeline.retrieve_candidates(query, all_chunks, top_k=retrieve_top_k)
+        timing["retrieval_candidate_time"] = round(time.perf_counter() - retrieval_start, 3)
+        timing["bm25_time"] = timing["retrieval_candidate_time"]
+        metrics["retrieval_method"] = retrieval_method
+        metrics["chunks_retrieved"] = len(candidate_results)
+        yield f"data: {json.dumps({'event': 'bm25_completed', 'data': {'count': len(candidate_results), 'method': retrieval_method}})}\n\n"
 
         if run.status == "cancelled" or (await SearchRun.get(run_id)).status == "cancelled":
             return
 
-        rerank_start = time.time()
-        rerank_results = pipeline.reranker.rerank(query, bm25_results, top_k=rerank_top_k)
-        timing["reranking_time"] = round(time.time() - rerank_start, 3)
-        metrics["chunks_reranked"] = len(rerank_results)
-        yield f"data: {json.dumps({'event': 'reranking_completed', 'data': {'count': len(rerank_results)}})}\n\n"
+        if boost_speed:
+            logger.info("Boost Speed enabled: bypassing neural reranker and using BM25 results directly")
+            rerank_results = candidate_results[:rerank_top_k]
+            for idx, rc in enumerate(rerank_results):
+                rc.reranker_score = rc.rrf_score or rc.bm25_score
+                rc.reranker_rank = idx + 1
+            timing["reranking_time"] = 0.0
+            metrics["chunks_reranked"] = len(rerank_results)
+            yield f"data: {json.dumps({'event': 'reranking_completed', 'data': {'count': len(rerank_results), 'bypassed': True}})}\n\n"
+        else:
+            rerank_start = time.perf_counter()
+            rerank_results = pipeline.reranker.rerank(query, candidate_results, top_k=rerank_top_k)
+            timing["reranking_time"] = round(time.perf_counter() - rerank_start, 3)
+            metrics["chunks_reranked"] = len(rerank_results)
+            yield f"data: {json.dumps({'event': 'reranking_completed', 'data': {'count': len(rerank_results)}})}\n\n"
 
         # Context Pack
         packed_results = pipeline.context_packer.pack_context(rerank_results)
-        timing["retrieval_time"] = round(time.time() - pipeline_start, 3)
+        timing["retrieval_time"] = round(time.perf_counter() - pipeline_start, 3)
 
         # Format results to return to frontend
         formatted_results = []
         for rc in packed_results:
-            formatted_results.append(rc.model_dump())
+            formatted_results.append(rc.model_dump(mode="json"))
 
         run.results = formatted_results
         await run.save()
@@ -528,7 +630,7 @@ async def execute_and_stream_run(run_id: str) -> AsyncGenerator[str, None]:
         if generate_answer and packed_results:
             yield f"data: {json.dumps({'event': 'generation_started', 'data': {}})}\n\n"
             
-            llm_start = time.time()
+            llm_start = time.perf_counter()
             context_parts = []
             for idx, rc in enumerate(packed_results):
                 citation_id = idx + 1
@@ -574,12 +676,12 @@ async def execute_and_stream_run(run_id: str) -> AsyncGenerator[str, None]:
                 answer_text += token
                 
                 if first_token_time is None and token:
-                    first_token_time = time.time()
+                    first_token_time = time.perf_counter()
                     timing["time_to_first_token"] = round(first_token_time - llm_start, 3)
                     
                 yield f"data: {json.dumps({'event': 'generation_token', 'data': {'token': token}})}\n\n"
                 
-            timing["llm_time"] = round(time.time() - llm_start, 3)
+            timing["llm_time"] = round(time.perf_counter() - llm_start, 3)
             metrics["sources_used_count"] = len(packed_results)
             
             cited_sources = []
@@ -592,14 +694,14 @@ async def execute_and_stream_run(run_id: str) -> AsyncGenerator[str, None]:
             run.generated_answer = answer_text
             yield f"data: {json.dumps({'event': 'generation_completed', 'data': {'answer': answer_text, 'cited_sources': cited_sources}})}\n\n"
 
-        timing["total_time"] = round(time.time() - total_start, 3)
+        timing["total_time"] = round(time.perf_counter() - total_start, 3)
         
         run.status = "completed"
         run.timing = timing
         run.metrics = metrics
         await run.save()
         
-        yield f"data: {json.dumps({'event': 'run_completed', 'data': {'run': run.model_dump()}})}\n\n"
+        yield f"data: {json.dumps({'event': 'run_completed', 'data': {'run': run.model_dump(mode='json')}})}\n\n"
 
     except Exception as e:
         logger.error(f"Error executing search run: {e}")
@@ -661,11 +763,12 @@ async def retrieve_notebook_context(notebook_id: str, req: NotebookRetrieveReque
             bm25_top_k=40,
             rerank_top_k=20,
             context_top_k=req.limit,
-            device="cuda"
+            device="cuda",
+            retrieval_method=req.retrieval_method,
         )
         ranked = await pipeline.retrieve(req.query, chunks, top_k=req.limit)
         
-        return {"results": [rc.model_dump() for rc in ranked]}
+        return {"results": [rc.model_dump(mode="json") for rc in ranked]}
         
     except Exception as e:
         logger.error(f"Error in notebook retrieve: {e}")
@@ -701,11 +804,12 @@ async def answer_notebook_question(notebook_id: str, req: NotebookAnswerRequest)
             bm25_top_k=40,
             rerank_top_k=20,
             context_top_k=req.limit,
-            device="cuda"
+            device="cuda",
+            retrieval_method=req.retrieval_method,
         )
         ranked = await pipeline.retrieve(req.query, chunks, top_k=req.limit)
         
-        results_formatted = [rc.model_dump() for rc in ranked]
+        results_formatted = [rc.model_dump(mode="json") for rc in ranked]
         
         if not req.generate_answer:
             return {"answer": "", "results": results_formatted}

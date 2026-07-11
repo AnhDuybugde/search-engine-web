@@ -41,45 +41,31 @@ import {
   Plus,
   Wrench,
   Command,
+  History,
+  MoreHorizontal,
 } from 'lucide-react'
-
-const getNavigation = (t: TFunction) => [
-  {
-    title: t('navigation.collect'),
-    items: [
-      { name: t('navigation.sources'), href: '/sources', icon: FileText },
-    ],
-  },
-  {
-    title: t('navigation.process'),
-    items: [
-      { name: t('navigation.notebooks'), href: '/notebooks', icon: Book },
-      { name: t('navigation.askAndSearch'), href: '/search', icon: Search },
-    ],
-  },
-  {
-    title: t('navigation.create'),
-    items: [
-      { name: t('navigation.podcasts'), href: '/podcasts', icon: Mic },
-    ],
-  },
-  {
-    title: t('navigation.manage'),
-    items: [
-      { name: t('navigation.models'), href: '/settings/api-keys', icon: Bot },
-      { name: t('navigation.transformations'), href: '/transformations', icon: Shuffle },
-      { name: t('navigation.settings'), href: '/settings', icon: Settings },
-      { name: t('navigation.advanced'), href: '/advanced', icon: Wrench },
-    ],
-  },
-] as const
 
 type CreateTarget = 'source' | 'notebook' | 'podcast'
 
 export function AppSidebar() {
   const { t } = useTranslation()
-  const navigation = getNavigation(t)
   const pathname = usePathname()
+
+  const primaryNavigation = [
+    { name: t('navigation.newSearch', 'New Search'), href: '/search?new=true', icon: Plus },
+    { name: t('navigation.askAndSearch'), href: '/search', icon: Search },
+    { name: t('navigation.notebooks'), href: '/notebooks', icon: Book },
+    { name: t('navigation.sources'), href: '/sources', icon: FileText },
+    { name: t('navigation.history', 'History'), href: '/search?history=true', icon: History },
+    { name: t('navigation.settings'), href: '/settings', icon: Settings },
+  ]
+
+  const secondaryNavigation = [
+    { name: t('navigation.models'), href: '/settings/api-keys', icon: Bot },
+    { name: t('navigation.transformations'), href: '/transformations', icon: Shuffle },
+    { name: t('navigation.advanced'), href: '/advanced', icon: Wrench },
+  ]
+
   const { logout } = useAuth()
   const { isCollapsed, toggleCollapse } = useSidebarStore()
   const { openSourceDialog, openNotebookDialog, openPodcastDialog } = useCreateDialogs()
@@ -226,70 +212,76 @@ export function AppSidebar() {
                    <Book className="h-4 w-4" />
                   {t('common.notebook')}
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault()
-                    handleCreateSelection('podcast')
-                  }}
-                  className="gap-2"
-                >
-                   <Mic className="h-4 w-4" />
-                  {t('common.podcast')}
-                </DropdownMenuItem>
+
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
 
-          {navigation.map((section, index) => (
-            <div key={section.title}>
-              {index > 0 && (
-                <Separator className="my-3" />
-              )}
-              <div className="space-y-1">
-                {!isCollapsed && (
-                  <h3 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/60">
-                    {section.title}
-                  </h3>
-                )}
+          <div className="space-y-1">
+            {primaryNavigation.map((item) => {
+              const isActive = pathname === item.href || (item.href !== '/search?new=true' && item.href !== '/search?history=true' && pathname?.startsWith(item.href)) || false
+              const button = (
+                <Button
+                  variant={isActive ? 'secondary' : 'ghost'}
+                  className={cn(
+                    'w-full gap-3 text-sidebar-foreground sidebar-menu-item',
+                    isActive && 'bg-sidebar-accent text-sidebar-accent-foreground',
+                    isCollapsed ? 'justify-center px-2' : 'justify-start'
+                  )}
+                >
+                  <item.icon className="h-4 w-4" />
+                  {!isCollapsed && <span>{item.name}</span>}
+                </Button>
+              )
 
-                {section.items.map((item) => {
-                  const isActive = pathname?.startsWith(item.href) || false
-                  const button = (
-                    <Button
-                      variant={isActive ? 'secondary' : 'ghost'}
-                      className={cn(
-                        'w-full gap-3 text-sidebar-foreground sidebar-menu-item',
-                        isActive && 'bg-sidebar-accent text-sidebar-accent-foreground',
-                        isCollapsed ? 'justify-center px-2' : 'justify-start'
-                      )}
-                    >
+              if (isCollapsed) {
+                return (
+                  <Tooltip key={item.name}>
+                    <TooltipTrigger asChild>
+                      <Link href={item.href}>
+                        {button}
+                      </Link>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">{item.name}</TooltipContent>
+                  </Tooltip>
+                )
+              }
+
+              return (
+                <Link key={item.name} href={item.href}>
+                  {button}
+                </Link>
+              )
+            })}
+
+            <Separator className="my-3" />
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    'w-full gap-3 text-sidebar-foreground sidebar-menu-item',
+                    isCollapsed ? 'justify-center px-2' : 'justify-start'
+                  )}
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                  {!isCollapsed && <span>{t('navigation.more', 'More')}</span>}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align={isCollapsed ? 'end' : 'start'} side={isCollapsed ? 'right' : 'bottom'} className="w-48">
+                {secondaryNavigation.map((item) => (
+                  <DropdownMenuItem key={item.name} asChild>
+                    <Link href={item.href} className="flex items-center gap-2 w-full cursor-pointer">
                       <item.icon className="h-4 w-4" />
-                      {!isCollapsed && <span>{item.name}</span>}
-                    </Button>
-                  )
-
-                  if (isCollapsed) {
-                    return (
-                      <Tooltip key={item.name}>
-                        <TooltipTrigger asChild>
-                          <Link href={item.href}>
-                            {button}
-                          </Link>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">{item.name}</TooltipContent>
-                      </Tooltip>
-                    )
-                  }
-
-                  return (
-                    <Link key={item.name} href={item.href}>
-                      {button}
+                      <span>{item.name}</span>
                     </Link>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
         </nav>
 
         <div

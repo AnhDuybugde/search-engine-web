@@ -16,6 +16,20 @@ import {
 } from '@/lib/types/api'
 import { ContextSelections } from '@/app/(dashboard)/notebooks/[id]/page'
 
+export interface NotebookChatMetrics {
+  timing: {
+    context_build_time: number
+    llm_time: number
+    total_time: number
+  }
+  stats: {
+    sources_in_context: number
+    notes_in_context: number
+    token_count: number
+    char_count: number
+  }
+}
+
 interface UseNotebookChatParams {
   notebookId: string
   sources: SourceListResponse[]
@@ -31,6 +45,8 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
   const [isSending, setIsSending] = useState(false)
   const [tokenCount, setTokenCount] = useState<number>(0)
   const [charCount, setCharCount] = useState<number>(0)
+  const [lastContext, setLastContext] = useState<any>(null)
+  const [lastMetrics, setLastMetrics] = useState<NotebookChatMetrics | null>(null)
   // Pending model override for when user changes model before a session exists
   const [pendingModelOverride, setPendingModelOverride] = useState<string | null>(null)
 
@@ -168,8 +184,9 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
     // Store token and char counts
     setTokenCount(response.token_count)
     setCharCount(response.char_count)
+    setLastContext(response.context)
 
-    return response.context
+    return response
   }, [notebookId, sources, notes, contextSelections])
 
   // Send message (synchronous, no streaming)
@@ -211,15 +228,36 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
     }
     setMessages(prev => [...prev, userMessage])
     setIsSending(true)
+    setLastMetrics(null)
 
     try {
       // Build context and send message
-      const context = await buildContext()
+      const totalStart = performance.now()
+      const contextStart = performance.now()
+      const contextResponse = await buildContext()
+      const contextBuildTime = (performance.now() - contextStart) / 1000
+
+      const llmStart = performance.now()
       const response = await chatApi.sendMessage({
         session_id: sessionId,
         message,
-        context,
+        context: contextResponse.context,
         model_override: modelOverride ?? (currentSession?.model_override ?? undefined)
+      })
+      const llmTime = (performance.now() - llmStart) / 1000
+
+      setLastMetrics({
+        timing: {
+          context_build_time: Number(contextBuildTime.toFixed(3)),
+          llm_time: Number(llmTime.toFixed(3)),
+          total_time: Number(((performance.now() - totalStart) / 1000).toFixed(3))
+        },
+        stats: {
+          sources_in_context: contextResponse.context.sources?.length || 0,
+          notes_in_context: contextResponse.context.notes?.length || 0,
+          token_count: contextResponse.token_count,
+          char_count: contextResponse.char_count
+        }
       })
 
       // Update messages with API response
@@ -298,7 +336,6 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
     }
     updateContextCounts()
   }, [buildContext])
-
   return {
     // State
     sessions,
@@ -309,6 +346,8 @@ export function useNotebookChat({ notebookId, sources, notes, contextSelections 
     loadingSessions,
     tokenCount,
     charCount,
+    lastContext,
+    lastMetrics,
     pendingModelOverride,
 
     // Actions

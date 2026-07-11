@@ -31,6 +31,20 @@ interface NotebookContextStats {
   charCount?: number
 }
 
+interface NotebookChatMetrics {
+  timing: {
+    context_build_time: number
+    llm_time: number
+    total_time: number
+  }
+  stats: {
+    sources_in_context: number
+    notes_in_context: number
+    token_count: number
+    char_count: number
+  }
+}
+
 interface ChatPanelProps {
   messages: SourceChatMessage[]
   isStreaming: boolean
@@ -51,6 +65,7 @@ interface ChatPanelProps {
   contextType?: 'source' | 'notebook'
   // Notebook context stats (for notebook chat)
   notebookContextStats?: NotebookContextStats
+  notebookMetrics?: NotebookChatMetrics | null
   // Notebook ID for saving notes
   notebookId?: string
 }
@@ -72,6 +87,7 @@ export function ChatPanel({
   title,
   contextType = 'source',
   notebookContextStats,
+  notebookMetrics,
   notebookId
 }: ChatPanelProps) {
   const { t } = useTranslation()
@@ -275,6 +291,10 @@ export function ChatPanel({
           />
         )}
 
+        {contextType === 'notebook' && notebookMetrics && (
+          <NotebookMetricsPanel metrics={notebookMetrics} />
+        )}
+
         {/* Input Area */}
         <div className="flex-shrink-0 p-4 space-y-3 border-t">
           {/* Model selector */}
@@ -344,5 +364,57 @@ function AIMessageContent({
     }}>
       {markdownWithCompactRefs}
     </MarkdownRenderer>
+  )
+}
+
+function NotebookMetricsPanel({ metrics }: { metrics: NotebookChatMetrics }) {
+  const timingRows = [
+    { label: 'Context Build', value: metrics.timing.context_build_time },
+    { label: 'LLM Response', value: metrics.timing.llm_time },
+    { label: 'Total Time', value: metrics.timing.total_time },
+  ]
+
+  const statRows = [
+    { label: 'Sources In Context', value: metrics.stats.sources_in_context },
+    { label: 'Notes In Context', value: metrics.stats.notes_in_context },
+    { label: 'Tokens', value: metrics.stats.token_count },
+    { label: 'Characters', value: metrics.stats.char_count },
+  ]
+
+  return (
+    <div className="border-t px-4 py-3 bg-muted/10">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[10px]">
+        <MetricTable title="Timings" rows={timingRows.map(row => ({
+          label: row.label,
+          value: `${row.value}s`
+        }))} />
+        <MetricTable title="Statistics" rows={statRows.map(row => ({
+          label: row.label,
+          value: row.value.toLocaleString()
+        }))} />
+      </div>
+    </div>
+  )
+}
+
+function MetricTable({
+  title,
+  rows
+}: {
+  title: string
+  rows: Array<{ label: string; value: string }>
+}) {
+  return (
+    <div className="rounded border border-border bg-background/60 overflow-hidden">
+      <div className="px-2 py-1.5 border-b border-border font-semibold text-muted-foreground uppercase tracking-wide">
+        {title}
+      </div>
+      {rows.map((row) => (
+        <div key={row.label} className="flex items-center justify-between px-2 py-1.5 border-b border-border last:border-0">
+          <span className="text-muted-foreground">{row.label}</span>
+          <span className="font-mono font-semibold">{row.value}</span>
+        </div>
+      ))}
+    </div>
   )
 }

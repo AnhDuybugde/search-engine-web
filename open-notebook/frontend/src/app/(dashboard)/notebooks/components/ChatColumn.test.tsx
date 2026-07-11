@@ -32,6 +32,9 @@ function createChatMock() {
 }
 
 describe('ChatColumn', () => {
+  const mockNotes = createNotesMock()
+  const mockChat = createChatMock()
+
   const baseProps = {
     notebookId: 'test-notebook',
     contextSelections: {
@@ -39,6 +42,8 @@ describe('ChatColumn', () => {
       notes: {}
     },
     sources: [],
+    notes: mockNotes.data ?? [],
+    chat: mockChat
   }
 
   it('shows loading spinner when fetching data', () => {
