@@ -40,6 +40,7 @@ export default function SearchPage() {
   const [contextTopK, setContextTopK] = useState(4);
   const [generateAnswer, setGenerateAnswer] = useState(true);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [activeCitation, setActiveCitation] = useState<number | null>(null);
   const { state, run, cancel, hydrate } = useSsePipeline();
 
@@ -51,11 +52,24 @@ export default function SearchPage() {
 
   const loadHistory = async () => {
     try {
-      const res = await fetch("/api/web-search/history");
+      const res = await fetch("/api/web-search/history", { cache: "no-store" });
       const data = await res.json();
-      setHistory(data.items || []);
-    } catch {
-      /* ignore */
+      setHistory(Array.isArray(data.items) ? data.items : []);
+      if (!res.ok || data.error) {
+        setHistoryError(
+          [data.error, data.hint].filter(Boolean).join(" ") ||
+            `History failed (${res.status})`,
+        );
+      } else if (!data.items?.length && data.hint && data.backend === "postgres") {
+        // Postgres path often cannot save history on Vercel
+        setHistoryError(data.hint as string);
+      } else {
+        setHistoryError(null);
+      }
+    } catch (err) {
+      setHistoryError(
+        err instanceof Error ? err.message : "Failed to load history",
+      );
     }
   };
 
@@ -376,10 +390,15 @@ export default function SearchPage() {
                 ))}
                 {!history.length && (
                   <li className="px-1 py-6 text-center text-xs text-[var(--fg-muted)]">
-                    No runs yet.
+                    {historyError ? "History unavailable." : "No runs yet."}
                   </li>
                 )}
               </ul>
+              {historyError && (
+                <p className="mt-2 rounded-lg border border-amber-400/30 bg-amber-500/10 px-2 py-2 text-[11px] leading-relaxed text-amber-100/90">
+                  {historyError}
+                </p>
+              )}
             </div>
           </aside>
         )}

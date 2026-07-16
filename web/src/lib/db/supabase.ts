@@ -3,6 +3,7 @@ import { getConfig } from "@/lib/config";
 
 const globalForSb = globalThis as unknown as {
   __supabaseAdmin?: SupabaseClient;
+  __supabaseAdminKey?: string;
 };
 
 /**
@@ -15,7 +16,11 @@ export function getSupabaseAdmin(): SupabaseClient | null {
     return null;
   }
 
-  if (!globalForSb.__supabaseAdmin) {
+  const cacheKey = `${cfg.supabaseUrl}::${cfg.SUPABASE_SECRET_KEY.slice(0, 12)}`;
+  if (
+    !globalForSb.__supabaseAdmin ||
+    globalForSb.__supabaseAdminKey !== cacheKey
+  ) {
     globalForSb.__supabaseAdmin = createClient(
       cfg.supabaseUrl,
       cfg.SUPABASE_SECRET_KEY,
@@ -26,6 +31,7 @@ export function getSupabaseAdmin(): SupabaseClient | null {
         },
       },
     );
+    globalForSb.__supabaseAdminKey = cacheKey;
   }
   return globalForSb.__supabaseAdmin;
 }
@@ -39,4 +45,11 @@ export function toIso(value: unknown, fallback = new Date().toISOString()) {
   if (typeof value === "string") return value;
   if (value instanceof Date) return value.toISOString();
   return fallback;
+}
+
+export function sbError(
+  err: { message?: string; code?: string; details?: string; hint?: string } | null,
+) {
+  if (!err) return "Unknown Supabase error";
+  return [err.message, err.code, err.details, err.hint].filter(Boolean).join(" | ");
 }

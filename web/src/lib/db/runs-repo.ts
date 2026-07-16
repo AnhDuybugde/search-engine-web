@@ -1,15 +1,10 @@
 import { desc, eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import type { Metrics, RankedChunk, Timing } from "@/lib/ir/types";
-import { getDb, hasDb } from "./client";
+import { enrichDbError, getDb, hasDb } from "./client";
 import { searchRuns } from "./schema";
-import { getSupabaseAdmin, toIso } from "./supabase";
+import { getSupabaseAdmin, sbError, toIso } from "./supabase";
 import { memRuns, type MemSearchRun } from "./memory";
-
-function sbError(err: { message?: string; code?: string; details?: string } | null) {
-  if (!err) return "Unknown Supabase error";
-  return [err.message, err.code, err.details].filter(Boolean).join(" | ");
-}
 
 export async function saveSearchRun(params: {
   query: string;
@@ -141,21 +136,26 @@ export async function listSearchRuns(limit = 30) {
     }));
   }
 
-  const db = getDb();
-  const rows = await db
-    .select()
-    .from(searchRuns)
-    .orderBy(desc(searchRuns.createdAt))
-    .limit(limit);
+  try {
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(searchRuns)
+      .orderBy(desc(searchRuns.createdAt))
+      .limit(limit);
 
-  return rows.map((r) => ({
-    id: r.id,
-    query: r.query,
-    status: r.status,
-    createdAt: toIso(r.createdAt),
-    completedAt: r.completedAt ? toIso(r.completedAt) : null,
-    hasAnswer: Boolean(r.answer),
-  }));
+    return rows.map((r) => ({
+      id: r.id,
+      query: r.query,
+      status: r.status,
+      createdAt: toIso(r.createdAt),
+      completedAt: r.completedAt ? toIso(r.completedAt) : null,
+      hasAnswer: Boolean(r.answer),
+    }));
+  } catch (err) {
+    console.error("[listSearchRuns]", enrichDbError(err, "List history").message);
+    return [];
+  }
 }
 
 export async function getSearchRun(id: string) {

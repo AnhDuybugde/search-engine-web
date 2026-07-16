@@ -3,9 +3,9 @@ import { randomUUID } from "crypto";
 import { chunkDocument } from "@/lib/ir/chunker";
 import type { Chunk } from "@/lib/ir/types";
 import { IR_DEFAULTS } from "@/lib/config";
-import { dbBackend, getDb, hasDb } from "./client";
+import { dbBackend, enrichDbError, getDb, hasDb } from "./client";
 import { chunks, notebooks, sources } from "./schema";
-import { getSupabaseAdmin, toIso } from "./supabase";
+import { getSupabaseAdmin, sbError, toIso } from "./supabase";
 import {
   memChunks,
   memNotebooks,
@@ -14,11 +14,6 @@ import {
   type MemNotebook,
   type MemSource,
 } from "./memory";
-
-function sbError(err: { message?: string; code?: string; details?: string } | null) {
-  if (!err) return "Unknown Supabase error";
-  return [err.message, err.code, err.details].filter(Boolean).join(" | ");
-}
 
 export async function listNotebooks() {
   if (!hasDb()) {
@@ -42,14 +37,18 @@ export async function listNotebooks() {
     }));
   }
 
-  const db = getDb();
-  const rows = await db.select().from(notebooks).orderBy(desc(notebooks.createdAt));
-  return rows.map((r) => ({
-    id: r.id,
-    title: r.title,
-    createdAt: toIso(r.createdAt),
-    updatedAt: toIso(r.updatedAt),
-  }));
+  try {
+    const db = getDb();
+    const rows = await db.select().from(notebooks).orderBy(desc(notebooks.createdAt));
+    return rows.map((r) => ({
+      id: r.id,
+      title: r.title,
+      createdAt: toIso(r.createdAt),
+      updatedAt: toIso(r.updatedAt),
+    }));
+  } catch (err) {
+    throw enrichDbError(err, "List notebooks");
+  }
 }
 
 export async function createNotebook(title: string) {
@@ -107,10 +106,7 @@ export async function createNotebook(title: string) {
       updatedAt: new Date(now),
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `Postgres insert failed: ${msg}. On Vercel set SUPABASE_URL + SUPABASE_SECRET_KEY (recommended) or use pooler DATABASE_URL :6543.`,
-    );
+    throw enrichDbError(err, "Create notebook");
   }
 
   return {

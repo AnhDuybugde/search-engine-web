@@ -1,6 +1,6 @@
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { getConfig } from "@/lib/config";
+import { dbSetupHint, getConfig } from "@/lib/config";
 import * as schema from "./schema";
 import { hasSupabaseRest } from "./supabase";
 
@@ -20,7 +20,7 @@ export function getDb(): AppDb {
   const cfg = getConfig();
   if (!cfg.DATABASE_URL) {
     throw new Error(
-      "DATABASE_URL is not set. On Vercel prefer SUPABASE_URL + SUPABASE_SECRET_KEY, or set a pooler DATABASE_URL (port 6543).",
+      "DATABASE_URL is not set. On Vercel set SUPABASE_URL + SUPABASE_SECRET_KEY (recommended), or a pooler DATABASE_URL (port 6543).",
     );
   }
 
@@ -51,4 +51,12 @@ export function dbBackend(): "supabase-rest" | "postgres" | "memory" {
   if (hasSupabaseRest()) return "supabase-rest";
   if (getConfig().DATABASE_URL) return "postgres";
   return "memory";
+}
+
+/** Wrap low-level DB errors with setup guidance for Vercel. */
+export function enrichDbError(err: unknown, action: string): Error {
+  const msg = err instanceof Error ? err.message : String(err);
+  const backend = dbBackend();
+  const hint = dbSetupHint();
+  return new Error(`${action} failed via ${backend}: ${msg}. ${hint}`);
 }

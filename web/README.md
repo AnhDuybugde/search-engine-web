@@ -33,7 +33,7 @@ npm run dev
 
 Open http://localhost:3000
 
-Without `DATABASE_URL`, history/notebooks use **in-memory** storage (lost on restart).
+Without Supabase REST keys (or `DATABASE_URL`), history/notebooks use **in-memory** storage (lost on restart / cold start).
 
 ## Environment
 
@@ -43,9 +43,13 @@ Without `DATABASE_URL`, history/notebooks use **in-memory** storage (lost on res
 | `LLM_BASE_URL` | no | default Groq OpenAI-compatible URL |
 | `LLM_MODEL` | no | e.g. `llama-3.1-8b-instant` |
 | `TAVILY_API_KEY` | for web search | or set `BRAVE_API_KEY` |
-| `DATABASE_URL` | durable DB | Supabase Postgres URI (**no** `[]` around password) |
-| `SUPABASE_PUBLIC_KEY` | optional | not used by SQL layer yet |
-| `SUPABASE_SECRET_KEY` | optional | not used by SQL layer yet |
+| `SUPABASE_URL` | **yes on Vercel** | `https://PROJECT.supabase.co` |
+| `SUPABASE_SECRET_KEY` | **yes on Vercel** | secret / service_role key (Dashboard → API Keys) |
+| `DATABASE_URL` | optional | SQL fallback; prefer pooler `:6543` if used |
+| `SUPABASE_PUBLIC_KEY` | optional | not required by this app |
+
+**Critical on Vercel:** search can work without DB, but **history + notebooks need** `SUPABASE_URL` + `SUPABASE_SECRET_KEY`.  
+If `/api/health` shows `"db": "postgres"` and `hasSecretKey: false`, history/notebooks will fail.
 
 ## Supabase schema
 

@@ -36,7 +36,11 @@ export default function NotebooksPage() {
       const res = await fetch("/api/notebooks", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || `Load failed (${res.status})`);
+        const hint =
+          typeof data.hint === "string" && data.hint ? ` ${data.hint}` : "";
+        throw new Error(
+          `${data.error || `Load failed (${res.status})`}${hint}`,
+        );
       }
       setItems(Array.isArray(data.items) ? data.items : []);
       setError(null);
@@ -89,9 +93,10 @@ export default function NotebooksPage() {
 
       if (!res.ok) {
         setItems((prev) => prev.filter((n) => n.id !== tempId));
+        const hint =
+          typeof data.hint === "string" && data.hint ? ` ${data.hint}` : "";
         throw new Error(
-          (data.error as string) ||
-            `Create failed (HTTP ${res.status}). Check DATABASE_URL / Supabase.`,
+          `${(data.error as string) || `Create failed (HTTP ${res.status}).`}${hint}`,
         );
       }
 
