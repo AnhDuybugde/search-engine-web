@@ -47,6 +47,7 @@ Without Supabase REST keys (or `DATABASE_URL`), history/notebooks use **in-memor
 | `SUPABASE_SECRET_KEY` | **yes on Vercel** | secret / service_role key (Dashboard → API Keys) |
 | `DATABASE_URL` | optional | SQL fallback; prefer pooler `:6543` if used |
 | `SUPABASE_PUBLIC_KEY` | optional | not required by this app |
+| `HEALTH_SECRET` or `APP_PASSWORD` | optional | unlocks detailed `/api/health` diagnostics |
 
 **Critical on Vercel:** search can work without DB, but **history + notebooks need** `SUPABASE_URL` + `SUPABASE_SECRET_KEY`.  
 If `/api/health` shows `"db": "postgres"` and `hasSecretKey: false`, history/notebooks will fail.
@@ -75,7 +76,11 @@ Or paste `drizzle/0000_init.sql` into Supabase **SQL Editor** → Run.
 
 3. In Supabase **SQL Editor**, run `drizzle/0000_init.sql` once (create tables).
 4. Redeploy after setting env.
-5. Check `https://YOUR_APP.vercel.app/api/health` → `db: "supabase-rest"`, `dbProbe.ok: true`.
+5. Health check:
+   - Public: `GET /api/health` → only booleans `{ ok, status: { search, llm, db } }` (no stack leaks).
+   - Diagnostics (optional): set `HEALTH_SECRET` or `APP_PASSWORD`, then  
+     `GET /api/health?token=YOUR_SECRET`  
+     Expect `providers.db: "supabase-rest"`, `dbProbe.ok: true`.
 
 **Why notebooks failed on Vercel:** direct Postgres `db.*.supabase.co:5432` is unreliable from serverless. This app now uses **Supabase REST** with the secret key.
 

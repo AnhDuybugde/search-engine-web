@@ -144,7 +144,7 @@ export function dbSetupHint(cfg: AppConfig = getConfig()): string {
       "Vercel is using DATABASE_URL (direct Postgres) which often fails. " +
       "Add SUPABASE_URL + SUPABASE_SECRET_KEY (Dashboard → Settings → API Keys → secret) " +
       "in Vercel Project → Settings → Environment Variables, then Redeploy. " +
-      'GET /api/health should show db: "supabase-rest".'
+      'GET /api/health?token=HEALTH_SECRET should show providers.db: "supabase-rest".'
     );
   }
   if (cfg.DATABASE_URL) {
