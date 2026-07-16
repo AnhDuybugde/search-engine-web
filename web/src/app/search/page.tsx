@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { EvidenceList } from "@/components/EvidenceList";
+import { LoadingOverlay } from "@/components/LoadingOverlay";
 import { Markdown } from "@/components/Markdown";
 import { StepRail } from "@/components/StepRail";
 import { useSsePipeline } from "@/lib/hooks/use-sse";
@@ -96,8 +97,18 @@ export default function SearchPage() {
     await loadHistory();
   };
 
+  const loadingLabel =
+    state.steps.generate === "running"
+      ? "Generating answer…"
+      : state.steps.retrieve === "running"
+        ? "Ranking evidence…"
+        : state.steps.fetch === "running"
+          ? "Fetching pages…"
+          : "Searching the web…";
+
   return (
     <AppShell wide bare>
+      <LoadingOverlay show={state.status === "running"} label={loadingLabel} />
       <div
         className={
           hasResult
@@ -209,14 +220,20 @@ export default function SearchPage() {
                     <button
                       type="submit"
                       disabled={state.status === "running" || !query.trim()}
-                      className="btn-primary"
+                      className="btn-primary min-w-[120px]"
+                      aria-busy={state.status === "running"}
                     >
                       {state.status === "running" ? (
-                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                          Searching…
+                        </>
                       ) : (
-                        <CornerDownLeft className="h-4 w-4" aria-hidden />
+                        <>
+                          <CornerDownLeft className="h-4 w-4" aria-hidden />
+                          Search
+                        </>
                       )}
-                      Search
                     </button>
                   </div>
                 </div>

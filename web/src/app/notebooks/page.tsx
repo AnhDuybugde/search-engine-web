@@ -12,6 +12,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { LoadingOverlay } from "@/components/LoadingOverlay";
 import { handleSubmitOnEnter } from "@/lib/keyboard";
 
 type Notebook = {
@@ -141,6 +142,10 @@ export default function NotebooksPage() {
 
   return (
     <AppShell>
+      <LoadingOverlay
+        show={creating || loading}
+        label={creating ? "Creating notebook…" : "Loading notebooks…"}
+      />
       <section className="glass-hero mb-8 p-6 sm:p-8">
         <div className="relative z-[1] grid gap-6 lg:grid-cols-[1.2fr_1fr] lg:items-end">
           <div>

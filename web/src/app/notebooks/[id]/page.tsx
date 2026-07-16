@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { EvidenceList } from "@/components/EvidenceList";
+import { LoadingOverlay } from "@/components/LoadingOverlay";
 import { Markdown } from "@/components/Markdown";
 import { StepRail } from "@/components/StepRail";
 import { useSsePipeline } from "@/lib/hooks/use-sse";
@@ -102,6 +103,16 @@ export default function NotebookDetailPage() {
 
   return (
     <AppShell wide>
+      <LoadingOverlay
+        show={uploading || state.status === "running"}
+        label={
+          uploading
+            ? "Uploading & chunking…"
+            : state.steps.generate === "running"
+              ? "Generating answer…"
+              : "Retrieving evidence…"
+        }
+      />
       <div className="mb-5">
         <Link
           href="/notebooks"

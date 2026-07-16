@@ -2,8 +2,10 @@ import { z } from "zod";
 import { createSseResponse } from "@/lib/sse";
 import { runWebSearchPipeline } from "@/lib/pipeline/web-search";
 import { saveSearchRun } from "@/lib/db/runs-repo";
+import { getConfig } from "@/lib/config";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const bodySchema = z.object({
@@ -32,10 +34,25 @@ export async function POST(req: Request) {
     );
   }
 
+  const cfg = getConfig();
+  if (!cfg.hasSearch) {
+    return Response.json(
+      {
+        error:
+          "Search provider not configured. Set TAVILY_API_KEY (or BRAVE_API_KEY) in Vercel env.",
+      },
+      { status: 500 },
+    );
+  }
+
   const input = parsed.data;
 
   return createSseResponse(async (emit) => {
+    // Real search_started with query (sse.ts may emit empty first pulse)
+    emit({ type: "search_started", query: input.query });
+
     const result = await runWebSearchPipeline(input, emit);
+
     if (input.saveHistory !== false) {
       try {
         await saveSearchRun({
@@ -45,8 +62,8 @@ export async function POST(req: Request) {
           timing: result.timing,
           metrics: result.metrics,
         });
-      } catch {
-        // history is optional
+      } catch (err) {
+        console.error("[web-search history]", err);
       }
     }
   });

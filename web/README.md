@@ -58,12 +58,22 @@ Or paste `drizzle/0000_init.sql` into Supabase **SQL Editor** → Run.
 
 ## Deploy to Vercel
 
-1. Import this repo (or only the `web` folder as root).
-2. Set **Root Directory** = `web`.
-3. Add env vars from `.env.example`.
-4. Deploy.
+1. Root Directory = `web`.
+2. Add env vars (Production + Preview):
 
-No Docker services needed.
+| Env | Required |
+|-----|----------|
+| `TAVILY_API_KEY` | yes (search) |
+| `LLM_API_KEY` + `LLM_BASE_URL` + `LLM_MODEL` | yes (answers) |
+| `SUPABASE_URL` | **yes on Vercel** e.g. `https://xxxx.supabase.co` |
+| `SUPABASE_SECRET_KEY` | **yes on Vercel** (service/secret key) |
+| `DATABASE_URL` | optional if REST keys set; if used, prefer **pooler :6543** |
+
+3. In Supabase **SQL Editor**, run `drizzle/0000_init.sql` once (create tables).
+4. Redeploy after setting env.
+5. Check `https://YOUR_APP.vercel.app/api/health` → `db: "supabase-rest"`, `dbProbe.ok: true`.
+
+**Why notebooks failed on Vercel:** direct Postgres `db.*.supabase.co:5432` is unreliable from serverless. This app now uses **Supabase REST** with the secret key.
 
 ## Scripts
 

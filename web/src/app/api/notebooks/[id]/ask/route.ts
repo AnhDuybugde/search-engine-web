@@ -4,6 +4,7 @@ import { runNotebookAskPipeline } from "@/lib/pipeline/notebook-ask";
 import { createSseResponse } from "@/lib/sse";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const bodySchema = z.object({
@@ -38,6 +39,7 @@ export async function POST(
   }
 
   return createSseResponse(async (emit) => {
+    emit({ type: "search_started", query: parsed.data.query });
     await runNotebookAskPipeline(
       {
         query: parsed.data.query,

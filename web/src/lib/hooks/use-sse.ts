@@ -24,6 +24,9 @@ const initialSteps = {
 
 export function useSsePipeline() {
   const abortRef = useRef<AbortController | null>(null);
+  const tokenBufferRef = useRef("");
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const [state, setState] = useState<SseState>({
     status: "idle",
     answer: "",
@@ -35,8 +38,30 @@ export function useSsePipeline() {
     steps: { ...initialSteps },
   });
 
+  const flushTokens = useCallback(() => {
+    if (!tokenBufferRef.current) return;
+    const chunk = tokenBufferRef.current;
+    tokenBufferRef.current = "";
+    setState((prev) => ({
+      ...prev,
+      answer: prev.answer + chunk,
+      steps: { ...prev.steps, generate: "running" },
+    }));
+  }, []);
+
+  const scheduleTokenFlush = useCallback(() => {
+    if (flushTimerRef.current) return;
+    // Batch tokens ~50ms to keep UI smooth (avoid main-thread freeze)
+    flushTimerRef.current = setTimeout(() => {
+      flushTimerRef.current = null;
+      flushTokens();
+    }, 50);
+  }, [flushTokens]);
+
   const reset = useCallback(() => {
     abortRef.current?.abort();
+    tokenBufferRef.current = "";
+    if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
     setState({
       status: "idle",
       answer: "",
@@ -51,6 +76,8 @@ export function useSsePipeline() {
 
   const cancel = useCallback(() => {
     abortRef.current?.abort();
+    tokenBufferRef.current = "";
+    if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
     setState((s) => ({
       ...s,
       status: s.status === "running" ? "failed" : s.status,
@@ -86,88 +113,141 @@ export function useSsePipeline() {
     [],
   );
 
-  const run = useCallback(async (url: string, body: unknown) => {
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
+  const run = useCallback(
+    async (url: string, body: unknown) => {
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      tokenBufferRef.current = "";
+      if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
 
-    setState({
-      status: "running",
-      answer: "",
-      results: [],
-      timing: null,
-      metrics: null,
-      error: null,
-      logs: ["Starting…"],
-      steps: {
-        search: "running",
-        fetch: "pending",
-        chunk: "pending",
-        retrieve: "pending",
-        generate: "pending",
-      },
-    });
-
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: controller.signal,
+      // Immediate UI feedback BEFORE network wait
+      setState({
+        status: "running",
+        answer: "",
+        results: [],
+        timing: null,
+        metrics: null,
+        error: null,
+        logs: ["Connecting…"],
+        steps: {
+          search: "running",
+          fetch: "pending",
+          chunk: "pending",
+          retrieve: "pending",
+          generate: "pending",
+        },
       });
 
-      if (!res.ok || !res.body) {
-        const text = await res.text();
-        throw new Error(text || `HTTP ${res.status}`);
-      }
+      // Yield to paint loading UI
+      await new Promise((r) => setTimeout(r, 0));
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+          },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+          cache: "no-store",
+        });
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        const parts = buffer.split("\n\n");
-        buffer = parts.pop() || "";
-
-        for (const part of parts) {
-          const line = part
-            .split("\n")
-            .map((l) => l.trim())
-            .find((l) => l.startsWith("data:"));
-          if (!line) continue;
-          const payload = line.slice(5).trim();
-          if (!payload) continue;
-
-          let event: StreamEvent;
+        if (!res.ok) {
+          const text = await res.text();
+          let message = text || `HTTP ${res.status}`;
           try {
-            event = JSON.parse(payload) as StreamEvent;
+            const j = JSON.parse(text) as { error?: string };
+            if (j.error) message = j.error;
           } catch {
-            continue;
+            /* plain text */
           }
-
-          setState((prev) => applyEvent(prev, event));
+          throw new Error(message);
         }
-      }
 
-      setState((prev) =>
-        prev.status === "running"
-          ? { ...prev, status: "completed" }
-          : prev,
-      );
-    } catch (err) {
-      if ((err as Error).name === "AbortError") return;
-      setState((prev) => ({
-        ...prev,
-        status: "failed",
-        error: err instanceof Error ? err.message : "Request failed",
-        logs: [...prev.logs, `Error: ${err instanceof Error ? err.message : "failed"}`],
-      }));
-    }
-  }, []);
+        if (!res.body) {
+          throw new Error("No response stream (empty body)");
+        }
+
+        setState((prev) => ({
+          ...prev,
+          logs: [...prev.logs, "Stream opened"],
+        }));
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() || "";
+
+          for (const part of parts) {
+            const line = part
+              .split("\n")
+              .map((l) => l.trim())
+              .find((l) => l.startsWith("data:"));
+            if (!line) continue;
+            const payload = line.slice(5).trim();
+            if (!payload) continue;
+
+            let event: StreamEvent;
+            try {
+              event = JSON.parse(payload) as StreamEvent;
+            } catch {
+              continue;
+            }
+
+            if (event.type === "generation_token") {
+              tokenBufferRef.current += event.token;
+              scheduleTokenFlush();
+              continue;
+            }
+
+            // Flush any pending tokens before other events
+            if (tokenBufferRef.current) {
+              if (flushTimerRef.current) {
+                clearTimeout(flushTimerRef.current);
+                flushTimerRef.current = null;
+              }
+              flushTokens();
+            }
+
+            setState((prev) => applyEvent(prev, event));
+          }
+        }
+
+        if (tokenBufferRef.current) {
+          if (flushTimerRef.current) {
+            clearTimeout(flushTimerRef.current);
+            flushTimerRef.current = null;
+          }
+          flushTokens();
+        }
+
+        setState((prev) =>
+          prev.status === "running" ? { ...prev, status: "completed" } : prev,
+        );
+      } catch (err) {
+        if ((err as Error).name === "AbortError") return;
+        setState((prev) => ({
+          ...prev,
+          status: "failed",
+          error: err instanceof Error ? err.message : "Request failed",
+          logs: [
+            ...prev.logs,
+            `Error: ${err instanceof Error ? err.message : "failed"}`,
+          ],
+        }));
+      }
+    },
+    [flushTokens, scheduleTokenFlush],
+  );
 
   return { state, run, reset, cancel, hydrate };
 }
@@ -178,7 +258,7 @@ function applyEvent(prev: SseState, event: StreamEvent): SseState {
 
   switch (event.type) {
     case "search_started":
-      logs.push(`Search: ${event.query}`);
+      if (event.query) logs.push(`Search: ${event.query}`);
       steps.search = "running";
       return { ...prev, logs, steps };
     case "search_completed":
@@ -197,7 +277,9 @@ function applyEvent(prev: SseState, event: StreamEvent): SseState {
       steps.retrieve = "running";
       return { ...prev, logs, steps };
     case "retrieve_completed":
-      logs.push(`Retrieved ${event.results.length} evidence chunks (${event.ms}ms)`);
+      logs.push(
+        `Retrieved ${event.results.length} evidence chunks (${event.ms}ms)`,
+      );
       steps.retrieve = "success";
       return { ...prev, logs, steps, results: event.results };
     case "generation_started":
@@ -225,14 +307,14 @@ function applyEvent(prev: SseState, event: StreamEvent): SseState {
       };
     case "error":
       logs.push(`Warning: ${event.message}`);
-      // Keep running until run_completed; surface error without wiping answer/results
       return {
         ...prev,
         logs,
         error: event.message,
         steps: {
           ...steps,
-          generate: prev.steps.generate === "running" ? "failed" : prev.steps.generate,
+          generate:
+            prev.steps.generate === "running" ? "failed" : prev.steps.generate,
         },
       };
     default:
