@@ -1,5 +1,9 @@
 ## Plan chốt cho coding agent: Search Engine hoàn toàn miễn phí
 
+> **Update 2026-07:** Target deployment is now **serverless on Vercel** (`web/`), not Docker/Ollama.  
+> Free-tier cloud APIs (Tavily + Groq + optional Neon) replace SearXNG/Ollama/SurrealDB for production.  
+> See `web/README.md` and the session plan for the serverless architecture.
+
 ### 1. Mục tiêu MVP
 
 Xây dựng một web app dựa trên repo **Open Notebook**, gồm hai tab:
