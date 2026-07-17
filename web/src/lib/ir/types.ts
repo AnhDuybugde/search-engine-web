@@ -35,6 +35,13 @@ export type Metrics = {
 
 export type StreamEvent =
   | { type: "search_started"; query: string }
+  | {
+      type: "query_expanded";
+      original: string;
+      expanded: string;
+      usedContext: boolean;
+      method: string;
+    }
   | { type: "search_completed"; count: number; ms: number }
   | { type: "fetch_completed"; pages: number; ms: number }
   | { type: "chunk_completed"; chunks: number; ms: number }
@@ -47,5 +54,9 @@ export type StreamEvent =
       timing: Timing;
       metrics: Metrics;
       results: RankedChunk[];
+      /** Present for session chat turns */
+      messageIds?: { userId: string; assistantId: string };
+      sessionId?: string;
+      expandedQuery?: string;
     }
   | { type: "error"; message: string };

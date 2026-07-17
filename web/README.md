@@ -13,13 +13,26 @@ Repo `open-notebook/` bên cạnh chỉ còn là **reference** (stack Docker cũ
 
 ```text
 Browser → Next.js (Vercel)
-            ├─ POST /api/web-search      SSE
+            ├─ /search                   session chat UI (ChatGPT-style)
+            ├─ POST /api/search/sessions/.../messages  SSE + query expansion
+            ├─ POST /api/web-search      one-shot SSE (stateless)
             ├─ POST /api/notebooks/...   upload + ask SSE
+            ├─ Context engine            entities + coref + expand query
             ├─ Tavily / Brave            web results
             ├─ BM25 (pure TS)            retrieve
             ├─ Groq (OpenAI-compatible)  generate
-            └─ Supabase Postgres         history + notebooks
+            └─ Supabase Postgres         sessions + notebooks
 ```
+
+### Multi-turn search sessions
+
+Web Search is a **chat session**, not a single-shot form:
+
+1. Each conversation is a `search_sessions` row with messages.
+2. Before retrieval, `expandQuery` rewrites follow-ups using session entities + recent turns  
+   (e.g. “ông ấy bao nhiêu tuổi?” → “Lionel Messi bao nhiêu tuổi?”).
+3. Hybrid expansion: heuristics first, cheap LLM rewrite when needed.
+4. Context is **isolated per session** — New chat clears memory.
 
 ## Quick start (local)
 
@@ -96,13 +109,24 @@ npm run db:init  # create tables on Supabase
 ## API
 
 - `GET /api/health` — provider status
-- `POST /api/web-search` — SSE search pipeline
-- `GET /api/web-search/history` — past runs
-- `GET /api/web-search/:id` — one run
+- `GET/POST /api/search/sessions` — list / create chat sessions
+- `GET/PATCH/DELETE /api/search/sessions/:id` — session + messages / rename / delete
+- `POST /api/search/sessions/:id/messages` — multi-turn SSE (expand → search → answer)
+- `POST /api/web-search` — one-shot SSE search pipeline (no session)
+- `GET /api/web-search/history` — legacy flat runs
+- `GET /api/web-search/:id` — one legacy run
 - `GET/POST /api/notebooks`
 - `GET/DELETE /api/notebooks/:id`
 - `POST /api/notebooks/:id/upload` — multipart file
 - `POST /api/notebooks/:id/ask` — SSE notebook Q&A
+
+### DB migration
+
+```bash
+npm run db:init   # applies drizzle/0000_init.sql (+ 0001_search_sessions)
+```
+
+Or run `drizzle/0001_search_sessions.sql` in Supabase SQL Editor if tables already exist.
 
 ## Notes
 

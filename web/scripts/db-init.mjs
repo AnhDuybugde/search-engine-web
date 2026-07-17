@@ -30,15 +30,25 @@ const sql = postgres(url, {
 });
 
 const initPath = path.join(root, "drizzle", "0000_init.sql");
+const migratePath = path.join(root, "drizzle", "0001_search_sessions.sql");
 const init = fs.readFileSync(initPath, "utf8");
+const migrate = fs.existsSync(migratePath)
+  ? fs.readFileSync(migratePath, "utf8")
+  : "";
 
 try {
   await sql.unsafe(init);
+  if (migrate.trim()) {
+    await sql.unsafe(migrate);
+  }
   const tables = await sql`
     select table_name
     from information_schema.tables
     where table_schema = 'public'
-      and table_name in ('notebooks', 'sources', 'chunks', 'search_runs')
+      and table_name in (
+        'notebooks', 'sources', 'chunks', 'search_runs',
+        'search_sessions', 'search_messages'
+      )
     order by table_name
   `;
   console.log(

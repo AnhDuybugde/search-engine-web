@@ -44,3 +44,26 @@ export const searchRuns = pgTable("search_runs", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 });
+
+/** Multi-turn web search conversations */
+export const searchSessions = pgTable("search_sessions", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  title: text("title").notNull().default("New chat"),
+  summary: text("summary"),
+  entitiesJson: jsonb("entities_json"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const searchMessages = pgTable("search_messages", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  sessionId: varchar("session_id", { length: 36 }).notNull(),
+  role: varchar("role", { length: 16 }).notNull(),
+  content: text("content").notNull(),
+  expandedQuery: text("expanded_query"),
+  resultsJson: jsonb("results_json"),
+  timingJson: jsonb("timing_json"),
+  metricsJson: jsonb("metrics_json"),
+  status: varchar("status", { length: 32 }).notNull().default("completed"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});

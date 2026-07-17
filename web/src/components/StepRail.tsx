@@ -2,6 +2,7 @@ import { Check, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const labels: Record<string, string> = {
+  expand: "Context",
   search: "Search",
   fetch: "Fetch",
   chunk: "Chunk",
