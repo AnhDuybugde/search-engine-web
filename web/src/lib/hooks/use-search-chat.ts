@@ -73,13 +73,19 @@ export function useSearchSessions() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(title ? { title } : {}),
     });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      throw new Error(j.error || "Create session failed");
+    const j = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      id?: string;
+      title?: string;
+    };
+    if (!res.ok || !j.id) {
+      throw new Error(
+        j.error ||
+          `Create session failed (HTTP ${res.status}). If tables are missing, run: cd web && npm run db:init`,
+      );
     }
-    const session = await res.json();
     await refresh();
-    return session as { id: string; title: string };
+    return { id: j.id, title: j.title || "New chat" };
   }, [refresh]);
 
   const rename = useCallback(

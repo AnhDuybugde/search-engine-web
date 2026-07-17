@@ -37,6 +37,7 @@ export function SearchChatLayout({
   const {
     sessions,
     loading: sessionsLoading,
+    error: sessionsError,
     create,
     rename,
     remove,
@@ -47,6 +48,8 @@ export function SearchChatLayout({
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(true);
   const [activeCitation, setActiveCitation] = useState<number | null>(null);
+  const [uiError, setUiError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     if (chat.status === "idle") void refresh();
@@ -62,8 +65,20 @@ export function SearchChatLayout({
   );
 
   const onNew = async () => {
-    const s = await create();
-    goSession(s.id);
+    setUiError(null);
+    setCreating(true);
+    try {
+      const s = await create();
+      goSession(s.id);
+    } catch (err) {
+      setUiError(
+        err instanceof Error
+          ? err.message
+          : "Could not create chat session. Run npm run db:init if tables are missing.",
+      );
+    } finally {
+      setCreating(false);
+    }
   };
 
   const ensureSessionAndSend = async (
@@ -74,44 +89,34 @@ export function SearchChatLayout({
       generateAnswer: boolean;
     },
   ) => {
-    let id = sessionId;
-    if (!id) {
-      const s = await create();
-      id = s.id;
-      router.push(`/search/${id}`);
-      // Wait a tick for sessionId prop to update via navigation
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    // If we just created, useSearchChat may still have null until navigation.
-    // Call API path via temporary: push then send after load — better: send with id directly.
-    if (id !== sessionId) {
-      // Navigate first; user will send again — avoid race. Instead fire fetch with new id.
-      await sendToSession(id!, query, opts);
+    setUiError(null);
+    try {
+      let id = sessionId;
+      if (!id) {
+        setCreating(true);
+        try {
+          const s = await create();
+          id = s.id as string;
+        } finally {
+          setCreating(false);
+        }
+        // Queue message then navigate so the session page owns the stream
+        sessionStorage.setItem(
+          "pendingSearch",
+          JSON.stringify({ id, query, opts }),
+        );
+        router.push(`/search/${id}`);
+        return;
+      }
+      await chat.send(query, opts);
       await refresh();
-      return;
+    } catch (err) {
+      setUiError(
+        err instanceof Error
+          ? err.message
+          : "Failed to send message. Check search API keys and DB tables.",
+      );
     }
-    await chat.send(query, opts);
-    await refresh();
-  };
-
-  const sendToSession = async (
-    id: string,
-    query: string,
-    opts: {
-      searchLimit: number;
-      contextTopK: number;
-      generateAnswer: boolean;
-    },
-  ) => {
-    // Soft path when session just created: full page will hydrate; for UX stream on current chat state
-    // by navigating and relying on chat.send after sessionId updates is racy.
-    // Use router then trigger send via session-bound chat after short delay is fragile.
-    // Simplest reliable: navigate with query in sessionStorage.
-    sessionStorage.setItem(
-      "pendingSearch",
-      JSON.stringify({ id, query, opts }),
-    );
-    router.push(`/search/${id}`);
   };
 
   // Consume pending first message after session mount
@@ -131,11 +136,18 @@ export function SearchChatLayout({
       };
       if (pending.id !== sessionId) return;
       sessionStorage.removeItem("pendingSearch");
-      void chat.send(pending.query, pending.opts).then(() => refresh());
+      void chat
+        .send(pending.query, pending.opts)
+        .then(() => refresh())
+        .catch((err: unknown) => {
+          setUiError(
+            err instanceof Error ? err.message : "Failed to send first message",
+          );
+        });
     } catch {
       sessionStorage.removeItem("pendingSearch");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only on sessionId mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per session mount
   }, [sessionId]);
 
   const hasMessages = chat.messages.length > 0;
@@ -143,9 +155,11 @@ export function SearchChatLayout({
     evidenceOpen &&
     (chat.activeEvidence.length > 0 || chat.status === "running");
 
+  const bannerError = uiError || chat.error || sessionsError;
+
   return (
-    <AppShell wide bare>
-      <div className="relative -mx-4 -my-6 flex h-[calc(100dvh-4.5rem)] min-h-[480px] overflow-hidden border-t border-white/5 sm:-mx-6 sm:-my-10">
+    <AppShell fill>
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {/* Mobile sidebar drawer */}
         {sidebarOpen && (
           <button
@@ -164,17 +178,24 @@ export function SearchChatLayout({
           onSelect={goSession}
           onRename={rename}
           onDelete={async (id) => {
-            await remove(id);
-            if (id === sessionId) goSession(null);
+            try {
+              await remove(id);
+              if (id === sessionId) goSession(null);
+            } catch (err) {
+              setUiError(
+                err instanceof Error ? err.message : "Delete session failed",
+              );
+            }
           }}
           className={cn(
-            "absolute inset-y-0 left-0 z-40 w-[260px] transition-transform lg:static lg:translate-x-0",
+            "absolute inset-y-0 left-0 z-40 w-[260px] bg-[#070b14]/95 transition-transform lg:static lg:translate-x-0 lg:bg-black/20",
             sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
+            !sidebarOpen && "pointer-events-none lg:pointer-events-auto",
           )}
         />
 
-        <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2 sm:px-4">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <div className="flex shrink-0 items-center gap-2 border-b border-white/10 px-3 py-2 sm:px-4">
             <button
               type="button"
               className="btn-ghost !min-h-9 lg:hidden"
@@ -206,17 +227,18 @@ export function SearchChatLayout({
             </button>
           </div>
 
-          {chat.error && (
+          {bannerError && (
             <div
               role="alert"
-              className="mx-3 mt-2 flex items-start gap-2 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-100 sm:mx-4"
+              className="mx-3 mt-2 flex shrink-0 items-start gap-2 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-100 sm:mx-4"
             >
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>{chat.error}</span>
+              <span className="min-w-0 break-words">{bannerError}</span>
               <button
                 type="button"
-                className="ml-auto"
-                onClick={() => {/* error clears on next send */}}
+                className="ml-auto shrink-0"
+                aria-label="Dismiss error"
+                onClick={() => setUiError(null)}
               >
                 <X className="h-4 w-4 opacity-60" />
               </button>
@@ -224,7 +246,7 @@ export function SearchChatLayout({
           )}
 
           {chat.status === "running" && (
-            <div className="px-3 pt-2 sm:px-4">
+            <div className="shrink-0 px-3 pt-2 sm:px-4">
               <StepRail steps={chat.steps} />
             </div>
           )}
@@ -252,6 +274,7 @@ export function SearchChatLayout({
                       key={s}
                       type="button"
                       className="chip"
+                      disabled={creating || chat.status === "running"}
                       onClick={() =>
                         void ensureSessionAndSend(s, {
                           searchLimit: 6,
@@ -269,8 +292,8 @@ export function SearchChatLayout({
           />
 
           <ChatComposer
-            running={chat.status === "running"}
-            disabled={chat.loading}
+            running={chat.status === "running" || creating}
+            disabled={false}
             onCancel={chat.cancel}
             onSend={(q, opts) => void ensureSessionAndSend(q, opts)}
           />
@@ -309,11 +332,11 @@ export function SearchChatLayout({
 
       {/* Mobile evidence sheet when messages exist */}
       {hasMessages && chat.activeEvidence.length > 0 && (
-        <details className="mx-4 mb-4 rounded-2xl border border-white/10 bg-black/20 p-3 xl:hidden">
+        <details className="shrink-0 border-t border-white/10 bg-black/20 p-3 xl:hidden">
           <summary className="cursor-pointer text-sm font-semibold">
             Evidence ({chat.activeEvidence.length})
           </summary>
-          <div className="mt-3">
+          <div className="mt-3 max-h-48 overflow-y-auto">
             <EvidenceList
               results={chat.activeEvidence}
               activeId={activeCitation}

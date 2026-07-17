@@ -15,21 +15,29 @@ export function AppShell({
   children,
   wide = false,
   bare = false,
+  /** Full-viewport chat layout: no main padding, fills below header */
+  fill = false,
 }: {
   children: React.ReactNode;
   wide?: boolean;
   /** Centered hero layout without side padding noise */
   bare?: boolean;
+  fill?: boolean;
 }) {
   const pathname = usePathname();
 
   return (
-    <div className="relative min-h-dvh text-[var(--fg)]">
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-[#070b14]/55 backdrop-blur-2xl">
+    <div
+      className={cn(
+        "relative text-[var(--fg)]",
+        fill ? "flex h-dvh flex-col overflow-hidden" : "min-h-dvh",
+      )}
+    >
+      <header className="sticky top-0 z-40 shrink-0 border-b border-white/10 bg-[#070b14]/55 backdrop-blur-2xl">
         <div
           className={cn(
             "mx-auto flex items-center justify-between gap-3 px-4 py-3 sm:px-6",
-            wide || bare ? "max-w-7xl" : "max-w-6xl",
+            wide || bare || fill ? "max-w-7xl" : "max-w-6xl",
           )}
         >
           <Link
@@ -70,8 +78,12 @@ export function AppShell({
 
       <main
         className={cn(
-          "mx-auto px-4 py-6 sm:px-6 sm:py-10",
-          wide || bare ? "max-w-7xl" : "max-w-6xl",
+          fill
+            ? "flex min-h-0 flex-1 flex-col"
+            : cn(
+                "mx-auto px-4 py-6 sm:px-6 sm:py-10",
+                wide || bare ? "max-w-7xl" : "max-w-6xl",
+              ),
         )}
       >
         {children}

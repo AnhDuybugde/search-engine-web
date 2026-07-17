@@ -162,7 +162,16 @@ export async function createSession(title?: string): Promise<SearchSessionDto> {
       created_at: now,
       updated_at: now,
     });
-    if (error) throw new Error(`Create session failed: ${sbError(error)}`);
+    if (error) {
+      const detail = sbError(error);
+      const missingTable =
+        /search_sessions|PGRST205|schema cache|does not exist/i.test(detail);
+      throw new Error(
+        missingTable
+          ? `Create session failed: table search_sessions is missing. Run: cd web && npm run db:init (or apply drizzle/0001_search_sessions.sql in Supabase SQL Editor). Details: ${detail}`
+          : `Create session failed: ${detail}`,
+      );
+    }
     return row;
   }
 
