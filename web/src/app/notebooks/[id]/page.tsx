@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -39,7 +39,7 @@ export default function NotebookDetailPage() {
   const [uploadOk, setUploadOk] = useState<string | null>(null);
   const { state, run, cancel } = useSsePipeline();
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoadError(null);
     try {
       const res = await fetch(`/api/notebooks/${id}`, { cache: "no-store" });
@@ -50,11 +50,14 @@ export default function NotebookDetailPage() {
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Failed to load");
     }
-  };
+  }, [id]);
 
   useEffect(() => {
-    void load();
-  }, [id]);
+    const timer = setTimeout(() => {
+      void load();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [load]);
 
   const onUpload = async (file: File | null) => {
     if (!file) return;

@@ -21,7 +21,9 @@ CREATE TABLE IF NOT EXISTS chunks (
   notebook_id varchar(36) NOT NULL,
   chunk_index integer NOT NULL,
   text text NOT NULL,
-  token_est integer
+  token_est integer,
+  embedding_json jsonb,
+  embedding_model text
 );
 
 CREATE TABLE IF NOT EXISTS search_runs (

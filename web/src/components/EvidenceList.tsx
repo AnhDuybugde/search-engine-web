@@ -39,7 +39,9 @@ export function EvidenceList({
               {r.title}
             </div>
             <span className="shrink-0 rounded-md bg-white/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--fg-muted)]">
-              BM25 #{r.bm25Rank}
+              {r.retrievalMode === "adaptive_rrf"
+                ? `RRF #${r.finalRank}`
+                : `BM25 #${r.bm25Rank}`}
             </span>
           </div>
           {r.url && (
@@ -59,7 +61,10 @@ export function EvidenceList({
             {r.text}
           </p>
           <div className="mt-2 font-mono text-[10px] text-[var(--fg-muted)]/80">
-            score {Number.isFinite(r.bm25Score) ? r.bm25Score.toFixed(3) : "—"}
+            score{" "}
+            {Number.isFinite(r.finalScore ?? r.bm25Score)
+              ? (r.finalScore ?? r.bm25Score).toFixed(3)
+              : "—"}
           </div>
         </li>
       ))}

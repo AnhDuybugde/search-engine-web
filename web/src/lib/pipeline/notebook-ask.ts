@@ -1,14 +1,20 @@
 import { getConfig, IR_DEFAULTS } from "@/lib/config";
-import { bm25Retrieve } from "@/lib/ir/bm25";
+import { retrieveEvidence } from "@/lib/ir/adaptive-rrf";
 import { packContext } from "@/lib/ir/packer";
-import type { Chunk, Metrics, RankedChunk, StreamEvent, Timing } from "@/lib/ir/types";
+import type {
+  ChunkWithEmbedding,
+  Metrics,
+  RankedChunk,
+  StreamEvent,
+  Timing,
+} from "@/lib/ir/types";
 import { streamAnswer } from "@/lib/llm/client";
 import { elapsed, nowMs } from "@/lib/utils";
 
 export async function runNotebookAskPipeline(
   input: {
     query: string;
-    chunks: Chunk[];
+    chunks: ChunkWithEmbedding[];
     contextTopK?: number;
     generateAnswer?: boolean;
   },
@@ -35,15 +41,28 @@ export async function runNotebookAskPipeline(
   emit({ type: "chunk_completed", chunks: input.chunks.length, ms: 0 });
 
   const retrieveStart = nowMs();
-  const candidates = bm25Retrieve(query, input.chunks, IR_DEFAULTS.retrieveTopK);
+  const retrieval = await retrieveEvidence(
+    query,
+    input.chunks,
+    IR_DEFAULTS.retrieveTopK,
+    cfg.RETRIEVAL_MODE,
+  );
+  const candidates = retrieval.results;
   const results = packContext(
     candidates,
     input.contextTopK ?? IR_DEFAULTS.contextTopK,
     3,
   );
   timing.retrieveMs = elapsed(retrieveStart);
+  timing.embeddingMs = retrieval.diagnostics.embeddingMs;
   metrics.contextCount = results.length;
   metrics.sourcesUsed = new Set(results.map((r) => r.documentId)).size;
+  metrics.retrievalMode = retrieval.diagnostics.mode;
+  metrics.denseUsed = retrieval.diagnostics.denseUsed;
+  metrics.denseSkippedReason = retrieval.diagnostics.denseSkippedReason;
+  metrics.embeddingProvider = retrieval.diagnostics.embeddingProvider;
+  metrics.embeddingModel = retrieval.diagnostics.embeddingModel;
+  metrics.bm25Weight = retrieval.diagnostics.bm25Weight;
   emit({ type: "retrieve_completed", results, ms: timing.retrieveMs });
 
   let answer = "";

@@ -31,6 +31,8 @@ export const chunks = pgTable("chunks", {
   chunkIndex: integer("chunk_index").notNull(),
   text: text("text").notNull(),
   tokenEst: integer("token_est"),
+  embeddingJson: jsonb("embedding_json"),
+  embeddingModel: text("embedding_model"),
 });
 
 export const searchRuns = pgTable("search_runs", {

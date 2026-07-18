@@ -1,8 +1,9 @@
 import { desc, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { chunkDocument } from "@/lib/ir/chunker";
-import type { Chunk } from "@/lib/ir/types";
-import { IR_DEFAULTS } from "@/lib/config";
+import { embedTexts } from "@/lib/ir/embedding";
+import type { ChunkWithEmbedding } from "@/lib/ir/types";
+import { getConfig, IR_DEFAULTS } from "@/lib/config";
 import { dbBackend, enrichDbError, getDb, hasDb } from "./client";
 import { chunks, notebooks, sources } from "./schema";
 import { getSupabaseAdmin, sbError, toIso } from "./supabase";
@@ -14,6 +15,56 @@ import {
   type MemNotebook,
   type MemSource,
 } from "./memory";
+
+function vectorOrNull(value: unknown): number[] | null {
+  if (!Array.isArray(value)) return null;
+  if (!value.every((v) => typeof v === "number" && Number.isFinite(v))) return null;
+  return value;
+}
+
+function isMissingEmbeddingColumn(error: unknown) {
+  const text =
+    typeof error === "string"
+      ? error
+      : error && typeof error === "object"
+        ? JSON.stringify(error)
+        : "";
+  return text.includes("embedding_json") && text.includes("42703");
+}
+
+type ChunkRow = {
+  id: string;
+  source_id: string;
+  chunk_index: number;
+  text: string;
+  embedding_json?: unknown;
+  embedding_model?: string | null;
+};
+
+async function embedChunksForStorage(
+  docChunks: Array<{ chunkId: string; text: string }>,
+): Promise<{ vectors: Map<string, number[]>; model: string | null }> {
+  const cfg = getConfig();
+  if (cfg.RETRIEVAL_MODE !== "adaptive_rrf" || !cfg.hasEmbedding || docChunks.length === 0) {
+    return { vectors: new Map(), model: null };
+  }
+
+  try {
+    const response = await embedTexts(docChunks.map((c) => c.text));
+    return {
+      vectors: new Map(
+        docChunks.map((chunk, i) => [chunk.chunkId, response.embeddings[i]]),
+      ),
+      model: response.model,
+    };
+  } catch (err) {
+    console.error(
+      "[notebook embeddings]",
+      err instanceof Error ? err.message : err,
+    );
+    return { vectors: new Map(), model: null };
+  }
+}
 
 export async function listNotebooks() {
   if (!hasDb()) {
@@ -248,6 +299,7 @@ export async function addSource(params: {
     title: params.title,
     text: params.text,
   });
+  const embeddings = await embedChunksForStorage(docChunks);
 
   const existingChunkCount = await countChunks(params.notebookId);
   if (docChunks.length + existingChunkCount > IR_DEFAULTS.maxChunksPerNotebook) {
@@ -273,6 +325,8 @@ export async function addSource(params: {
         notebookId: params.notebookId,
         chunkIndex: c.chunkIndex,
         text: c.text,
+        embedding: embeddings.vectors.get(c.chunkId) || null,
+        embeddingModel: embeddings.model,
       };
       memChunks.set(c.chunkId, row);
     }
@@ -297,17 +351,32 @@ export async function addSource(params: {
     if (sErr) throw new Error(`Save source failed: ${sbError(sErr)}`);
 
     if (docChunks.length) {
-      const { error: cErr } = await sb.from("chunks").insert(
-        docChunks.map((c) => ({
+      const rowsWithEmbeddings = docChunks.map((c) => ({
           id: c.chunkId,
           source_id: sourceId,
           notebook_id: params.notebookId,
           chunk_index: c.chunkIndex,
           text: c.text,
           token_est: Math.ceil(c.text.split(/\s+/).length * 1.3),
-        })),
-      );
-      if (cErr) throw new Error(`Save chunks failed: ${sbError(cErr)}`);
+          embedding_json: embeddings.vectors.get(c.chunkId) || null,
+          embedding_model: embeddings.model,
+      }));
+      const { error: cErr } = await sb.from("chunks").insert(rowsWithEmbeddings);
+      if (cErr && isMissingEmbeddingColumn(cErr)) {
+        const { error: legacyErr } = await sb.from("chunks").insert(
+          rowsWithEmbeddings.map((row) => ({
+            id: row.id,
+            source_id: row.source_id,
+            notebook_id: row.notebook_id,
+            chunk_index: row.chunk_index,
+            text: row.text,
+            token_est: row.token_est,
+          })),
+        );
+        if (legacyErr) throw new Error(`Save chunks failed: ${sbError(legacyErr)}`);
+      } else if (cErr) {
+        throw new Error(`Save chunks failed: ${sbError(cErr)}`);
+      }
     }
 
     return {
@@ -336,6 +405,8 @@ export async function addSource(params: {
         chunkIndex: c.chunkIndex,
         text: c.text,
         tokenEst: Math.ceil(c.text.split(/\s+/).length * 1.3),
+        embeddingJson: embeddings.vectors.get(c.chunkId) || null,
+        embeddingModel: embeddings.model,
       })),
     );
   }
@@ -375,7 +446,7 @@ async function countChunks(notebookId: string) {
 export async function loadChunks(
   notebookId: string,
   sourceIds?: string[],
-): Promise<Chunk[]> {
+): Promise<ChunkWithEmbedding[]> {
   if (!hasDb()) {
     let rows = Array.from(memChunks.values()).filter((c) => c.notebookId === notebookId);
     if (sourceIds?.length) {
@@ -391,6 +462,8 @@ export async function loadChunks(
       title: sourceMap.get(c.sourceId)?.title || "Source",
       text: c.text,
       chunkIndex: c.chunkIndex,
+      embedding: c.embedding,
+      embeddingModel: c.embeddingModel,
     }));
   }
 
@@ -398,10 +471,24 @@ export async function loadChunks(
   if (sb) {
     let q = sb
       .from("chunks")
-      .select("id,source_id,chunk_index,text")
+      .select("id,source_id,chunk_index,text,embedding_json,embedding_model")
       .eq("notebook_id", notebookId);
     if (sourceIds?.length) q = q.in("source_id", sourceIds);
-    const { data: chunkRows, error } = await q;
+    const selected = await q;
+    let chunkRows = selected.data as ChunkRow[] | null;
+    let error = selected.error;
+    let hasEmbeddingColumns = true;
+    if (error && isMissingEmbeddingColumn(error)) {
+      hasEmbeddingColumns = false;
+      let legacyQuery = sb
+        .from("chunks")
+        .select("id,source_id,chunk_index,text")
+        .eq("notebook_id", notebookId);
+      if (sourceIds?.length) legacyQuery = legacyQuery.in("source_id", sourceIds);
+      const legacy = await legacyQuery;
+      chunkRows = legacy.data as ChunkRow[] | null;
+      error = legacy.error;
+    }
     if (error) throw new Error(`Load chunks failed: ${sbError(error)}`);
 
     const ids = [...new Set((chunkRows || []).map((c) => c.source_id as string))];
@@ -422,6 +509,12 @@ export async function loadChunks(
       title: sourceMap.get(c.source_id as string) || "Source",
       text: c.text as string,
       chunkIndex: c.chunk_index as number,
+      embedding: hasEmbeddingColumns
+        ? vectorOrNull(c.embedding_json)
+        : null,
+      embeddingModel: hasEmbeddingColumns
+        ? (c.embedding_model ?? null)
+        : null,
     }));
   }
 
@@ -450,5 +543,7 @@ export async function loadChunks(
     title: sourceMap.get(c.sourceId)?.title || "Source",
     text: c.text,
     chunkIndex: c.chunkIndex,
+    embedding: vectorOrNull(c.embeddingJson),
+    embeddingModel: c.embeddingModel,
   }));
 }

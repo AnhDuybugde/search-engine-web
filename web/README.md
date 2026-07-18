@@ -19,7 +19,7 @@ Browser → Next.js (Vercel)
             ├─ POST /api/notebooks/...   upload + ask SSE
             ├─ Context engine            entities + coref + expand query
             ├─ Tavily / Brave            web results
-            ├─ BM25 (pure TS)            retrieve
+            ├─ BM25 + BGE + Adaptive RRF retrieve/rerank
             ├─ Groq (OpenAI-compatible)  generate
             └─ Supabase Postgres         sessions + notebooks
 ```
@@ -55,6 +55,11 @@ Without Supabase REST keys (or `DATABASE_URL`), history/notebooks use **in-memor
 | `LLM_API_KEY` | for answers | Groq/OpenRouter/OpenAI key |
 | `LLM_BASE_URL` | no | default Groq OpenAI-compatible URL |
 | `LLM_MODEL` | no | e.g. `llama-3.1-8b-instant` |
+| `RETRIEVAL_MODE` | no | `bm25` default, or `adaptive_rrf` |
+| `EMBEDDING_PROVIDER` | for adaptive RRF | `tei`, `openai`, or `huggingface` |
+| `EMBEDDING_API_URL` | for `tei`/`openai` | self-host embedding endpoint or OpenAI-compatible base URL; optional override for Hugging Face |
+| `EMBEDDING_API_KEY` | optional/required | bearer token; required for Hugging Face |
+| `EMBEDDING_MODEL` | no | default `BAAI/bge-base-en-v1.5` |
 | `TAVILY_API_KEY` | for web search | or set `BRAVE_API_KEY` |
 | `SUPABASE_URL` | **yes on Vercel** | `https://PROJECT.supabase.co` |
 | `SUPABASE_SECRET_KEY` | **yes on Vercel** | secret / service_role key (Dashboard → API Keys) |
@@ -83,6 +88,7 @@ Or paste `drizzle/0000_init.sql` into Supabase **SQL Editor** → Run.
 |-----|----------|
 | `TAVILY_API_KEY` | yes (search) |
 | `LLM_API_KEY` + `LLM_BASE_URL` + `LLM_MODEL` | yes (answers) |
+| `RETRIEVAL_MODE=adaptive_rrf` + embedding env | for BGE dense retrieval |
 | `SUPABASE_URL` | **yes on Vercel** e.g. `https://xxxx.supabase.co` |
 | `SUPABASE_SECRET_KEY` | **yes on Vercel** (service/secret key) |
 | `DATABASE_URL` | optional if REST keys set; if used, prefer **pooler :6543** |
@@ -131,5 +137,13 @@ Or run `drizzle/0001_search_sessions.sql` in Supabase SQL Editor if tables alrea
 ## Notes
 
 - Reranker GPU is intentionally removed; BM25 + domain packing keeps it fast on serverless.
+- Adaptive RRF uses BM25 plus dense embeddings. On Vercel, run BGE through a managed
+  embedding API or a separate self-hosted embedding service; if it is missing or
+  fails, retrieval falls back to BM25.
+- For quick Hugging Face dev mode, set `EMBEDDING_PROVIDER=huggingface` and
+  `EMBEDDING_API_KEY`; the app uses the HF Inference Providers router by default.
+- Notebook uploads cache chunk embeddings in Supabase when adaptive retrieval is
+  configured. Existing chunks without embeddings still work and are embedded
+  on demand, or fall back to BM25.
 - If LLM key is missing, retrieval still works (IR-only).
 - Vercel hobby timeout is short; keep `searchLimit` low (default 8).

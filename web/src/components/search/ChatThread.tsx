@@ -18,10 +18,11 @@ export function ChatThread({
   empty?: ReactNode;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
+  const lastMessageContent = messages[messages.length - 1]?.content;
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, messages[messages.length - 1]?.content]);
+  }, [messages, lastMessageContent]);
 
   if (messages.length === 0) {
     return (

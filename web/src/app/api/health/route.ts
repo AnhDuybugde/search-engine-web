@@ -94,6 +94,7 @@ export async function GET(req: Request) {
     status: {
       search: cfg.hasSearch,
       llm: cfg.hasLlm,
+      embedding: cfg.RETRIEVAL_MODE === "bm25" || cfg.hasEmbedding,
       db: cfg.hasDb && (backend === "supabase-rest" || backend === "postgres"),
     },
   };
@@ -111,6 +112,9 @@ export async function GET(req: Request) {
   const missing: string[] = [];
   if (!cfg.hasSearch) missing.push("TAVILY_API_KEY (or BRAVE_API_KEY)");
   if (!cfg.hasLlm) missing.push("LLM_API_KEY");
+  if (cfg.RETRIEVAL_MODE === "adaptive_rrf" && !cfg.hasEmbedding) {
+    missing.push("EMBEDDING_API_URL (or Hugging Face EMBEDDING_API_KEY)");
+  }
   if (!cfg.hasSupabaseRest) {
     if (!cfg.supabaseUrl) missing.push("SUPABASE_URL");
     if (!cfg.SUPABASE_SECRET_KEY) missing.push("SUPABASE_SECRET_KEY");
@@ -130,6 +134,12 @@ export async function GET(req: Request) {
         llm: cfg.hasLlm
           ? { baseUrl: cfg.LLM_BASE_URL, model: cfg.LLM_MODEL }
           : null,
+        retrieval: {
+          mode: cfg.RETRIEVAL_MODE,
+          embeddingConfigured: cfg.hasEmbedding,
+          embeddingProvider: cfg.EMBEDDING_PROVIDER,
+          embeddingModel: cfg.EMBEDDING_MODEL,
+        },
         db: backend,
         // host only — never include keys
         supabaseHost: cfg.supabaseUrl

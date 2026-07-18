@@ -29,17 +29,21 @@ const sql = postgres(url, {
   connect_timeout: 20,
 });
 
-const initPath = path.join(root, "drizzle", "0000_init.sql");
-const migratePath = path.join(root, "drizzle", "0001_search_sessions.sql");
-const init = fs.readFileSync(initPath, "utf8");
-const migrate = fs.existsSync(migratePath)
-  ? fs.readFileSync(migratePath, "utf8")
-  : "";
+const drizzleDir = path.join(root, "drizzle");
+const migrations = fs
+  .readdirSync(drizzleDir)
+  .filter((name) => /^\d+.*\.sql$/i.test(name))
+  .sort()
+  .map((name) => ({
+    name,
+    sql: fs.readFileSync(path.join(drizzleDir, name), "utf8"),
+  }));
 
 try {
-  await sql.unsafe(init);
-  if (migrate.trim()) {
-    await sql.unsafe(migrate);
+  for (const migration of migrations) {
+    if (migration.sql.trim()) {
+      await sql.unsafe(migration.sql);
+    }
   }
   const tables = await sql`
     select table_name

@@ -68,7 +68,12 @@ export function bm25Retrieve(
   scored.sort((a, b) => b.score - a.score);
 
   return scored.slice(0, topK).map((item, i) => ({
-    ...item.chunk,
+    chunkId: item.chunk.chunkId,
+    documentId: item.chunk.documentId,
+    title: item.chunk.title,
+    url: item.chunk.url,
+    text: item.chunk.text,
+    chunkIndex: item.chunk.chunkIndex,
     bm25Score: item.score,
     bm25Rank: i + 1,
     finalRank: i + 1,

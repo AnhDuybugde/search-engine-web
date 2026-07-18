@@ -1,6 +1,6 @@
 import { getConfig, IR_DEFAULTS } from "@/lib/config";
 import { chunkDocuments } from "@/lib/ir/chunker";
-import { bm25Retrieve } from "@/lib/ir/bm25";
+import { retrieveEvidence } from "@/lib/ir/adaptive-rrf";
 import { packContext } from "@/lib/ir/packer";
 import type { Metrics, RankedChunk, StreamEvent, Timing } from "@/lib/ir/types";
 import { streamAnswer } from "@/lib/llm/client";
@@ -89,12 +89,26 @@ export async function runWebSearchPipeline(
   emit({ type: "chunk_completed", chunks: chunks.length, ms: timing.chunkMs });
 
   // 4) BM25 + pack
+  // 4) Retrieval + pack
   const retrieveStart = nowMs();
-  const candidates = bm25Retrieve(query, chunks, retrieveTopK);
+  const retrieval = await retrieveEvidence(
+    query,
+    chunks,
+    retrieveTopK,
+    cfg.RETRIEVAL_MODE,
+  );
+  const candidates = retrieval.results;
   const results = packContext(candidates, contextTopK, 2);
   timing.retrieveMs = elapsed(retrieveStart);
+  timing.embeddingMs = retrieval.diagnostics.embeddingMs;
   metrics.contextCount = results.length;
   metrics.sourcesUsed = new Set(results.map((r) => r.documentId)).size;
+  metrics.retrievalMode = retrieval.diagnostics.mode;
+  metrics.denseUsed = retrieval.diagnostics.denseUsed;
+  metrics.denseSkippedReason = retrieval.diagnostics.denseSkippedReason;
+  metrics.embeddingProvider = retrieval.diagnostics.embeddingProvider;
+  metrics.embeddingModel = retrieval.diagnostics.embeddingModel;
+  metrics.bm25Weight = retrieval.diagnostics.bm25Weight;
   emit({
     type: "retrieve_completed",
     results,

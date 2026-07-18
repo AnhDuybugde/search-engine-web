@@ -7,17 +7,28 @@ export type Chunk = {
   chunkIndex: number;
 };
 
+export type ChunkWithEmbedding = Chunk & {
+  embedding?: number[] | null;
+  embeddingModel?: string | null;
+};
+
 export type RankedChunk = Chunk & {
   bm25Score: number;
   bm25Rank: number;
+  denseScore?: number;
+  denseRank?: number;
+  finalScore?: number;
   finalRank: number;
   citationId: number;
+  retrievalMode?: "bm25" | "adaptive_rrf" | "bm25_fallback";
+  bm25Weight?: number;
 };
 
 export type Timing = {
   searchMs?: number;
   fetchMs?: number;
   chunkMs?: number;
+  embeddingMs?: number;
   retrieveMs?: number;
   generateMs?: number;
   totalMs?: number;
@@ -29,6 +40,12 @@ export type Metrics = {
   chunkCount?: number;
   contextCount?: number;
   sourcesUsed?: number;
+  retrievalMode?: "bm25" | "adaptive_rrf" | "bm25_fallback";
+  denseUsed?: boolean;
+  denseSkippedReason?: string;
+  embeddingProvider?: string;
+  embeddingModel?: string;
+  bm25Weight?: number;
   llmUsed?: boolean;
   llmSkippedReason?: string;
 };

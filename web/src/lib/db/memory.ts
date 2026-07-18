@@ -28,6 +28,8 @@ export type MemChunk = {
   notebookId: string;
   chunkIndex: number;
   text: string;
+  embedding: number[] | null;
+  embeddingModel: string | null;
 };
 
 export type MemSearchRun = {

@@ -64,7 +64,10 @@ export function useSearchSessions() {
   }, []);
 
   useEffect(() => {
-    void refresh();
+    const timer = setTimeout(() => {
+      void refresh();
+    }, 0);
+    return () => clearTimeout(timer);
   }, [refresh]);
 
   const create = useCallback(async (title?: string) => {
@@ -202,19 +205,22 @@ export function useSearchChat(sessionId: string | null) {
   }, []);
 
   useEffect(() => {
-    abortRef.current?.abort();
-    setStatus("idle");
-    setError(null);
-    setSteps(emptySteps());
-    setLogs([]);
-    setLastExpanded(null);
-    if (!sessionId) {
-      setMessages([]);
-      setSessionTitle("New chat");
-      setActiveAssistantId(null);
-      return;
-    }
-    void load(sessionId);
+    const timer = setTimeout(() => {
+      abortRef.current?.abort();
+      setStatus("idle");
+      setError(null);
+      setSteps(emptySteps());
+      setLogs([]);
+      setLastExpanded(null);
+      if (!sessionId) {
+        setMessages([]);
+        setSessionTitle("New chat");
+        setActiveAssistantId(null);
+        return;
+      }
+      void load(sessionId);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [sessionId, load]);
 
   const cancel = useCallback(() => {

@@ -60,6 +60,15 @@ const envSchema = z.object({
   LLM_BASE_URL: z.string().url().default("https://api.groq.com/openai/v1"),
   LLM_API_KEY: z.string().optional(),
   LLM_MODEL: z.string().default("llama-3.1-8b-instant"),
+  RETRIEVAL_MODE: z
+    .enum(["bm25", "adaptive_rrf"])
+    .default("bm25"),
+  EMBEDDING_PROVIDER: z
+    .enum(["openai", "huggingface", "tei"])
+    .default("tei"),
+  EMBEDDING_API_URL: z.string().url().optional(),
+  EMBEDDING_API_KEY: z.string().optional(),
+  EMBEDDING_MODEL: z.string().default("BAAI/bge-base-en-v1.5"),
   TAVILY_API_KEY: z.string().optional(),
   BRAVE_API_KEY: z.string().optional(),
   DATABASE_URL: z.string().optional(),
@@ -72,6 +81,7 @@ const envSchema = z.object({
 export type AppConfig = z.infer<typeof envSchema> & {
   hasLlm: boolean;
   hasSearch: boolean;
+  hasEmbedding: boolean;
   hasDb: boolean;
   hasSupabaseRest: boolean;
   supabaseUrl?: string;
@@ -86,6 +96,11 @@ function readRawEnv() {
     LLM_BASE_URL: process.env.LLM_BASE_URL,
     LLM_API_KEY: process.env.LLM_API_KEY,
     LLM_MODEL: process.env.LLM_MODEL,
+    RETRIEVAL_MODE: process.env.RETRIEVAL_MODE,
+    EMBEDDING_PROVIDER: process.env.EMBEDDING_PROVIDER,
+    EMBEDDING_API_URL: process.env.EMBEDDING_API_URL,
+    EMBEDDING_API_KEY: process.env.EMBEDDING_API_KEY,
+    EMBEDDING_MODEL: process.env.EMBEDDING_MODEL,
     TAVILY_API_KEY: process.env.TAVILY_API_KEY,
     BRAVE_API_KEY: process.env.BRAVE_API_KEY,
     DATABASE_URL,
@@ -101,12 +116,23 @@ export function getConfig(): AppConfig {
   const raw = readRawEnv();
   const parsed = envSchema.safeParse(raw);
 
-  const data = parsed.success
+  const data: z.infer<typeof envSchema> = parsed.success
     ? parsed.data
     : {
         LLM_BASE_URL: raw.LLM_BASE_URL || "https://api.groq.com/openai/v1",
         LLM_API_KEY: raw.LLM_API_KEY,
         LLM_MODEL: raw.LLM_MODEL || "llama-3.1-8b-instant",
+        RETRIEVAL_MODE:
+          raw.RETRIEVAL_MODE === "adaptive_rrf" ? "adaptive_rrf" : "bm25",
+        EMBEDDING_PROVIDER:
+          raw.EMBEDDING_PROVIDER === "openai" ||
+          raw.EMBEDDING_PROVIDER === "huggingface" ||
+          raw.EMBEDDING_PROVIDER === "tei"
+            ? raw.EMBEDDING_PROVIDER
+            : "tei",
+        EMBEDDING_API_URL: raw.EMBEDDING_API_URL,
+        EMBEDDING_API_KEY: raw.EMBEDDING_API_KEY,
+        EMBEDDING_MODEL: raw.EMBEDDING_MODEL || "BAAI/bge-base-en-v1.5",
         TAVILY_API_KEY: raw.TAVILY_API_KEY,
         BRAVE_API_KEY: raw.BRAVE_API_KEY,
         DATABASE_URL: raw.DATABASE_URL,
@@ -128,6 +154,10 @@ export function getConfig(): AppConfig {
     supabaseUrl,
     hasLlm: Boolean(data.LLM_API_KEY),
     hasSearch: Boolean(data.TAVILY_API_KEY || data.BRAVE_API_KEY),
+    hasEmbedding:
+      data.EMBEDDING_PROVIDER === "huggingface"
+        ? Boolean(data.EMBEDDING_API_KEY)
+        : Boolean(data.EMBEDDING_API_URL),
     hasDb: hasSupabaseRest || hasSql,
     hasSupabaseRest,
     onVercel,
@@ -170,4 +200,10 @@ export const IR_DEFAULTS = {
   maxUploadBytes: 5 * 1024 * 1024,
   maxNotebookChars: 200_000,
   maxChunksPerNotebook: 500,
+  denseTopK: 40,
+  maxDenseChunks: 160,
+  rrfK: 60,
+  adaptiveRrfScale: 1.0,
+  adaptiveRrfMinBm25Weight: 0.05,
+  adaptiveRrfMaxBm25Weight: 0.9,
 } as const;
