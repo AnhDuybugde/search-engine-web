@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { requireUserId } from "@/lib/auth";
 import { getConfig } from "@/lib/config";
 import { buildMemoryFromSession, expandQuery } from "@/lib/context/expand";
 import { entitiesFromText, mergeEntities } from "@/lib/context/entities";
@@ -29,8 +30,11 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
+  const auth = requireUserId(req);
+  if ("error" in auth) return auth.error;
+
   const { id: sessionId } = await ctx.params;
-  const session = await getSession(sessionId);
+  const session = await getSession(sessionId, auth.userId);
   if (!session) {
     return Response.json({ error: "Session not found" }, { status: 404 });
   }

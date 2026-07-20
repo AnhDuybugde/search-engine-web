@@ -78,6 +78,7 @@ const REQUIRED_COLUMNS = {
   ],
   search_sessions: [
     "id",
+    "user_id",
     "title",
     "summary",
     "entities_json",
@@ -93,6 +94,19 @@ const REQUIRED_COLUMNS = {
     "results_json",
     "timing_json",
     "metrics_json",
+    "status",
+    "created_at",
+  ],
+  notebook_messages: [
+    "id",
+    "notebook_id",
+    "user_id",
+    "role",
+    "content",
+    "results_json",
+    "timing_json",
+    "metrics_json",
+    "documents_json",
     "status",
     "created_at",
   ],
@@ -112,7 +126,7 @@ try {
     where table_schema = 'public'
       and table_name in (
         'notebooks', 'sources', 'chunks', 'search_runs',
-        'search_sessions', 'search_messages'
+        'search_sessions', 'search_messages', 'notebook_messages'
       )
     order by table_name
   `;

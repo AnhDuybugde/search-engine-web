@@ -1,12 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { ChevronRight, FileText } from "lucide-react";
 import {
   buildCandidateCompare,
   buildDocumentScoreSeries,
   buildRankTransitions,
   buildStageTimeline,
   buildTimingWaterfall,
+  type RankTransitionRow,
   type StageVizRow,
   type WaterfallBar,
 } from "@/lib/ir/pipeline-viz";
@@ -33,12 +35,15 @@ export function ProcessExplainPanel({
   documents,
   rankedChunks,
   packedChunks,
+  onSelectDocument,
 }: {
   timing: Timing | null;
   metrics: Metrics | null;
   documents: RankedDocument[];
   rankedChunks: RankedChunk[];
   packedChunks: RankedChunk[];
+  /** Open document detail drawer for a source (click rows / cards). */
+  onSelectDocument?: (doc: RankedDocument) => void;
 }) {
   const stages = useMemo(
     () => buildStageTimeline(timing, metrics),
@@ -61,11 +66,41 @@ export function ProcessExplainPanel({
     [rankedChunks, packedChunks],
   );
 
+  const docsById = useMemo(() => {
+    const m = new Map(documents.map((d) => [d.documentId, d] as const));
+    return m;
+  }, [documents]);
+
   const [activeStage, setActiveStage] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   const selected: StageVizRow | undefined =
     stages.find((s) => s.id === activeStage) ||
     stages.find((s) => s.outcome === "ran") ||
     stages[0];
+
+  const openDoc = (documentId: string) => {
+    const doc = docsById.get(documentId);
+    if (doc && onSelectDocument) {
+      onSelectDocument(doc);
+      return;
+    }
+    // Fallback synthetic doc when only chunks are present
+    if (onSelectDocument) {
+      const hit = rankedChunks.find((c) => c.documentId === documentId);
+      if (!hit) return;
+      onSelectDocument({
+        documentId,
+        title: hit.title,
+        finalScore: hit.finalScore ?? hit.bm25Score,
+        finalRank: hit.finalRank,
+        confidence: 0,
+        chunkHits: 1,
+        topChunkIds: [hit.chunkId],
+        snippet: hit.text.slice(0, 160),
+      });
+    }
+  };
 
   if (!timing && !metrics && !documents.length && !rankedChunks.length) {
     return (
@@ -135,17 +170,20 @@ export function ProcessExplainPanel({
         )}
       </div>
 
-      {/* Timing waterfall — extra viz #1 */}
+      {/* Timing waterfall */}
       {waterfall.length > 0 && (
         <div>
           <h3 className="section-title">Timing waterfall</h3>
           <p className="mb-2 text-[11px] text-[var(--fg-muted)]">
             Sequential stage cost as a share of total wall time (
-            {fmtMs(timing?.totalMs)}). Use this to show where latency lives.
+            {fmtMs(timing?.totalMs)}).
           </p>
           <ul className="space-y-2">
             {waterfall.map((bar) => (
-              <li key={bar.id} className="grid grid-cols-[4.5rem_1fr_3rem] items-center gap-2">
+              <li
+                key={bar.id}
+                className="grid grid-cols-[4.5rem_1fr_3rem] items-center gap-2"
+              >
                 <span className="text-[11px] font-medium text-[var(--fg-muted)]">
                   {bar.label}
                 </span>
@@ -171,43 +209,51 @@ export function ProcessExplainPanel({
         </div>
       )}
 
-      {/* Document score bars — extra viz #2 */}
+      {/* Document score bars — clickable */}
       {scoreSeries.length > 0 && (
         <div>
-          <h3 className="section-title">Top documents — score & confidence</h3>
+          <h3 className="section-title">Top documents — score & match strength</h3>
           <p className="mb-2 text-[11px] text-[var(--fg-muted)]">
-            Final score (relative bar) and normalized confidence. Confidence is a
-            display score, not a calibrated probability.
+            Click a document to open full source and ranking detail.
           </p>
-          <ul className="space-y-2.5">
+          <ul className="space-y-2">
             {scoreSeries.map((row) => (
-              <li key={row.documentId} className="space-y-1">
-                <div className="flex items-center justify-between gap-2 text-[12px]">
-                  <span className="min-w-0 truncate font-medium text-[var(--fg)]">
-                    <span className="mr-1.5 font-mono text-[10px] text-[var(--fg-subtle)]">
-                      #{row.finalRank}
+              <li key={row.documentId}>
+                <button
+                  type="button"
+                  onClick={() => openDoc(row.documentId)}
+                  className="group w-full space-y-1 rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2.5 text-left transition hover:border-[var(--primary-border)] hover:bg-[var(--primary-soft)]"
+                >
+                  <div className="flex items-start justify-between gap-2 text-[12px]">
+                    <span className="min-w-0 flex items-start gap-1.5 font-medium text-[var(--fg)]">
+                      <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--primary)]" />
+                      <span>
+                        <span className="mr-1.5 font-mono text-[10px] text-[var(--fg-subtle)]">
+                          #{row.finalRank}
+                        </span>
+                        <span className="break-words">{row.title}</span>
+                      </span>
                     </span>
-                    {row.title}
-                  </span>
-                  <span className="shrink-0 font-mono text-[10px] text-[var(--fg-muted)]">
-                    {row.finalScore.toFixed(3)} · conf{" "}
-                    {(row.confidence * 100).toFixed(0)}%
-                  </span>
-                </div>
-                <div className="space-y-1">
-                  <div className="h-2 overflow-hidden rounded-full bg-[var(--bg-panel)] ring-1 ring-[var(--border)]">
-                    <div
-                      className="h-full rounded-full bg-[var(--primary)]"
-                      style={{ width: `${row.scoreFraction * 100}%` }}
-                    />
+                    <span className="flex shrink-0 items-center gap-1 font-mono text-[10px] text-[var(--fg-muted)]">
+                      {row.finalScore.toFixed(3)} · {(row.confidence * 100).toFixed(0)}%
+                      <ChevronRight className="h-3.5 w-3.5 opacity-50 group-hover:opacity-100" />
+                    </span>
                   </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-panel)] ring-1 ring-[var(--border)]">
-                    <div
-                      className="h-full rounded-full bg-[var(--accent)]"
-                      style={{ width: `${row.confFraction * 100}%` }}
-                    />
+                  <div className="space-y-1">
+                    <div className="h-2 overflow-hidden rounded-full bg-[var(--bg-panel)] ring-1 ring-[var(--border)]">
+                      <div
+                        className="h-full rounded-full bg-[var(--primary)]"
+                        style={{ width: `${row.scoreFraction * 100}%` }}
+                      />
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-panel)] ring-1 ring-[var(--border)]">
+                      <div
+                        className="h-full rounded-full bg-[var(--accent)]"
+                        style={{ width: `${row.confFraction * 100}%` }}
+                      />
+                    </div>
                   </div>
-                </div>
+                </button>
               </li>
             ))}
           </ul>
@@ -216,118 +262,194 @@ export function ProcessExplainPanel({
               <span className="h-1.5 w-3 rounded bg-[var(--primary)]" /> Score
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-1.5 w-3 rounded bg-[var(--accent)]" /> Confidence
+              <span className="h-1.5 w-3 rounded bg-[var(--accent)]" /> Match strength
             </span>
           </div>
         </div>
       )}
 
-      {/* Rank transition table — extra viz #3 (core “how ranking changed”) */}
+      {/* Rank transitions — card list with snippet, clickable */}
       {transitions.length > 0 && (
         <div>
-          <h3 className="section-title">Rank transitions (retrieval units)</h3>
-          <p className="mb-2 text-[11px] text-[var(--fg-muted)]">
-            BM25 rank → dense rank → final fused rank. Δ = improvement vs BM25
-            (positive means fusion/dense helped the unit rise).
+          <h3 className="section-title">Rank transitions</h3>
+          <p className="mb-2 text-[11px] leading-relaxed text-[var(--fg-muted)]">
+            Each card is a retrieval unit. Source title alone is often the same —
+            the preview shows <strong className="font-medium text-[var(--fg)]">what
+            the unit text is</strong>. Click to open document detail. Tap the
+            chevron to expand scores inline.
           </p>
-          <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
-            <table className="w-full min-w-[32rem] border-collapse text-left text-[11px]">
-              <thead className="bg-[var(--bg-panel)] text-[var(--fg-subtle)]">
-                <tr>
-                  <th className="px-2 py-1.5 font-medium">Title</th>
-                  <th className="px-2 py-1.5 font-medium">BM25#</th>
-                  <th className="px-2 py-1.5 font-medium">Dense#</th>
-                  <th className="px-2 py-1.5 font-medium">Final#</th>
-                  <th className="px-2 py-1.5 font-medium">Δ</th>
-                  <th className="px-2 py-1.5 font-medium">Scores</th>
-                </tr>
-              </thead>
-              <tbody>
-                {transitions.map((row) => (
-                  <tr
-                    key={row.chunkId}
-                    className="border-t border-[var(--border)]"
-                  >
-                    <td className="max-w-[10rem] truncate px-2 py-1.5 font-medium text-[var(--fg)]">
-                      {row.title}
-                    </td>
-                    <td className="px-2 py-1.5 font-mono">
-                      {row.bm25Rank ?? "—"}
-                    </td>
-                    <td className="px-2 py-1.5 font-mono">
-                      {row.denseRank ?? "—"}
-                    </td>
-                    <td className="px-2 py-1.5 font-mono font-semibold">
-                      {row.finalRank}
-                    </td>
-                    <td
-                      className={cn(
-                        "px-2 py-1.5 font-mono",
-                        row.rankDeltaFromBm25 != null &&
-                          row.rankDeltaFromBm25 > 0 &&
-                          "text-emerald-700",
-                        row.rankDeltaFromBm25 != null &&
-                          row.rankDeltaFromBm25 < 0 &&
-                          "text-rose-700",
-                      )}
-                    >
-                      {row.rankDeltaFromBm25 == null
-                        ? "—"
-                        : row.rankDeltaFromBm25 > 0
-                          ? `+${row.rankDeltaFromBm25}`
-                          : String(row.rankDeltaFromBm25)}
-                    </td>
-                    <td className="px-2 py-1.5 font-mono text-[10px] text-[var(--fg-muted)]">
-                      b={row.bm25Score.toFixed(2)}
-                      {row.denseScore != null
-                        ? ` · d=${row.denseScore.toFixed(2)}`
-                        : ""}
-                      {` · f=${row.finalScore.toFixed(3)}`}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <ul className="space-y-2">
+            {transitions.map((row) => (
+              <RankUnitCard
+                key={row.chunkId}
+                row={row}
+                expanded={expandedId === row.chunkId}
+                onToggle={() =>
+                  setExpandedId((id) =>
+                    id === row.chunkId ? null : row.chunkId,
+                  )
+                }
+                onOpen={() => openDoc(row.documentId)}
+              />
+            ))}
+          </ul>
         </div>
       )}
 
-      {/* Packed vs ranked pool */}
+      {/* Candidates vs packed */}
       {candidates.length > 0 && (
         <div>
           <h3 className="section-title">Candidates vs packed context</h3>
-          <p className="mb-2 text-[11px] text-[var(--fg-muted)]">
-            Ranking pool vs what the packer sent to the LLM. Pack diversifies
-            sources — a high-rank hit can be excluded if another unit from the
-            same document was already chosen.
+          <p className="mb-2 text-[11px] leading-relaxed text-[var(--fg-muted)]">
+            Ranking pool vs what the packer sent to the LLM. Click a unit to open
+            its source document.
           </p>
-          <ul className="max-h-40 space-y-1 overflow-y-auto text-[11px]">
+          <ul className="max-h-72 space-y-1.5 overflow-y-auto">
             {candidates.map((c) => (
-              <li
-                key={c.chunkId}
-                className="flex items-center justify-between gap-2 rounded border border-[var(--border)] px-2 py-1"
-              >
-                <span className="min-w-0 truncate">
-                  <span className="font-mono text-[var(--fg-subtle)]">
-                    #{c.finalRank}
-                  </span>{" "}
-                  {c.title}
-                </span>
-                <span
-                  className={cn(
-                    "shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium",
-                    c.inPacked
-                      ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-600/20"
-                      : "bg-[var(--bg-panel)] text-[var(--fg-subtle)]",
-                  )}
+              <li key={c.chunkId}>
+                <button
+                  type="button"
+                  onClick={() => openDoc(c.documentId)}
+                  className="group flex w-full items-start gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-2.5 py-2 text-left transition hover:border-[var(--primary-border)] hover:bg-[var(--primary-soft)]"
                 >
-                  {c.inPacked ? "in pack" : "ranked only"}
-                </span>
+                  <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--bg-panel)] font-mono text-[10px] font-bold text-[var(--fg-muted)] ring-1 ring-[var(--border)]">
+                    {c.finalRank}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5 text-[12px] font-semibold text-[var(--fg)]">
+                      <FileText className="h-3 w-3 shrink-0 text-[var(--primary)]" />
+                      <span className="truncate">{c.title}</span>
+                    </span>
+                    {c.snippet && (
+                      <span className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-[var(--fg-muted)]">
+                        {c.snippet}
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    className={cn(
+                      "mt-0.5 shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold",
+                      c.inPacked
+                        ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-600/20"
+                        : "bg-[var(--bg-panel)] text-[var(--fg-subtle)] ring-1 ring-[var(--border)]",
+                    )}
+                  >
+                    {c.inPacked ? "in pack" : "ranked only"}
+                  </span>
+                  <ChevronRight className="mt-1 h-3.5 w-3.5 shrink-0 text-[var(--fg-subtle)] opacity-0 transition group-hover:opacity-100" />
+                </button>
               </li>
             ))}
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+function RankUnitCard({
+  row,
+  expanded,
+  onToggle,
+  onOpen,
+}: {
+  row: RankTransitionRow;
+  expanded: boolean;
+  onToggle: () => void;
+  onOpen: () => void;
+}) {
+  const delta = row.rankDeltaFromBm25;
+  return (
+    <li className="rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] overflow-hidden">
+      <div className="flex items-stretch">
+        <button
+          type="button"
+          onClick={onOpen}
+          className="min-w-0 flex-1 px-3 py-2.5 text-left transition hover:bg-[var(--primary-soft)]"
+        >
+          <div className="flex items-start gap-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--primary)] font-mono text-[11px] font-bold text-white">
+              {row.finalRank}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex flex-wrap items-center gap-1.5">
+                <span className="inline-flex max-w-full items-center gap-1 truncate text-[12px] font-semibold text-[var(--fg)]">
+                  <FileText className="h-3 w-3 shrink-0 text-[var(--primary)]" />
+                  {row.title}
+                </span>
+                <span className="font-mono text-[10px] text-[var(--fg-subtle)]">
+                  BM25 #{row.bm25Rank ?? "—"} → Dense #{row.denseRank ?? "—"} →
+                  Final #{row.finalRank}
+                </span>
+                {delta != null && delta !== 0 && (
+                  <span
+                    className={cn(
+                      "rounded px-1 py-px font-mono text-[10px] font-semibold",
+                      delta > 0
+                        ? "bg-emerald-50 text-emerald-800"
+                        : "bg-rose-50 text-rose-700",
+                    )}
+                  >
+                    {delta > 0 ? `↑${delta}` : `↓${Math.abs(delta)}`}
+                  </span>
+                )}
+              </span>
+              {row.snippet ? (
+                <span className="mt-1 line-clamp-2 text-[12px] leading-relaxed text-[var(--fg-muted)]">
+                  {row.snippet}
+                </span>
+              ) : (
+                <span className="mt-1 text-[11px] italic text-[var(--fg-subtle)]">
+                  No text preview
+                </span>
+              )}
+              <span className="mt-1 block text-[10px] font-medium text-[var(--primary)] opacity-80">
+                Click to open full document →
+              </span>
+            </span>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex w-9 shrink-0 items-center justify-center border-l border-[var(--border)] text-[var(--fg-subtle)] hover:bg-[var(--surface-hover)]"
+          aria-label={expanded ? "Hide scores" : "Show scores"}
+          aria-expanded={expanded}
+        >
+          <ChevronRight
+            className={cn(
+              "h-4 w-4 transition-transform",
+              expanded && "rotate-90",
+            )}
+          />
+        </button>
+      </div>
+      {expanded && (
+        <div className="grid grid-cols-2 gap-1.5 border-t border-[var(--border)] bg-[var(--bg-panel)] px-3 py-2 sm:grid-cols-4">
+          <MiniStat label="BM25 rank" value={String(row.bm25Rank ?? "—")} />
+          <MiniStat label="Dense rank" value={String(row.denseRank ?? "—")} />
+          <MiniStat label="Final rank" value={String(row.finalRank)} />
+          <MiniStat
+            label="Scores"
+            value={`b=${row.bm25Score.toFixed(2)}${
+              row.denseScore != null ? ` d=${row.denseScore.toFixed(2)}` : ""
+            } f=${row.finalScore.toFixed(3)}`}
+          />
+        </div>
+      )}
+    </li>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1">
+      <div className="text-[9px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
+        {label}
+      </div>
+      <div className="mt-0.5 font-mono text-[11px] font-semibold text-[var(--fg)]">
+        {value}
+      </div>
     </div>
   );
 }

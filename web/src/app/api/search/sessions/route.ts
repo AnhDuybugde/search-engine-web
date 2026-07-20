@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { requireUserId } from "@/lib/auth";
 import {
   DurableDbRequiredError,
   requireDurableDb,
@@ -8,11 +9,14 @@ import { createSession, listSessions } from "@/lib/db/sessions-repo";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
   const denied = requireDurableDb("List sessions");
   if (denied) return denied;
+  const auth = requireUserId(req);
+  if ("error" in auth) return auth.error;
+
   try {
-    const items = await listSessions(50);
+    const items = await listSessions(50, auth.userId);
     return Response.json({ items });
   } catch (err) {
     const status = err instanceof DurableDbRequiredError ? 503 : 500;
@@ -33,6 +37,8 @@ const createSchema = z.object({
 export async function POST(req: Request) {
   const denied = requireDurableDb("Create session");
   if (denied) return denied;
+  const auth = requireUserId(req);
+  if ("error" in auth) return auth.error;
 
   let json: unknown = {};
   try {
@@ -48,7 +54,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const session = await createSession(parsed.data.title);
+    const session = await createSession(parsed.data.title, auth.userId);
     return Response.json(session, { status: 201 });
   } catch (err) {
     const status = err instanceof DurableDbRequiredError ? 503 : 500;

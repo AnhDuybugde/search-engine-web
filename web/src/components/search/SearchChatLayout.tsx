@@ -22,9 +22,9 @@ import {
 import { cn } from "@/lib/utils";
 
 const SUGGESTIONS = [
-  "Messi là ai?",
+  "Who is Lionel Messi?",
   "What is TypeScript and why use it?",
-  "So sánh BM25 và dense retrieval",
+  "Compare BM25 and dense retrieval",
   "How does Supabase Auth work?",
 ];
 
@@ -286,7 +286,7 @@ export function SearchChatLayout({
                 <h2 className="chat-empty-title">Ask the web anything</h2>
                 <p className="chat-empty-copy">
                   Multi-turn chat remembers entities in this session — e.g. ask
-                  “Messi là ai?” then “ông ấy bao nhiêu tuổi?”.
+                  “Who is Lionel Messi?” then “How old is he?”.
                 </p>
                 <div className="chat-empty-actions">
                   {SUGGESTIONS.map((s) => (

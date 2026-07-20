@@ -231,10 +231,13 @@ export function useSearchChat(sessionId: string | null) {
         return;
       }
 
+      // Prefer server history when idle. Only protect in-progress optimistic
+      // temp messages for *this* load race (create→navigate→send).
       setMessages((prev) => {
-        if (prev.some((m) => m.streaming || m.id.startsWith("temp-"))) {
-          return prev;
-        }
+        const hasLiveOptimistic =
+          prev.some((m) => m.streaming || m.id.startsWith("temp-")) &&
+          msgs.length === 0;
+        if (hasLiveOptimistic) return prev;
         return msgs;
       });
       const lastAsst = [...msgs].reverse().find((m) => m.role === "assistant");
@@ -254,12 +257,13 @@ export function useSearchChat(sessionId: string | null) {
   useEffect(() => {
     const prev = prevSessionIdRef.current;
     prevSessionIdRef.current = sessionId;
+    const switching = prev !== undefined && prev !== sessionId;
 
     // Only abort an in-flight stream when navigating between different sessions.
     // Aborting on every mount races the "pending first message" flow: create session
     // on /search → store pendingSearch → push /search/:id → send starts → this effect
     // used to abort immediately and silently drop the message (AbortError is ignored).
-    if (prev !== undefined && prev !== sessionId) {
+    if (switching) {
       abortRef.current?.abort();
       statusRef.current = "idle";
       setStatus("idle");
@@ -267,11 +271,10 @@ export function useSearchChat(sessionId: string | null) {
       setSteps(emptySteps());
       setLogs([]);
       setLastExpanded(null);
-      setMessages((prevMsgs) =>
-        prevMsgs.map((m) =>
-          m.streaming ? { ...m, streaming: false, status: "failed" } : m,
-        ),
-      );
+      // Clear previous chat immediately so we never show another session's turns
+      // while history loads (and so temp- guards from a prior stream don't block hydrate).
+      setMessages([]);
+      setActiveAssistantId(null);
     }
 
     if (!sessionId) {

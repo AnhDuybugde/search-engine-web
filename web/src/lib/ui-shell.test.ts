@@ -173,6 +173,12 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(panel).toContain("buildCandidateCompare");
     expect(panel).toContain("Timing waterfall");
     expect(panel).toContain("Rank transitions");
+    // Clickable units with text preview (not title-only table)
+    expect(panel).toContain("onSelectDocument");
+    expect(panel).toContain("RankUnitCard");
+    expect(panel).toContain("row.snippet");
+    expect(panel).toContain("Click to open full document");
+    expect(panel).not.toContain("Rank transitions (chunk-level)");
   });
 
   it("upload API and source detail routes exist for progress + drawer", () => {
@@ -238,18 +244,26 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(sidebar).toContain("store raw sources");
 
     const drawer = readSrc("components", "dataset", "DocumentDetailDrawer.tsx");
-    expect(drawer).toContain("raw source (no stored chunks)");
-    expect(drawer).toContain("retrieval hit");
+    expect(drawer).toContain("Stored as raw full text");
+    expect(drawer).toContain("Retrieval hits");
+    expect(drawer).toContain("Why it ranked");
     expect(drawer).not.toContain("chunks indexed");
+    expect(drawer).not.toContain("hit chunks");
 
     const docs = readSrc("components", "dataset", "DocumentResultsList.tsx");
-    expect(docs).toMatch(/hit\{doc\.chunkHits/);
+    expect(docs).toContain("Confidence");
+    expect(docs).toContain("MetricCell");
+    expect(docs).toContain("Hits");
     expect(docs).not.toMatch(/\bchunks\b/);
 
     const metrics = readSrc("components", "dataset", "RunMetricsStrip.tsx");
-    expect(metrics).toContain("Embed (query)");
-    expect(metrics).toContain("units=");
+    expect(metrics).toContain("Retrieval quality");
+    expect(metrics).toContain("Latency");
+    expect(metrics).toContain("Units ranked");
     expect(metrics).toContain("not stored chunk rows");
+    expect(metrics).toContain("Top match");
+    expect(metrics).toContain("score-derived proxy");
+    expect(metrics).toContain("not calibrated");
 
     const inspector = readSrc("components", "pipeline", "PipelineInspector.tsx");
     expect(inspector).toContain("Sources ready");
@@ -266,7 +280,9 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     );
 
     const explain = readSrc("components", "dataset", "ProcessExplainPanel.tsx");
-    expect(explain).toContain("Rank transitions (retrieval units)");
+    expect(explain).toContain("Rank transitions");
+    expect(explain).toContain("unit text");
+    expect(explain).toContain("Click to open full document");
     expect(explain).not.toContain("chunk-level");
 
     const viz = readSrc("lib", "ir", "pipeline-viz.ts");
@@ -281,6 +297,40 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
   it("home redirects to notebooks (dataset search primary)", () => {
     const home = readSrc("app", "page.tsx");
     expect(home).toContain('redirect("/notebooks")');
+  });
+
+  it("website UI chrome is English-only (no VN suggestion chips)", () => {
+    const dataset = readSrc("components", "dataset", "DatasetChatLayout.tsx");
+    expect(dataset).toContain("Summarize the main points in this corpus");
+    expect(dataset).toContain("What are the key concepts?");
+    expect(dataset).not.toContain("Tóm tắt");
+    expect(dataset).not.toContain("khái niệm");
+    expect(dataset).not.toContain("trong tài liệu");
+
+    const search = readSrc("components", "search", "SearchChatLayout.tsx");
+    expect(search).toContain("Who is Lionel Messi?");
+    expect(search).toContain("Compare BM25 and dense retrieval");
+    expect(search).toContain("How old is he?");
+    expect(search).not.toContain("Messi là ai");
+    expect(search).not.toContain("So sánh");
+    expect(search).not.toContain("ông ấy");
+
+    const layout = readSrc("app", "layout.tsx");
+    expect(layout).toContain('lang="en"');
+    expect(layout).not.toContain('lang="vi"');
+    // Font subset for UI product language
+    expect(layout).toMatch(/subsets:\s*\[\s*"latin"\s*\]/);
+
+    const cite = readSrc("lib", "llm", "prompts.ts");
+    expect(cite).toMatch(/English only/i);
+    expect(cite).toMatch(/Do not answer in Vietnamese/i);
+    expect(cite).not.toMatch(/Prefer Vietnamese/i);
+    expect(cite).not.toMatch(/Respond in Vietnamese only/i);
+    expect(cite).not.toMatch(/The user question is in Vietnamese/i);
+
+    const expand = readSrc("lib", "context", "prompts.ts");
+    expect(expand).toMatch(/English only/i);
+    expect(expand).not.toMatch(/Vietnamese or English/i);
   });
 
   it("PipelineInspector documents hybrid fusion (not cross-encoder rerank)", () => {

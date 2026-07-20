@@ -72,6 +72,8 @@ export type CandidateCompareRow = {
   chunkId: string;
   documentId: string;
   title: string;
+  /** Preview of the unit text so identical source titles stay distinguishable. */
+  snippet: string;
   finalRank: number;
   inPacked: boolean;
   bm25Rank: number;
@@ -336,7 +338,7 @@ export function buildRankTransitions(
       finalScore,
       rankDeltaFromBm25:
         bm25Rank != null ? bm25Rank - finalRank : null,
-      snippet: c.text.slice(0, 120),
+      snippet: (c.text || "").replace(/\s+/g, " ").trim().slice(0, 180),
     };
   });
 }
@@ -379,6 +381,7 @@ export function buildCandidateCompare(
     chunkId: c.chunkId,
     documentId: c.documentId,
     title: c.title,
+    snippet: (c.text || "").replace(/\s+/g, " ").trim().slice(0, 160),
     finalRank: c.finalRank,
     inPacked: packedIds.has(c.chunkId),
     bm25Rank: c.bm25Rank,

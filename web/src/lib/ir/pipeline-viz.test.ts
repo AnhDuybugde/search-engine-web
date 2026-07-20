@@ -133,6 +133,7 @@ describe("buildRankTransitions", () => {
     expect(rows[0].rankDeltaFromBm25).toBe(4); // improved from 5 to 1
     expect(rows[1].rankDeltaFromBm25).toBe(-2); // fell from 1 to 3
     expect(rows[0].denseRank).toBe(1);
+    expect(rows[0].snippet.length).toBeGreaterThan(0);
   });
 });
 

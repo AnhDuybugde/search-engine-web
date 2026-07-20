@@ -42,9 +42,9 @@ type Source = {
 };
 
 const SUGGESTIONS = [
-  "Tóm tắt các điểm chính trong corpus",
-  "So sánh BM25 và dense retrieval trong tài liệu",
-  "Các khái niệm quan trọng là gì?",
+  "Summarize the main points in this corpus",
+  "Compare BM25 and dense retrieval in the documents",
+  "What are the key concepts?",
 ];
 
 export function DatasetChatLayout({
@@ -111,6 +111,48 @@ export function DatasetChatLayout({
     }
   }, []);
 
+  const loadChatHistory = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/notebooks/${id}/messages`, {
+        cache: "no-store",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        // Keep empty history if table not migrated yet
+        setMessages([]);
+        setActiveAssistantId(null);
+        return;
+      }
+      const msgs: ChatMessage[] = (data.messages || []).map(
+        (m: {
+          id: string;
+          role: "user" | "assistant";
+          content: string;
+          results?: ChatMessage["results"];
+          timing?: ChatMessage["timing"];
+          metrics?: ChatMessage["metrics"];
+          status?: string;
+          createdAt?: string;
+        }) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          results: m.results || undefined,
+          timing: m.timing || undefined,
+          metrics: m.metrics || undefined,
+          status: m.status,
+          createdAt: m.createdAt,
+        }),
+      );
+      setMessages(msgs);
+      const lastAsst = [...msgs].reverse().find((m) => m.role === "assistant");
+      setActiveAssistantId(lastAsst?.id ?? null);
+    } catch {
+      setMessages([]);
+      setActiveAssistantId(null);
+    }
+  }, []);
+
   useEffect(() => {
     void loadDatasets();
   }, [loadDatasets]);
@@ -123,8 +165,11 @@ export function DatasetChatLayout({
     setDrawerOpen(false);
     setSources([]);
     setTitle("");
-    if (notebookId) void loadNotebook(notebookId);
-  }, [notebookId, loadNotebook, reset]);
+    if (notebookId) {
+      void loadNotebook(notebookId);
+      void loadChatHistory(notebookId);
+    }
+  }, [notebookId, loadNotebook, loadChatHistory, reset]);
 
   // Sync streaming answer into chat messages
   useEffect(() => {
@@ -659,13 +704,25 @@ export function DatasetChatLayout({
                 </div>
               )}
               {rightTab === "evidence" && (
-                <div className="space-y-4">
-                  <RunMetricsStrip
-                    timing={state.timing}
-                    metrics={state.metrics}
-                  />
+                <div className="space-y-5">
                   <div>
-                    <h3 className="section-title">Top documents</h3>
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
+                      Run overview
+                    </h3>
+                    <div className="mt-2">
+                      <RunMetricsStrip
+                        timing={state.timing}
+                        metrics={state.metrics}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
+                      Top documents
+                    </h3>
+                    <p className="mt-0.5 mb-2 text-[11px] leading-relaxed text-[var(--fg-subtle)]">
+                      Click a row for full source text and ranking breakdown.
+                    </p>
                     <DocumentResultsList
                       documents={state.documents}
                       activeId={selectedDoc?.documentId}
@@ -700,6 +757,10 @@ export function DatasetChatLayout({
                         : state.results
                     }
                     packedChunks={state.results}
+                    onSelectDocument={(doc) => {
+                      setSelectedDoc(doc);
+                      setDrawerOpen(true);
+                    }}
                   />
                 </div>
               )}

@@ -15,10 +15,15 @@ function modeLabel(mode?: string) {
     case "bm25_fallback":
       return "BM25 fallback";
     case "bm25":
-      return "BM25";
+      return "BM25 only";
     default:
       return mode || "—";
   }
+}
+
+function pct(n?: number | null) {
+  if (n == null || !Number.isFinite(n)) return null;
+  return `${Math.round(n * 100)}%`;
 }
 
 export function RunMetricsStrip({
@@ -30,80 +35,163 @@ export function RunMetricsStrip({
 }) {
   if (!timing && !metrics) {
     return (
-      <p className="text-xs text-[var(--fg-subtle)]">
-        Run a query to see query time, rank time, confidence, and total latency.
-      </p>
+      <div className="rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--bg-panel)] px-3 py-4 text-center">
+        <p className="text-xs font-medium text-[var(--fg-muted)]">
+          Run metrics appear after a search
+        </p>
+        <p className="mt-0.5 text-[11px] text-[var(--fg-subtle)]">
+          Latency, retrieval mode, and match strength in one place.
+        </p>
+      </div>
     );
   }
 
-  const items: { label: string; value: string }[] = [
-    { label: "Total", value: fmtMs(timing?.totalMs) },
+  const latency: { label: string; value: string; hint?: string }[] = [
+    { label: "Total", value: fmtMs(timing?.totalMs), hint: "End-to-end wall time" },
     { label: "Query", value: fmtMs(timing?.queryProcessMs) },
     {
       label: "Rank",
       value: fmtMs(timing?.rankMs ?? timing?.retrieveMs),
+      hint: "BM25 + dense + fusion",
     },
     { label: "BM25", value: fmtMs(timing?.bm25Ms) },
-    { label: "Embed (query)", value: fmtMs(timing?.embeddingMs) },
+    {
+      label: "Embed",
+      value: fmtMs(timing?.embeddingMs),
+      hint: "Query-time dense vectors (not stored at upload)",
+    },
     { label: "Pack", value: fmtMs(timing?.packMs) },
-    { label: "Generate", value: fmtMs(timing?.generateMs) },
+    { label: "Answer", value: fmtMs(timing?.generateMs) },
   ];
-
   if (timing?.ttftMs != null) {
-    items.push({ label: "TTFT", value: fmtMs(timing.ttftMs) });
+    latency.push({
+      label: "TTFT",
+      value: fmtMs(timing.ttftMs),
+      hint: "Time to first token",
+    });
   }
 
+  const confMax = pct(metrics?.confidenceMax);
+  const confMean = pct(metrics?.confidenceMean);
+  const margin = pct(metrics?.scoreMargin);
+
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-1.5">
-        {items.map((item) => (
-          <span
-            key={item.label}
-            className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1 font-mono text-[10px] text-[var(--fg-muted)]"
-          >
-            <span className="text-[var(--fg-subtle)]">{item.label}</span>
-            <span className="font-semibold text-[var(--fg)]">{item.value}</span>
+    <div className="space-y-3">
+      {/* Mode + quality — human labels */}
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-3">
+        <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
+          Retrieval quality
+        </p>
+        <p className="mt-0.5 text-[10px] leading-relaxed text-[var(--fg-subtle)]">
+          Match strength is a score-derived proxy for this query (not calibrated
+          probability).
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center rounded-lg bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--primary)] ring-1 ring-[var(--primary-border)]">
+            {modeLabel(metrics?.retrievalMode)}
           </span>
-        ))}
+          {confMax != null && (
+            <QualityPill
+              label="Top match"
+              value={confMax}
+              strong
+              title="Best document match strength for this query"
+            />
+          )}
+          {confMean != null && (
+            <QualityPill
+              label="Mean match"
+              value={confMean}
+              title="Average match strength across ranked documents"
+            />
+          )}
+          {margin != null && (
+            <QualityPill
+              label="Score margin"
+              value={margin}
+              title="Relative gap between #1 and #2 final scores"
+            />
+          )}
+          {metrics?.documentsRanked != null && (
+            <QualityPill
+              label="Documents"
+              value={String(metrics.documentsRanked)}
+            />
+          )}
+          {metrics?.chunkCount != null && (
+            <QualityPill
+              label="Units ranked"
+              value={String(metrics.chunkCount)}
+              title="Ephemeral retrieval units this run — not stored chunk rows"
+            />
+          )}
+          {metrics?.bm25Weight != null && (
+            <QualityPill
+              label="BM25 weight"
+              value={metrics.bm25Weight.toFixed(2)}
+            />
+          )}
+        </div>
       </div>
-      <div className="flex flex-wrap gap-1.5 text-[11px] text-[var(--fg-muted)]">
-        <span className="rounded-md bg-[var(--primary-soft)] px-2 py-0.5 font-medium text-[var(--primary)]">
-          {modeLabel(metrics?.retrievalMode)}
-        </span>
-        {metrics?.confidenceMax != null && (
-          <span className="rounded-md border border-[var(--border)] px-2 py-0.5 font-mono">
-            conf_max={(metrics.confidenceMax * 100).toFixed(0)}%
-          </span>
-        )}
-        {metrics?.confidenceMean != null && (
-          <span className="rounded-md border border-[var(--border)] px-2 py-0.5 font-mono">
-            conf_mean={(metrics.confidenceMean * 100).toFixed(0)}%
-          </span>
-        )}
-        {metrics?.scoreMargin != null && (
-          <span className="rounded-md border border-[var(--border)] px-2 py-0.5 font-mono">
-            margin={(metrics.scoreMargin * 100).toFixed(0)}%
-          </span>
-        )}
-        {metrics?.documentsRanked != null && (
-          <span className="rounded-md border border-[var(--border)] px-2 py-0.5 font-mono">
-            docs={metrics.documentsRanked}
-          </span>
-        )}
-        {metrics?.chunkCount != null && (
-          <span
-            className="rounded-md border border-[var(--border)] px-2 py-0.5 font-mono"
-            title="Ephemeral retrieval units built at query time (not stored chunk rows)"
-          >
-            units={metrics.chunkCount}
-          </span>
-        )}
-        {metrics?.bm25Weight != null && (
-          <span className="rounded-md border border-[var(--border)] px-2 py-0.5 font-mono">
-            w_BM25={metrics.bm25Weight.toFixed(2)}
-          </span>
-        )}
+
+      {/* Latency grid */}
+      <div>
+        <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
+          Latency
+        </p>
+        <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+          {latency.map((item) => (
+            <div
+              key={item.label}
+              title={item.hint}
+              className="rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] px-2 py-1.5 text-center"
+            >
+              <div className="text-[9px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
+                {item.label}
+              </div>
+              <div className="mt-0.5 font-mono text-[12px] font-semibold tabular-nums text-[var(--fg)]">
+                {item.value}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
+  );
+}
+
+function QualityPill({
+  label,
+  value,
+  strong,
+  title,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+  title?: string;
+}) {
+  return (
+    <span
+      title={title}
+      className={
+        strong
+          ? "inline-flex flex-col rounded-lg border border-[var(--primary-border)] bg-[var(--primary-soft)] px-2 py-1"
+          : "inline-flex flex-col rounded-lg border border-[var(--border)] bg-[var(--bg-panel)] px-2 py-1"
+      }
+    >
+      <span className="text-[9px] font-medium text-[var(--fg-subtle)]">
+        {label}
+      </span>
+      <span
+        className={
+          strong
+            ? "font-mono text-[12px] font-bold tabular-nums text-[var(--primary)]"
+            : "font-mono text-[12px] font-semibold tabular-nums text-[var(--fg)]"
+        }
+      >
+        {value}
+      </span>
+    </span>
   );
 }

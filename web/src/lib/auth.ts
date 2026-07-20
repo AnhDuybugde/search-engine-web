@@ -169,6 +169,31 @@ export function getSessionClaimsFromRequest(req: Request): SessionClaims | null 
   return parseSessionToken(getSessionTokenFromRequest(req));
 }
 
+/** Authenticated app user id, or null if no valid session cookie. */
+export function getRequestUserId(req: Request): string | null {
+  const claims = getSessionClaimsFromRequest(req);
+  return claims?.userId ?? null;
+}
+
+/**
+ * Require a logged-in user id for multi-user owned resources.
+ * Returns 401 Response when auth is required and missing.
+ * When auth is disabled, returns a stable demo owner id.
+ */
+export function requireUserId(
+  req: Request,
+): { userId: string } | { error: Response } {
+  const userId = getRequestUserId(req);
+  if (userId) return { userId };
+  if (!isAuthRequired()) return { userId: "anonymous" };
+  return {
+    error: Response.json(
+      { error: "Unauthorized" },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
+    ),
+  };
+}
+
 /**
  * Returns null if authorized; otherwise a 401 Response.
  * Accepts user session cookie or optional APP_PASSWORD bearer (admin/health tools).

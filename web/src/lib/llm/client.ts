@@ -54,7 +54,7 @@ export async function streamAnswer(params: {
       err.name = "AbortError";
       throw err;
     }
-    const system = buildCitationSystemPrompt();
+    const system = buildCitationSystemPrompt(params.query);
     const prompt = buildCitationUserPrompt(params.query, workingChunks, {
       maxCharsPerChunk: maxPerChunk,
       maxTotalChars: maxTotal,

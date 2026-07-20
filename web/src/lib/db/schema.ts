@@ -57,9 +57,10 @@ export const searchRuns = pgTable("search_runs", {
   completedAt: timestamp("completed_at", { withTimezone: true }),
 });
 
-/** Multi-turn web search conversations */
+/** Multi-turn web search conversations (owned by app user) */
 export const searchSessions = pgTable("search_sessions", {
   id: varchar("id", { length: 36 }).primaryKey(),
+  userId: varchar("user_id", { length: 36 }),
   title: text("title").notNull().default("New chat"),
   summary: text("summary"),
   entitiesJson: jsonb("entities_json"),
@@ -76,6 +77,21 @@ export const searchMessages = pgTable("search_messages", {
   resultsJson: jsonb("results_json"),
   timingJson: jsonb("timing_json"),
   metricsJson: jsonb("metrics_json"),
+  status: varchar("status", { length: 32 }).notNull().default("completed"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+/** Per-user chat turns inside a dataset notebook */
+export const notebookMessages = pgTable("notebook_messages", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  notebookId: varchar("notebook_id", { length: 36 }).notNull(),
+  userId: varchar("user_id", { length: 36 }).notNull(),
+  role: varchar("role", { length: 16 }).notNull(),
+  content: text("content").notNull(),
+  resultsJson: jsonb("results_json"),
+  timingJson: jsonb("timing_json"),
+  metricsJson: jsonb("metrics_json"),
+  documentsJson: jsonb("documents_json"),
   status: varchar("status", { length: 32 }).notNull().default("completed"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });

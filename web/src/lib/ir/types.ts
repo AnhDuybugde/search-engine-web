@@ -30,7 +30,10 @@ export type RankedDocument = {
   title: string;
   finalScore: number;
   finalRank: number;
-  /** Normalized 0–1 display confidence (score proxy, not calibrated ML) */
+  /**
+   * Display confidence proxy in [0,1] from this query's ranked scores
+   * (absolute BM25/dense/final + relative margin). Not a calibrated ML probability.
+   */
   confidence: number;
   bm25Best?: number;
   denseBest?: number;
@@ -79,7 +82,7 @@ export type Metrics = {
   topKDocuments?: number;
   confidenceMean?: number;
   confidenceMax?: number;
-  /** (top1 - top2) / max(top1, eps) on confidence */
+  /** (top1 - top2) / top1 on finalScore (retrieval signal) */
   scoreMargin?: number;
   eval?: {
     dataset?: "scifact" | "scidocs" | string;

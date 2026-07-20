@@ -14,12 +14,23 @@ import {
 
 export type SearchSessionDto = {
   id: string;
+  userId: string | null;
   title: string;
   summary: string | null;
   entities: SessionEntity[];
   createdAt: string;
   updatedAt: string;
 };
+
+function ownsSession(
+  sessionUserId: string | null | undefined,
+  userId: string | null | undefined,
+): boolean {
+  if (!userId) return true; // no filter when caller omits owner
+  // Legacy rows (null user_id) are visible only until claimed; hide from multi-user lists
+  if (sessionUserId == null) return false;
+  return sessionUserId === userId;
+}
 
 export type SearchMessageDto = {
   id: string;
@@ -59,6 +70,7 @@ function parseEntities(raw: unknown): SessionEntity[] {
 function memSessionToDto(s: MemSearchSession): SearchSessionDto {
   return {
     id: s.id,
+    userId: s.userId ?? null,
     title: s.title,
     summary: s.summary,
     entities: s.entities,
@@ -71,10 +83,14 @@ function memMessageToDto(m: MemSearchMessage): SearchMessageDto {
   return { ...m };
 }
 
-export async function listSessions(limit = 40): Promise<SessionListItem[]> {
-  assertDurableDb('List sessions');
+export async function listSessions(
+  limit = 40,
+  userId?: string | null,
+): Promise<SessionListItem[]> {
+  assertDurableDb("List sessions");
   if (!hasDb()) {
     return Array.from(memSessions.values())
+      .filter((s) => ownsSession(s.userId, userId))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, limit)
       .map((s) => {
@@ -93,21 +109,43 @@ export async function listSessions(limit = 40): Promise<SessionListItem[]> {
 
   const sb = getSupabaseAdmin();
   if (sb) {
-    const { data, error } = await sb
+    let q = sb
       .from("search_sessions")
-      .select("id,title,created_at,updated_at")
+      .select("id,title,user_id,created_at,updated_at")
       .order("updated_at", { ascending: false })
       .limit(limit);
+    if (userId) q = q.eq("user_id", userId);
+    const { data, error } = await q;
     if (error) {
+      // Fallback if user_id column missing (pre-migration)
+      if (/user_id|PGRST204|42703/i.test(sbError(error))) {
+        const legacy = await sb
+          .from("search_sessions")
+          .select("id,title,created_at,updated_at")
+          .order("updated_at", { ascending: false })
+          .limit(limit);
+        if (legacy.error) {
+          console.error("[listSessions]", sbError(legacy.error));
+          return [];
+        }
+        return (legacy.data || []).map((r) => ({
+          id: r.id as string,
+          title: r.title as string,
+          createdAt: toIso(r.created_at),
+          updatedAt: toIso(r.updated_at),
+        }));
+      }
       console.error("[listSessions]", sbError(error));
       return [];
     }
-    return (data || []).map((r) => ({
-      id: r.id as string,
-      title: r.title as string,
-      createdAt: toIso(r.created_at),
-      updatedAt: toIso(r.updated_at),
-    }));
+    return (data || [])
+      .filter((r) => ownsSession((r.user_id as string | null) ?? null, userId))
+      .map((r) => ({
+        id: r.id as string,
+        title: r.title as string,
+        createdAt: toIso(r.created_at),
+        updatedAt: toIso(r.updated_at),
+      }));
   }
 
   try {
@@ -117,24 +155,31 @@ export async function listSessions(limit = 40): Promise<SessionListItem[]> {
       .from(searchSessions)
       .orderBy(desc(searchSessions.updatedAt))
       .limit(limit);
-    return rows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      createdAt: toIso(r.createdAt),
-      updatedAt: toIso(r.updatedAt),
-    }));
+    return rows
+      .filter((r) => ownsSession(r.userId, userId))
+      .map((r) => ({
+        id: r.id,
+        title: r.title,
+        createdAt: toIso(r.createdAt),
+        updatedAt: toIso(r.updatedAt),
+      }));
   } catch (err) {
     console.error("[listSessions]", enrichDbError(err, "List sessions").message);
     return [];
   }
 }
 
-export async function createSession(title?: string): Promise<SearchSessionDto> {
-  assertDurableDb('Create session');
+export async function createSession(
+  title?: string,
+  userId?: string | null,
+): Promise<SearchSessionDto> {
+  assertDurableDb("Create session");
   const id = randomUUID();
   const now = new Date().toISOString();
+  const owner = userId ?? null;
   const row: SearchSessionDto = {
     id,
+    userId: owner,
     title: (title || "New chat").trim() || "New chat",
     summary: null,
     entities: [],
@@ -145,6 +190,7 @@ export async function createSession(title?: string): Promise<SearchSessionDto> {
   if (!hasDb()) {
     memSessions.set(id, {
       id,
+      userId: owner,
       title: row.title,
       summary: null,
       entities: [],
@@ -156,21 +202,28 @@ export async function createSession(title?: string): Promise<SearchSessionDto> {
 
   const sb = getSupabaseAdmin();
   if (sb) {
-    const { error } = await sb.from("search_sessions").insert({
+    const base = {
       id,
       title: row.title,
       summary: null,
       entities_json: [],
       created_at: now,
       updated_at: now,
+    };
+    let { error } = await sb.from("search_sessions").insert({
+      ...base,
+      user_id: owner,
     });
+    if (error && /user_id|PGRST204|42703/i.test(sbError(error))) {
+      ({ error } = await sb.from("search_sessions").insert(base));
+    }
     if (error) {
       const detail = sbError(error);
       const missingTable =
         /search_sessions|PGRST205|schema cache|does not exist/i.test(detail);
       throw new Error(
         missingTable
-          ? `Create session failed: table search_sessions is missing. Run: cd web && npm run db:init (or apply drizzle/0001_search_sessions.sql in Supabase SQL Editor). Details: ${detail}`
+          ? `Create session failed: table search_sessions is missing. Run: cd web && npm run db:init (or apply drizzle/0001_search_sessions.sql + 0004_chat_history_owners.sql in Supabase SQL Editor). Details: ${detail}`
           : `Create session failed: ${detail}`,
       );
     }
@@ -181,6 +234,7 @@ export async function createSession(title?: string): Promise<SearchSessionDto> {
     const db = getDb();
     await db.insert(searchSessions).values({
       id,
+      userId: owner,
       title: row.title,
       summary: null,
       entitiesJson: [],
@@ -193,11 +247,16 @@ export async function createSession(title?: string): Promise<SearchSessionDto> {
   }
 }
 
-export async function getSession(id: string): Promise<SearchSessionDto | null> {
-  assertDurableDb('Get session');
+export async function getSession(
+  id: string,
+  userId?: string | null,
+): Promise<SearchSessionDto | null> {
+  assertDurableDb("Get session");
   if (!hasDb()) {
     const s = memSessions.get(id);
-    return s ? memSessionToDto(s) : null;
+    if (!s) return null;
+    if (!ownsSession(s.userId, userId)) return null;
+    return memSessionToDto(s);
   }
 
   const sb = getSupabaseAdmin();
@@ -208,8 +267,11 @@ export async function getSession(id: string): Promise<SearchSessionDto | null> {
       .eq("id", id)
       .maybeSingle();
     if (error || !data) return null;
+    const owner = (data.user_id as string | null | undefined) ?? null;
+    if (!ownsSession(owner, userId)) return null;
     return {
       id: data.id as string,
+      userId: owner,
       title: data.title as string,
       summary: (data.summary as string | null) || null,
       entities: parseEntities(data.entities_json),
@@ -226,8 +288,10 @@ export async function getSession(id: string): Promise<SearchSessionDto | null> {
     .limit(1);
   const r = rows[0];
   if (!r) return null;
+  if (!ownsSession(r.userId, userId)) return null;
   return {
     id: r.id,
+    userId: r.userId,
     title: r.title,
     summary: r.summary,
     entities: parseEntities(r.entitiesJson),
@@ -237,7 +301,7 @@ export async function getSession(id: string): Promise<SearchSessionDto | null> {
 }
 
 export async function listMessages(sessionId: string): Promise<SearchMessageDto[]> {
-  assertDurableDb('List messages');
+  assertDurableDb("List messages");
   if (!hasDb()) {
     return Array.from(memMessages.values())
       .filter((m) => m.sessionId === sessionId)
@@ -253,8 +317,7 @@ export async function listMessages(sessionId: string): Promise<SearchMessageDto[
       .eq("session_id", sessionId)
       .order("created_at", { ascending: true });
     if (error) {
-      console.error("[listMessages]", sbError(error));
-      return [];
+      throw new Error(`List messages failed: ${sbError(error)}`);
     }
     return (data || []).map((r) => ({
       id: r.id as string,
@@ -290,8 +353,7 @@ export async function listMessages(sessionId: string): Promise<SearchMessageDto[
       createdAt: toIso(r.createdAt),
     }));
   } catch (err) {
-    console.error("[listMessages]", enrichDbError(err, "List messages").message);
-    return [];
+    throw enrichDbError(err, "List messages");
   }
 }
 
@@ -310,6 +372,7 @@ export async function updateSession(
   const now = new Date().toISOString();
   const next: SearchSessionDto = {
     ...existing,
+    userId: existing.userId,
     title: patch.title?.trim() || existing.title,
     summary:
       patch.summary !== undefined ? patch.summary : existing.summary,
@@ -320,6 +383,7 @@ export async function updateSession(
   if (!hasDb()) {
     memSessions.set(id, {
       id,
+      userId: existing.userId,
       title: next.title,
       summary: next.summary,
       entities: next.entities,
