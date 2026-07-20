@@ -57,10 +57,14 @@ export async function POST(
         status: "completed",
       });
     } catch (err) {
-      console.error(
-        "[notebook ask] save user message",
-        err instanceof Error ? err.message : err,
-      );
+      const message =
+        err instanceof Error ? err.message : "Failed to save user message";
+      console.error("[notebook ask] save user message", message);
+      emit({
+        type: "error",
+        message: `Chat history not saved: ${message}`,
+      });
+      // Continue pipeline so the user still gets an answer, but history is broken loudly.
     }
 
     try {
@@ -90,10 +94,13 @@ export async function POST(
           status: "completed",
         });
       } catch (err) {
-        console.error(
-          "[notebook ask] save assistant message",
-          err instanceof Error ? err.message : err,
-        );
+        const message =
+          err instanceof Error ? err.message : "Failed to save assistant message";
+        console.error("[notebook ask] save assistant message", message);
+        emit({
+          type: "error",
+          message: `Chat history not saved: ${message}`,
+        });
       }
     } catch (err) {
       if ((err as Error)?.name === "AbortError") throw err;
@@ -106,8 +113,11 @@ export async function POST(
           content: `Error: ${message}`,
           status: "failed",
         });
-      } catch {
-        /* best-effort */
+      } catch (saveErr) {
+        console.error(
+          "[notebook ask] save failed assistant",
+          saveErr instanceof Error ? saveErr.message : saveErr,
+        );
       }
       emit({ type: "error", message });
     }

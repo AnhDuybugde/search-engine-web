@@ -3,6 +3,10 @@ import { randomUUID } from "crypto";
 import type { SessionEntity } from "@/lib/context/types";
 import type { Metrics, RankedChunk, Timing } from "@/lib/ir/types";
 import { assertDurableDb, enrichDbError, getDb, hasDb } from "./client";
+import {
+  ensureChatHistorySqlSchema,
+  hasSqlDatabaseUrl,
+} from "./chat-history-schema";
 import { searchMessages, searchSessions } from "./schema";
 import { getSupabaseAdmin, sbError, toIso } from "./supabase";
 import {
@@ -22,14 +26,32 @@ export type SearchSessionDto = {
   updatedAt: string;
 };
 
+/** When search_sessions.user_id column is known missing, allow legacy unscoped rows. */
+let searchSessionsUserIdColumn: boolean | null = null;
+
+export function setSearchSessionsUserIdColumnForTests(v: boolean | null) {
+  searchSessionsUserIdColumn = v;
+}
+
 function ownsSession(
   sessionUserId: string | null | undefined,
   userId: string | null | undefined,
 ): boolean {
   if (!userId) return true; // no filter when caller omits owner
-  // Legacy rows (null user_id) are visible only until claimed; hide from multi-user lists
-  if (sessionUserId == null) return false;
+  // Legacy pre-migration rows (null user_id): if the column does not exist yet,
+  // treat history as shared/legacy-visible; once the column exists, null means unowned.
+  if (sessionUserId == null) {
+    return searchSessionsUserIdColumn === false;
+  }
   return sessionUserId === userId;
+}
+
+function markUserIdColumnMissingFromError(errorText: string): boolean {
+  if (/user_id/i.test(errorText) && /42703|PGRST204|does not exist|schema cache|Could not find/i.test(errorText)) {
+    searchSessionsUserIdColumn = false;
+    return true;
+  }
+  return false;
 }
 
 export type SearchMessageDto = {
@@ -107,6 +129,37 @@ export async function listSessions(
       });
   }
 
+  // Prefer SQL so owner column exists after ensureChatHistorySqlSchema.
+  if (hasSqlDatabaseUrl()) {
+    try {
+      await ensureChatHistorySqlSchema();
+      const db = getDb();
+      const rows = await db
+        .select()
+        .from(searchSessions)
+        .orderBy(desc(searchSessions.updatedAt))
+        .limit(limit);
+      searchSessionsUserIdColumn = true;
+      return rows
+        .filter((r) => ownsSession(r.userId, userId))
+        .map((r) => ({
+          id: r.id,
+          title: r.title,
+          createdAt: toIso(r.createdAt),
+          updatedAt: toIso(r.updatedAt),
+        }));
+    } catch (err) {
+      if (!getSupabaseAdmin()) {
+        console.error("[listSessions]", enrichDbError(err, "List sessions").message);
+        return [];
+      }
+      console.warn(
+        "[listSessions] SQL path failed, trying REST:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   const sb = getSupabaseAdmin();
   if (sb) {
     let q = sb
@@ -114,11 +167,13 @@ export async function listSessions(
       .select("id,title,user_id,created_at,updated_at")
       .order("updated_at", { ascending: false })
       .limit(limit);
-    if (userId) q = q.eq("user_id", userId);
+    if (userId && searchSessionsUserIdColumn !== false) {
+      q = q.eq("user_id", userId);
+    }
     const { data, error } = await q;
     if (error) {
       // Fallback if user_id column missing (pre-migration)
-      if (/user_id|PGRST204|42703/i.test(sbError(error))) {
+      if (markUserIdColumnMissingFromError(sbError(error))) {
         const legacy = await sb
           .from("search_sessions")
           .select("id,title,created_at,updated_at")
@@ -138,6 +193,7 @@ export async function listSessions(
       console.error("[listSessions]", sbError(error));
       return [];
     }
+    searchSessionsUserIdColumn = true;
     return (data || [])
       .filter((r) => ownsSession((r.user_id as string | null) ?? null, userId))
       .map((r) => ({
@@ -200,6 +256,31 @@ export async function createSession(
     return row;
   }
 
+  // Prefer SQL when DATABASE_URL can host owner column + tables.
+  if (hasSqlDatabaseUrl()) {
+    try {
+      await ensureChatHistorySqlSchema();
+      const db = getDb();
+      await db.insert(searchSessions).values({
+        id,
+        userId: owner,
+        title: row.title,
+        summary: null,
+        entitiesJson: [],
+        createdAt: new Date(now),
+        updatedAt: new Date(now),
+      });
+      searchSessionsUserIdColumn = true;
+      return row;
+    } catch (err) {
+      if (!getSupabaseAdmin()) throw enrichDbError(err, "Create session");
+      console.warn(
+        "[createSession] SQL path failed, trying REST:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   const sb = getSupabaseAdmin();
   if (sb) {
     const base = {
@@ -214,8 +295,11 @@ export async function createSession(
       ...base,
       user_id: owner,
     });
-    if (error && /user_id|PGRST204|42703/i.test(sbError(error))) {
+    if (error && markUserIdColumnMissingFromError(sbError(error))) {
       ({ error } = await sb.from("search_sessions").insert(base));
+      // Stored without owner column — keep DTO userId for client, list uses legacy mode
+    } else if (!error) {
+      searchSessionsUserIdColumn = true;
     }
     if (error) {
       const detail = sbError(error);
@@ -231,6 +315,7 @@ export async function createSession(
   }
 
   try {
+    await ensureChatHistorySqlSchema();
     const db = getDb();
     await db.insert(searchSessions).values({
       id,
@@ -241,6 +326,7 @@ export async function createSession(
       createdAt: new Date(now),
       updatedAt: new Date(now),
     });
+    searchSessionsUserIdColumn = true;
     return row;
   } catch (err) {
     throw enrichDbError(err, "Create session");
@@ -259,6 +345,37 @@ export async function getSession(
     return memSessionToDto(s);
   }
 
+  if (hasSqlDatabaseUrl()) {
+    try {
+      await ensureChatHistorySqlSchema();
+      const db = getDb();
+      const rows = await db
+        .select()
+        .from(searchSessions)
+        .where(eq(searchSessions.id, id))
+        .limit(1);
+      const r = rows[0];
+      if (!r) return null;
+      searchSessionsUserIdColumn = true;
+      if (!ownsSession(r.userId, userId)) return null;
+      return {
+        id: r.id,
+        userId: r.userId,
+        title: r.title,
+        summary: r.summary,
+        entities: parseEntities(r.entitiesJson),
+        createdAt: toIso(r.createdAt),
+        updatedAt: toIso(r.updatedAt),
+      };
+    } catch (err) {
+      if (!getSupabaseAdmin()) return null;
+      console.warn(
+        "[getSession] SQL path failed, trying REST:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   const sb = getSupabaseAdmin();
   if (sb) {
     const { data, error } = await sb
@@ -268,6 +385,7 @@ export async function getSession(
       .maybeSingle();
     if (error || !data) return null;
     const owner = (data.user_id as string | null | undefined) ?? null;
+    if (data.user_id !== undefined) searchSessionsUserIdColumn = true;
     if (!ownsSession(owner, userId)) return null;
     return {
       id: data.id as string,
@@ -280,24 +398,7 @@ export async function getSession(
     };
   }
 
-  const db = getDb();
-  const rows = await db
-    .select()
-    .from(searchSessions)
-    .where(eq(searchSessions.id, id))
-    .limit(1);
-  const r = rows[0];
-  if (!r) return null;
-  if (!ownsSession(r.userId, userId)) return null;
-  return {
-    id: r.id,
-    userId: r.userId,
-    title: r.title,
-    summary: r.summary,
-    entities: parseEntities(r.entitiesJson),
-    createdAt: toIso(r.createdAt),
-    updatedAt: toIso(r.updatedAt),
-  };
+  return null;
 }
 
 export async function listMessages(sessionId: string): Promise<SearchMessageDto[]> {

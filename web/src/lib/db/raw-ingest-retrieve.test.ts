@@ -175,4 +175,74 @@ describe("raw-sources-only ingest → load → retrieve (shipped path)", () => {
     expect(result.documents[0].title).toMatch(/bm25/i);
     expect(result.metrics.chunkCount).toBe(2);
   });
+
+  it("duplicate same title+text creates two distinct sources (no content/filename dedup)", async () => {
+    const notebook = await createNotebook("Dup upload notebook");
+    touchedNotebookIds.push(notebook.id);
+
+    const body =
+      "Identical document body for dedup regression — BM25 lexical retrieval.";
+    const title = "report-v1.pdf";
+
+    const first = await addSource({
+      notebookId: notebook.id,
+      title,
+      mime: "application/pdf",
+      text: body,
+    });
+    const second = await addSource({
+      notebookId: notebook.id,
+      title,
+      mime: "application/pdf",
+      text: body,
+    });
+
+    expect(first.id).not.toBe(second.id);
+    expect(first.title).toBe(title);
+    expect(second.title).toBe(title);
+    expect(first.charCount).toBe(body.length);
+    expect(second.charCount).toBe(body.length);
+
+    const units = await loadChunks(notebook.id);
+    expect(units).toHaveLength(2);
+    const ids = new Set(units.map((u) => u.documentId));
+    expect(ids.has(first.id)).toBe(true);
+    expect(ids.has(second.id)).toBe(true);
+    // Both units carry the same full text — retrieval will see duplicate corpus weight
+    expect(units.every((u) => u.text === body)).toBe(true);
+    expect(await countChunks(notebook.id)).toBe(0);
+  });
+
+  it("loadChunks without sourceIds uses whole notebook; with sourceIds filters subset", async () => {
+    const notebook = await createNotebook("Scope filter notebook");
+    touchedNotebookIds.push(notebook.id);
+
+    const keep = await addSource({
+      notebookId: notebook.id,
+      title: "keep-me.txt",
+      mime: "text/plain",
+      text: "Keep document discusses adaptive reciprocal rank fusion.",
+    });
+    const drop = await addSource({
+      notebookId: notebook.id,
+      title: "drop-me.txt",
+      mime: "text/plain",
+      text: "Drop document is about unrelated horticulture topics only.",
+    });
+
+    const whole = await loadChunks(notebook.id);
+    expect(whole).toHaveLength(2);
+    expect(new Set(whole.map((u) => u.documentId))).toEqual(
+      new Set([keep.id, drop.id]),
+    );
+
+    // Empty / omitted filter must not shrink corpus (UI ask path today)
+    const emptyFilter = await loadChunks(notebook.id, []);
+    expect(emptyFilter).toHaveLength(2);
+
+    const filtered = await loadChunks(notebook.id, [keep.id]);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].documentId).toBe(keep.id);
+    expect(filtered[0].title).toBe("keep-me.txt");
+  });
 });

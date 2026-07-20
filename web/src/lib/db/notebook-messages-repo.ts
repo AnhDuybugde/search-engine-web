@@ -2,6 +2,10 @@ import { randomUUID } from "crypto";
 import { and, asc, eq } from "drizzle-orm";
 import type { Metrics, RankedChunk, RankedDocument, Timing } from "@/lib/ir/types";
 import { assertDurableDb, enrichDbError, getDb, hasDb } from "./client";
+import {
+  ensureChatHistorySqlSchema,
+  hasSqlDatabaseUrl,
+} from "./chat-history-schema";
 import { notebookMessages } from "./schema";
 import { getSupabaseAdmin, sbError, toIso } from "./supabase";
 import { memNotebookMessages, type MemNotebookMessage } from "./memory";
@@ -36,6 +40,74 @@ function memToDto(m: MemNotebookMessage): NotebookMessageDto {
   };
 }
 
+function isMissingNotebookMessagesTable(error: unknown): boolean {
+  const text =
+    typeof error === "string"
+      ? error
+      : error instanceof Error
+        ? error.message
+        : error && typeof error === "object"
+          ? JSON.stringify(error)
+          : String(error);
+  return (
+    /notebook_messages/i.test(text) &&
+    (/PGRST205/i.test(text) ||
+      /schema cache/i.test(text) ||
+      /does not exist/i.test(text) ||
+      /Could not find the table/i.test(text) ||
+      /relation/i.test(text))
+  );
+}
+
+async function listViaSql(
+  notebookId: string,
+  userId: string,
+): Promise<NotebookMessageDto[]> {
+  await ensureChatHistorySqlSchema();
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(notebookMessages)
+    .where(
+      and(
+        eq(notebookMessages.notebookId, notebookId),
+        eq(notebookMessages.userId, userId),
+      ),
+    )
+    .orderBy(asc(notebookMessages.createdAt));
+  return rows.map((r) => ({
+    id: r.id,
+    notebookId: r.notebookId,
+    userId: r.userId,
+    role: r.role as "user" | "assistant",
+    content: r.content,
+    results: (r.resultsJson as RankedChunk[] | null) || null,
+    timing: (r.timingJson as Timing | null) || null,
+    metrics: (r.metricsJson as Metrics | null) || null,
+    documents: (r.documentsJson as RankedDocument[] | null) || null,
+    status: r.status,
+    createdAt: toIso(r.createdAt),
+  }));
+}
+
+async function insertViaSql(row: NotebookMessageDto): Promise<void> {
+  await ensureChatHistorySqlSchema();
+  const db = getDb();
+  await db.insert(notebookMessages).values({
+    id: row.id,
+    notebookId: row.notebookId,
+    userId: row.userId,
+    role: row.role,
+    content: row.content,
+    resultsJson: row.results,
+    timingJson: row.timing,
+    metricsJson: row.metrics,
+    documentsJson: row.documents,
+    status: row.status,
+    createdAt: new Date(row.createdAt),
+  });
+}
+
 export async function listNotebookMessages(
   notebookId: string,
   userId: string,
@@ -48,6 +120,23 @@ export async function listNotebookMessages(
       .map(memToDto);
   }
 
+  // Prefer SQL when available so local DATABASE_URL can host history even if
+  // Supabase REST is missing notebook_messages (common pre-migration state).
+  if (hasSqlDatabaseUrl()) {
+    try {
+      return await listViaSql(notebookId, userId);
+    } catch (err) {
+      // Fall through to REST if SQL fails (e.g. only REST configured incorrectly)
+      if (!getSupabaseAdmin()) {
+        throw enrichDbError(err, "List notebook messages");
+      }
+      console.warn(
+        "[listNotebookMessages] SQL path failed, trying REST:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   const sb = getSupabaseAdmin();
   if (sb) {
     const { data, error } = await sb
@@ -57,9 +146,14 @@ export async function listNotebookMessages(
       .eq("user_id", userId)
       .order("created_at", { ascending: true });
     if (error) {
-      // Table missing → empty history (pre-migration) rather than hard-fail UI
-      if (/notebook_messages|PGRST205|does not exist|schema cache/i.test(sbError(error))) {
-        return [];
+      if (isMissingNotebookMessagesTable(error) && hasSqlDatabaseUrl()) {
+        return listViaSql(notebookId, userId);
+      }
+      if (isMissingNotebookMessagesTable(error)) {
+        throw new Error(
+          "List notebook messages failed: table notebook_messages is missing. " +
+            "Run: cd web && npm run db:init (or apply drizzle/0004_chat_history_owners.sql in Supabase SQL Editor).",
+        );
       }
       throw new Error(`List notebook messages failed: ${sbError(error)}`);
     }
@@ -79,30 +173,7 @@ export async function listNotebookMessages(
   }
 
   try {
-    const db = getDb();
-    const rows = await db
-      .select()
-      .from(notebookMessages)
-      .where(
-        and(
-          eq(notebookMessages.notebookId, notebookId),
-          eq(notebookMessages.userId, userId),
-        ),
-      )
-      .orderBy(asc(notebookMessages.createdAt));
-    return rows.map((r) => ({
-      id: r.id,
-      notebookId: r.notebookId,
-      userId: r.userId,
-      role: r.role as "user" | "assistant",
-      content: r.content,
-      results: (r.resultsJson as RankedChunk[] | null) || null,
-      timing: (r.timingJson as Timing | null) || null,
-      metrics: (r.metricsJson as Metrics | null) || null,
-      documents: (r.documentsJson as RankedDocument[] | null) || null,
-      status: r.status,
-      createdAt: toIso(r.createdAt),
-    }));
+    return await listViaSql(notebookId, userId);
   } catch (err) {
     throw enrichDbError(err, "List notebook messages");
   }
@@ -153,6 +224,23 @@ export async function addNotebookMessage(params: {
     return row;
   }
 
+  // Prefer SQL path when DATABASE_URL is set (ensures durable history even when
+  // Supabase REST schema lags migrations).
+  if (hasSqlDatabaseUrl()) {
+    try {
+      await insertViaSql(row);
+      return row;
+    } catch (err) {
+      if (!getSupabaseAdmin()) {
+        throw enrichDbError(err, "Save notebook message");
+      }
+      console.warn(
+        "[addNotebookMessage] SQL path failed, trying REST:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   const sb = getSupabaseAdmin();
   if (sb) {
     const { error } = await sb.from("notebook_messages").insert({
@@ -169,26 +257,24 @@ export async function addNotebookMessage(params: {
       created_at: now,
     });
     if (error) {
-      throw new Error(`Save notebook message failed: ${sbError(error)}`);
+      if (isMissingNotebookMessagesTable(error) && hasSqlDatabaseUrl()) {
+        await insertViaSql(row);
+        return row;
+      }
+      const detail = sbError(error);
+      if (isMissingNotebookMessagesTable(error)) {
+        throw new Error(
+          `Save notebook message failed: table notebook_messages is missing. ` +
+            `Run: cd web && npm run db:init (or apply drizzle/0004_chat_history_owners.sql). Details: ${detail}`,
+        );
+      }
+      throw new Error(`Save notebook message failed: ${detail}`);
     }
     return row;
   }
 
   try {
-    const db = getDb();
-    await db.insert(notebookMessages).values({
-      id,
-      notebookId: row.notebookId,
-      userId: row.userId,
-      role: row.role,
-      content: row.content,
-      resultsJson: row.results,
-      timingJson: row.timing,
-      metricsJson: row.metrics,
-      documentsJson: row.documents,
-      status: row.status,
-      createdAt: new Date(now),
-    });
+    await insertViaSql(row);
     return row;
   } catch (err) {
     throw enrichDbError(err, "Save notebook message");

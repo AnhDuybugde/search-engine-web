@@ -118,9 +118,12 @@ export function DatasetChatLayout({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        // Keep empty history if table not migrated yet
         setMessages([]);
         setActiveAssistantId(null);
+        const errMsg =
+          (data as { error?: string }).error ||
+          "Failed to load chat history from database";
+        setUiError(errMsg);
         return;
       }
       const msgs: ChatMessage[] = (data.messages || []).map(

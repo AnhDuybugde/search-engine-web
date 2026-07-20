@@ -1,6 +1,7 @@
 /**
  * Per-user chat history: save → reload, and user isolation.
- * Drives shipped sessions-repo + notebook-messages-repo on the memory backend.
+ * Drives shipped sessions-repo + notebook-messages-repo on the memory backend,
+ * and (when DATABASE_URL points at local Postgres) the real SQL path.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -9,6 +10,7 @@ import {
   getSession,
   listMessages,
   listSessions,
+  setSearchSessionsUserIdColumnForTests,
 } from "./sessions-repo";
 import {
   addNotebookMessage,
@@ -19,6 +21,10 @@ import {
   memNotebookMessages,
   memSessions,
 } from "./memory";
+import {
+  ensureChatHistorySqlSchema,
+  resetChatHistorySchemaCache,
+} from "./chat-history-schema";
 
 function setEnv(key: string, value: string | undefined) {
   if (value === undefined) delete process.env[key];
@@ -45,6 +51,9 @@ describe("chat history per user (shipped repos, memory backend)", () => {
     for (const k of DB_KEYS) prev[k] = process.env[k];
     for (const k of DB_KEYS) delete process.env[k];
     process.env.ALLOW_MEMORY_DB = "1";
+    process.env.NODE_ENV = "test";
+    setSearchSessionsUserIdColumnForTests(null);
+    resetChatHistorySchemaCache();
     memSessions.clear();
     memMessages.clear();
     memNotebookMessages.clear();
@@ -54,6 +63,8 @@ describe("chat history per user (shipped repos, memory backend)", () => {
     memSessions.clear();
     memMessages.clear();
     memNotebookMessages.clear();
+    setSearchSessionsUserIdColumnForTests(null);
+    resetChatHistorySchemaCache();
     for (const k of DB_KEYS) setEnv(k, prev[k]);
   });
 
@@ -147,5 +158,110 @@ describe("chat history per user (shipped repos, memory backend)", () => {
 
     const forA = await listNotebookMessages(notebookId, "user-a");
     expect(forA).toHaveLength(2);
+  });
+});
+
+const localDbUrl =
+  process.env.CHAT_HISTORY_TEST_DATABASE_URL ||
+  "postgresql://postgres:postgres@127.0.0.1:5433/search";
+
+describe("chat history durable SQL path (DATABASE_URL)", () => {
+  const prev: Record<string, string | undefined> = {};
+  const marker = `sql-hist-${Date.now()}`;
+
+  beforeEach(() => {
+    for (const k of DB_KEYS) prev[k] = process.env[k];
+    // Force SQL-only durable backend (no Supabase REST) against local Postgres.
+    delete process.env.SUPABASE_URL;
+    delete process.env.SUPABASE_SECRET_KEY;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    delete process.env.SUPABASE_SERVICE_KEY;
+    delete process.env.SUPABASE_SECRET;
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    process.env.DATABASE_URL = localDbUrl;
+    process.env.DB_SSL = "disable";
+    delete process.env.ALLOW_MEMORY_DB;
+    delete process.env.VERCEL;
+    process.env.NODE_ENV = "test";
+    setSearchSessionsUserIdColumnForTests(null);
+    resetChatHistorySchemaCache();
+  });
+
+  afterEach(() => {
+    setSearchSessionsUserIdColumnForTests(null);
+    resetChatHistorySchemaCache();
+    for (const k of DB_KEYS) setEnv(k, prev[k]);
+  });
+
+  it("ensures schema then save→list notebook messages via shipped SQL path", async () => {
+    const ok = await ensureChatHistorySqlSchema();
+    if (!ok) {
+      // Local Postgres not running — skip rather than false pass.
+      console.warn("skip SQL chat history test: ensureChatHistorySqlSchema failed");
+      return;
+    }
+
+    const notebookId = `nb-${marker}`;
+    const userId = `user-${marker}`;
+    await addNotebookMessage({
+      notebookId,
+      userId,
+      role: "user",
+      content: `query ${marker}`,
+    });
+    await addNotebookMessage({
+      notebookId,
+      userId,
+      role: "assistant",
+      content: `answer ${marker}`,
+      status: "completed",
+    });
+
+    const history = await listNotebookMessages(notebookId, userId);
+    expect(history.length).toBeGreaterThanOrEqual(2);
+    const contents = history.map((m) => m.content);
+    expect(contents.some((c) => c.includes(`query ${marker}`))).toBe(true);
+    expect(contents.some((c) => c.includes(`answer ${marker}`))).toBe(true);
+    expect(history.every((m) => m.content.trim().length > 0)).toBe(true);
+  });
+
+  it("ensures schema then createSession→addMessage→listMessages via shipped SQL path", async () => {
+    const ok = await ensureChatHistorySqlSchema();
+    if (!ok) {
+      console.warn("skip SQL session history test: ensureChatHistorySqlSchema failed");
+      return;
+    }
+
+    const userId = `user-sess-${marker}`;
+    const session = await createSession(`session ${marker}`, userId);
+    expect(session.userId).toBe(userId);
+
+    await addMessage({
+      sessionId: session.id,
+      role: "user",
+      content: `web query ${marker}`,
+    });
+    await addMessage({
+      sessionId: session.id,
+      role: "assistant",
+      content: `web answer ${marker}`,
+      status: "completed",
+    });
+
+    const reloaded = await getSession(session.id, userId);
+    expect(reloaded).not.toBeNull();
+    expect(reloaded!.id).toBe(session.id);
+
+    const messages = await listMessages(session.id);
+    expect(messages.length).toBeGreaterThanOrEqual(2);
+    expect(messages.some((m) => m.content.includes(`web query ${marker}`))).toBe(
+      true,
+    );
+    expect(
+      messages.some((m) => m.content.includes(`web answer ${marker}`)),
+    ).toBe(true);
+
+    const listed = await listSessions(50, userId);
+    expect(listed.some((s) => s.id === session.id)).toBe(true);
   });
 });
