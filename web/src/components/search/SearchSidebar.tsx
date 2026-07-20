@@ -67,129 +67,115 @@ export function SearchSidebar({
   };
 
   return (
-    <aside
-      className={cn(
-        "flex h-full min-h-0 flex-col border-r border-white/10 bg-black/20",
-        className,
-      )}
-    >
-      <div className="flex items-center justify-between gap-2 border-b border-white/10 p-3">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          <MessageSquare className="h-4 w-4 text-indigo-300" aria-hidden />
+    <aside className={cn("chat-sidebar", className)}>
+      <div className="chat-sidebar-header">
+        <div className="flex items-center gap-2 text-sm font-semibold text-[var(--fg)]">
+          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--primary-soft)] text-[var(--primary)] ring-1 ring-[var(--primary-border)]">
+            <MessageSquare className="h-3.5 w-3.5" aria-hidden />
+          </span>
           Chats
         </div>
         <button
           type="button"
           onClick={onNew}
-          className="btn-primary !min-h-9 !px-2.5 !py-1.5 text-xs"
-          title="New chat"
+          className="inline-flex h-8 items-center gap-1 rounded-lg bg-[var(--primary)] px-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-[#4338ca]"
         >
-          <Plus className="h-4 w-4" aria-hidden />
-          <span className="hidden sm:inline">New</span>
+          <Plus className="h-3.5 w-3.5" />
+          New
         </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        {loading && sessions.length === 0 && (
-          <div className="flex items-center justify-center gap-2 py-8 text-xs text-[var(--fg-muted)]">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading…
+        {loading && !sessions.length ? (
+          <div className="flex items-center justify-center gap-2 py-10 text-xs text-[var(--fg-muted)]">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading…
           </div>
-        )}
-        {!loading && sessions.length === 0 && (
-          <p className="px-2 py-6 text-center text-xs text-[var(--fg-muted)]">
-            No chats yet. Start a new search conversation.
+        ) : !sessions.length ? (
+          <p className="px-3 py-10 text-center text-xs leading-relaxed text-[var(--fg-muted)]">
+            No chats yet. Click <strong className="text-[var(--fg)]">New</strong>{" "}
+            to start a web research session.
           </p>
+        ) : (
+          <ul className="space-y-0.5">
+            {sessions.map((s) => {
+              const active = s.id === currentId;
+              const editing = editingId === s.id;
+              return (
+                <li key={s.id}>
+                  <div
+                    className={cn(
+                      "chat-sidebar-item group",
+                      active && "chat-sidebar-item--active",
+                    )}
+                  >
+                    {editing ? (
+                      <div className="flex min-w-0 flex-1 items-center gap-1">
+                        <input
+                          value={editTitle}
+                          onChange={(e) => setEditTitle(e.target.value)}
+                          className="field !min-h-8 flex-1 !px-2 !py-1 text-xs"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void saveEdit();
+                            if (e.key === "Escape") setEditingId(null);
+                          }}
+                        />
+                        <button
+                          type="button"
+                          className="rounded p-1 text-emerald-700 hover:bg-emerald-50"
+                          onClick={() => void saveEdit()}
+                          disabled={busyId === s.id}
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded p-1 text-[var(--fg-subtle)] hover:bg-[var(--surface)]"
+                          onClick={() => setEditingId(null)}
+                        >
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => onSelect(s.id)}
+                          className="min-w-0 flex-1 text-left"
+                        >
+                          <div className="truncate text-[13px] font-medium text-[var(--fg)]">
+                            {s.title}
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-[var(--fg-subtle)]">
+                            {relativeTime(s.updatedAt || s.createdAt)}
+                          </div>
+                        </button>
+                        <div className="flex shrink-0 opacity-0 transition-opacity group-hover:opacity-100">
+                          <button
+                            type="button"
+                            className="rounded p-1 text-[var(--fg-subtle)] hover:bg-[var(--surface)] hover:text-[var(--fg)]"
+                            onClick={() => startEdit(s)}
+                            aria-label="Rename"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded p-1 text-[var(--fg-subtle)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"
+                            onClick={() => void onDelete(s.id)}
+                            aria-label="Delete"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
         )}
-        <ul className="space-y-1">
-          {sessions.map((s) => {
-            const active = s.id === currentId;
-            return (
-              <li key={s.id}>
-                <div
-                  className={cn(
-                    "group rounded-xl border px-2.5 py-2 transition",
-                    active
-                      ? "border-indigo-400/35 bg-indigo-500/15"
-                      : "border-transparent hover:border-white/10 hover:bg-white/[0.04]",
-                  )}
-                >
-                  {editingId === s.id ? (
-                    <div className="flex items-center gap-1">
-                      <input
-                        value={editTitle}
-                        onChange={(e) => setEditTitle(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") void saveEdit();
-                          if (e.key === "Escape") setEditingId(null);
-                        }}
-                        className="field min-h-8 flex-1 px-2 py-1 text-xs"
-                        autoFocus
-                      />
-                      <button
-                        type="button"
-                        className="btn-ghost !min-h-8 !px-2"
-                        onClick={() => void saveEdit()}
-                        disabled={busyId === s.id}
-                      >
-                        <Check className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-ghost !min-h-8 !px-2"
-                        onClick={() => setEditingId(null)}
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      className="w-full text-left"
-                      onClick={() => onSelect(s.id)}
-                    >
-                      <div className="truncate text-sm font-medium">
-                        {s.title || "New chat"}
-                      </div>
-                      <div className="mt-0.5 text-[11px] text-[var(--fg-muted)]">
-                        {relativeTime(s.updatedAt)}
-                      </div>
-                    </button>
-                  )}
-                  {editingId !== s.id && (
-                    <div className="mt-1 flex justify-end gap-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
-                      <button
-                        type="button"
-                        className="btn-ghost !min-h-7 !px-1.5 text-[var(--fg-muted)]"
-                        title="Rename"
-                        onClick={() => startEdit(s)}
-                      >
-                        <Pencil className="h-3 w-3" />
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-ghost !min-h-7 !px-1.5 text-rose-300/80"
-                        title="Delete"
-                        disabled={busyId === s.id}
-                        onClick={async () => {
-                          if (!confirm("Delete this chat?")) return;
-                          setBusyId(s.id);
-                          try {
-                            await onDelete(s.id);
-                          } finally {
-                            setBusyId(null);
-                          }
-                        }}
-                      >
-                        <Trash2 className="h-3 w-3" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </li>
-            );
-          })}
-        </ul>
       </div>
     </aside>
   );

@@ -64,14 +64,18 @@ export async function POST(
   const input = parsed.data;
   const priorMessages = await listMessages(sessionId);
 
-  return createSseResponse(async (emit) => {
+  return createSseResponse(async (emit, { signal }) => {
     const memory = buildMemoryFromSession({
       entities: session.entities,
       summary: session.summary,
-      turns: priorMessages.map((m) => ({ role: m.role, content: m.content })),
+      turns: priorMessages
+        .filter((m) => m.content.trim().length > 0)
+        .map((m) => ({ role: m.role, content: m.content })),
     });
 
     const expansion = await expandQuery(input.query.trim(), memory);
+    if (signal.aborted) throw Object.assign(new Error("Aborted"), { name: "AbortError" });
+
     emit({
       type: "query_expanded",
       original: expansion.originalQuery,
@@ -103,50 +107,90 @@ export async function POST(
       emit(event);
     };
 
-    const result = await runWebSearchPipeline(
-      {
-        query: expansion.expandedQuery,
-        searchLimit: input.searchLimit,
-        retrieveTopK: input.retrieveTopK,
-        contextTopK: input.contextTopK,
-        generateAnswer: input.generateAnswer,
-        enrichThinPages: input.enrichThinPages ?? false,
-      },
-      pipelineEmit,
-    );
+    try {
+      const result = await runWebSearchPipeline(
+        {
+          query: expansion.expandedQuery,
+          searchLimit: input.searchLimit,
+          retrieveTopK: input.retrieveTopK,
+          contextTopK: input.contextTopK,
+          generateAnswer: input.generateAnswer,
+          enrichThinPages: input.enrichThinPages ?? false,
+          signal,
+        },
+        pipelineEmit,
+      );
 
-    const finalAnswer = result.answer;
-    const finalResults = result.results;
-    const finalTiming = result.timing;
-    const finalMetrics = result.metrics;
+      if (signal.aborted) {
+        await addMessage({
+          sessionId,
+          role: "assistant",
+          content: result.answer?.trim() || "Request cancelled.",
+          results: result.results,
+          timing: result.timing,
+          metrics: { ...result.metrics, llmSkippedReason: "aborted" },
+          status: "cancelled",
+        });
+        throw Object.assign(new Error("Aborted"), { name: "AbortError" });
+      }
 
-    const assistantMsg = await addMessage({
-      sessionId,
-      role: "assistant",
-      content: finalAnswer || "",
-      results: finalResults,
-      timing: finalTiming,
-      metrics: finalMetrics,
-      status: "completed",
-    });
+      const finalAnswer = (result.answer || "").trim();
+      const generationFailed =
+        Boolean(result.metrics.llmSkippedReason) &&
+        result.metrics.llmUsed === false &&
+        (input.generateAnswer ?? true) &&
+        cfg.hasLlm &&
+        (result.results?.length ?? 0) > 0 &&
+        !finalAnswer;
 
-    // Update entity memory from expansion + answer proper nouns
-    const fromAnswer = entitiesFromText(finalAnswer || "");
-    const nextEntities = mergeEntities(
-      session.entities,
-      mergeEntities(expansion.entitiesDelta, fromAnswer),
-    );
-    await updateSession(sessionId, { entities: nextEntities });
+      const content =
+        finalAnswer ||
+        (result.metrics.llmSkippedReason
+          ? `Unable to generate answer: ${result.metrics.llmSkippedReason}`
+          : "No answer was generated.");
 
-    emit({
-      type: "run_completed",
-      answer: finalAnswer,
-      timing: finalTiming,
-      metrics: finalMetrics,
-      results: finalResults,
-      messageIds: { userId: userMsg.id, assistantId: assistantMsg.id },
-      sessionId,
-      expandedQuery: expansion.expandedQuery,
-    });
-  });
+      const assistantMsg = await addMessage({
+        sessionId,
+        role: "assistant",
+        content,
+        results: result.results,
+        timing: result.timing,
+        metrics: result.metrics,
+        status: generationFailed || !finalAnswer ? "failed" : "completed",
+      });
+
+      // Update entity memory from expansion + answer proper nouns
+      const fromAnswer = entitiesFromText(content);
+      const nextEntities = mergeEntities(
+        session.entities,
+        mergeEntities(expansion.entitiesDelta, fromAnswer),
+      );
+      await updateSession(sessionId, { entities: nextEntities });
+
+      emit({
+        type: "run_completed",
+        answer: content,
+        timing: result.timing,
+        metrics: result.metrics,
+        results: result.results,
+        messageIds: { userId: userMsg.id, assistantId: assistantMsg.id },
+        sessionId,
+        expandedQuery: expansion.expandedQuery,
+      });
+    } catch (err) {
+      if ((err as Error)?.name === "AbortError") throw err;
+      const message = err instanceof Error ? err.message : "Search failed";
+      try {
+        await addMessage({
+          sessionId,
+          role: "assistant",
+          content: `Error: ${message}`,
+          status: "failed",
+        });
+      } catch {
+        /* persistence best-effort */
+      }
+      emit({ type: "error", message });
+    }
+  }, req);
 }

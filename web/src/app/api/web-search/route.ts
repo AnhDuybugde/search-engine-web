@@ -47,11 +47,11 @@ export async function POST(req: Request) {
 
   const input = parsed.data;
 
-  return createSseResponse(async (emit) => {
+  return createSseResponse(async (emit, { signal }) => {
     // Real search_started with query (sse.ts may emit empty first pulse)
     emit({ type: "search_started", query: input.query });
 
-    const result = await runWebSearchPipeline(input, emit);
+    const result = await runWebSearchPipeline({ ...input, signal }, emit);
 
     if (input.saveHistory !== false) {
       try {
@@ -66,5 +66,5 @@ export async function POST(req: Request) {
         console.error("[web-search history]", err);
       }
     }
-  });
+  }, req);
 }

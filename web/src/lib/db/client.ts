@@ -26,12 +26,15 @@ export function getDb(): AppDb {
 
   if (!globalForDb.__supabaseDb) {
     // max:1 is safer for serverless + Supabase pooler
+    const local =
+      /@(localhost|127\.0\.0\.1|\[::1\])[:/]/i.test(cfg.DATABASE_URL) ||
+      process.env.DB_SSL === "disable";
     const sql = postgres(cfg.DATABASE_URL, {
       prepare: false,
       max: 1,
       idle_timeout: 10,
       connect_timeout: 10,
-      ssl: "require",
+      ssl: local ? false : "require",
       connection: {
         application_name: "search-engine-web",
       },
@@ -53,8 +56,57 @@ export function dbBackend(): "supabase-rest" | "postgres" | "memory" {
   return "memory";
 }
 
+/**
+ * Ephemeral in-memory store is only allowed when:
+ * - ALLOW_MEMORY_DB=1 (explicit demo/dev override), or
+ * - not production and not Vercel (local open development).
+ */
+export function isMemoryDbAllowed(): boolean {
+  if (process.env.ALLOW_MEMORY_DB === "1") return true;
+  const onVercel =
+    process.env.VERCEL === "1" || Boolean(process.env.VERCEL_ENV);
+  const prod = process.env.NODE_ENV === "production";
+  return !onVercel && !prod;
+}
+
+export class DurableDbRequiredError extends Error {
+  readonly status = 503;
+  constructor(action: string) {
+    super(
+      `${action} requires a durable database (SUPABASE_URL + SUPABASE_SECRET_KEY, or DATABASE_URL). ` +
+        `Set ALLOW_MEMORY_DB=1 only for intentional ephemeral demos. ${dbSetupHint()}`,
+    );
+    this.name = "DurableDbRequiredError";
+  }
+}
+
+/**
+ * Fail-closed for product write/read paths on Vercel/production when no durable DB.
+ * No-op when hasDb() or memory is explicitly allowed.
+ */
+export function assertDurableDb(action: string): void {
+  if (hasDb()) return;
+  if (isMemoryDbAllowed()) return;
+  throw new DurableDbRequiredError(action);
+}
+
+/** HTTP gate for API routes (503 JSON, no secret leakage). */
+export function requireDurableDb(action = "This API"): Response | null {
+  if (hasDb() || isMemoryDbAllowed()) return null;
+  return Response.json(
+    {
+      error:
+        `${action} requires a durable database. ` +
+        `Configure SUPABASE_URL + SUPABASE_SECRET_KEY (or DATABASE_URL), ` +
+        `or set ALLOW_MEMORY_DB=1 for ephemeral demos only.`,
+    },
+    { status: 503, headers: { "Cache-Control": "no-store" } },
+  );
+}
+
 /** Wrap low-level DB errors with setup guidance for Vercel. */
 export function enrichDbError(err: unknown, action: string): Error {
+  if (err instanceof DurableDbRequiredError) return err;
   const msg = err instanceof Error ? err.message : String(err);
   const backend = dbBackend();
   const hint = dbSetupHint();

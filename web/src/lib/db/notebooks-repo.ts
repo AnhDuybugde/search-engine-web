@@ -1,17 +1,14 @@
 import { desc, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
-import { chunkDocument } from "@/lib/ir/chunker";
-import { embedTexts } from "@/lib/ir/embedding";
 import type { ChunkWithEmbedding } from "@/lib/ir/types";
-import { getConfig, IR_DEFAULTS } from "@/lib/config";
-import { dbBackend, enrichDbError, getDb, hasDb } from "./client";
+import { IR_DEFAULTS } from "@/lib/config";
+import { assertDurableDb, dbBackend, enrichDbError, getDb, hasDb } from "./client";
 import { chunks, notebooks, sources } from "./schema";
 import { getSupabaseAdmin, sbError, toIso } from "./supabase";
 import {
   memChunks,
   memNotebooks,
   memSources,
-  type MemChunk,
   type MemNotebook,
   type MemSource,
 } from "./memory";
@@ -29,7 +26,17 @@ function isMissingEmbeddingColumn(error: unknown) {
       : error && typeof error === "object"
         ? JSON.stringify(error)
         : "";
-  return text.includes("embedding_json") && text.includes("42703");
+  // Postgres undefined_column, or PostgREST schema-cache miss (PGRST204).
+  return (
+    text.includes("embedding_json") ||
+    text.includes("embedding_model")
+  ) && (
+    text.includes("42703") ||
+    text.includes("PGRST204") ||
+    text.includes("schema cache") ||
+    text.includes("does not exist") ||
+    text.includes("Could not find")
+  );
 }
 
 type ChunkRow = {
@@ -41,32 +48,8 @@ type ChunkRow = {
   embedding_model?: string | null;
 };
 
-async function embedChunksForStorage(
-  docChunks: Array<{ chunkId: string; text: string }>,
-): Promise<{ vectors: Map<string, number[]>; model: string | null }> {
-  const cfg = getConfig();
-  if (cfg.RETRIEVAL_MODE !== "adaptive_rrf" || !cfg.hasEmbedding || docChunks.length === 0) {
-    return { vectors: new Map(), model: null };
-  }
-
-  try {
-    const response = await embedTexts(docChunks.map((c) => c.text));
-    return {
-      vectors: new Map(
-        docChunks.map((chunk, i) => [chunk.chunkId, response.embeddings[i]]),
-      ),
-      model: response.model,
-    };
-  } catch (err) {
-    console.error(
-      "[notebook embeddings]",
-      err instanceof Error ? err.message : err,
-    );
-    return { vectors: new Map(), model: null };
-  }
-}
-
 export async function listNotebooks() {
+  assertDurableDb('List notebooks');
   if (!hasDb()) {
     return Array.from(memNotebooks.values()).sort((a, b) =>
       b.createdAt.localeCompare(a.createdAt),
@@ -103,6 +86,7 @@ export async function listNotebooks() {
 }
 
 export async function createNotebook(title: string) {
+  assertDurableDb('Create notebook');
   const clean = title.trim();
   if (!clean) throw new Error("Title is required");
 
@@ -169,6 +153,7 @@ export async function createNotebook(title: string) {
 }
 
 export async function getNotebook(id: string) {
+  assertDurableDb('Get notebook');
   if (!hasDb()) {
     return memNotebooks.get(id) || null;
   }
@@ -203,6 +188,7 @@ export async function getNotebook(id: string) {
 }
 
 export async function deleteNotebook(id: string) {
+  assertDurableDb('Delete notebook');
   if (!hasDb()) {
     memNotebooks.delete(id);
     for (const [sid, s] of memSources) {
@@ -230,6 +216,7 @@ export async function deleteNotebook(id: string) {
 }
 
 export async function listSources(notebookId: string) {
+  assertDurableDb('List sources');
   if (!hasDb()) {
     return Array.from(memSources.values())
       .filter((s) => s.notebookId === notebookId)
@@ -273,12 +260,128 @@ export async function listSources(notebookId: string) {
   }));
 }
 
-export async function addSource(params: {
-  notebookId: string;
+/** Full source text + chunks for document detail drawer */
+export async function getSourceDetail(notebookId: string, sourceId: string) {
+  assertDurableDb('Get source');
+  if (!hasDb()) {
+    const source = memSources.get(sourceId);
+    if (!source || source.notebookId !== notebookId) return null;
+    const sourceChunks = Array.from(memChunks.values())
+      .filter((c) => c.sourceId === sourceId)
+      .sort((a, b) => a.chunkIndex - b.chunkIndex)
+      .map((c) => ({
+        chunkId: c.id,
+        chunkIndex: c.chunkIndex,
+        text: c.text,
+      }));
+    return {
+      id: source.id,
+      notebookId: source.notebookId,
+      title: source.title,
+      mime: source.mime,
+      text: source.text,
+      charCount: source.text.length,
+      createdAt: source.createdAt,
+      chunks: sourceChunks,
+    };
+  }
+
+  const sb = getSupabaseAdmin();
+  if (sb) {
+    const { data: source, error } = await sb
+      .from("sources")
+      .select("id,notebook_id,title,mime,text,created_at")
+      .eq("id", sourceId)
+      .eq("notebook_id", notebookId)
+      .maybeSingle();
+    if (error) throw new Error(`Load source failed: ${sbError(error)}`);
+    if (!source) return null;
+
+    const { data: chunkRows, error: cErr } = await sb
+      .from("chunks")
+      .select("id,chunk_index,text")
+      .eq("source_id", sourceId)
+      .eq("notebook_id", notebookId)
+      .order("chunk_index", { ascending: true });
+    if (cErr) throw new Error(`Load source chunks failed: ${sbError(cErr)}`);
+
+    const text = String(source.text || "");
+    return {
+      id: source.id as string,
+      notebookId: source.notebook_id as string,
+      title: source.title as string,
+      mime: (source.mime as string | null) ?? null,
+      text,
+      charCount: text.length,
+      createdAt: toIso(source.created_at),
+      chunks: (chunkRows || []).map((c) => ({
+        chunkId: c.id as string,
+        chunkIndex: c.chunk_index as number,
+        text: c.text as string,
+      })),
+    };
+  }
+
+  const db = getDb();
+  const [source] = await db
+    .select()
+    .from(sources)
+    .where(eq(sources.id, sourceId));
+  if (!source || source.notebookId !== notebookId) return null;
+
+  const chunkRows = await db
+    .select()
+    .from(chunks)
+    .where(eq(chunks.sourceId, sourceId));
+  chunkRows.sort((a, b) => a.chunkIndex - b.chunkIndex);
+
+  return {
+    id: source.id,
+    notebookId: source.notebookId,
+    title: source.title,
+    mime: source.mime,
+    text: source.text,
+    charCount: source.text.length,
+    createdAt: toIso(source.createdAt),
+    chunks: chunkRows.map((c) => ({
+      chunkId: c.id,
+      chunkIndex: c.chunkIndex,
+      text: c.text,
+    })),
+  };
+}
+
+/**
+ * Persist progress for raw-only ingest.
+ * Chunk/embed are intentionally not part of storage.
+ */
+export type SourceProgressEvent = { stage: "store"; ms: number };
+
+export type AddSourceResult = {
+  id: string;
   title: string;
-  mime: string | null;
-  text: string;
-}) {
+  /** Always 0 for new ingest — raw sources only, no chunk rows written. */
+  chunkCount: 0;
+  charCount: number;
+  timing: { storeMs: number };
+  embeddedCount: 0;
+  mode: "raw-sources-only";
+};
+
+/**
+ * Store full document text in `sources` only.
+ * No chunking, no embedding, no IR preprocessing at ingest time.
+ */
+export async function addSource(
+  params: {
+    notebookId: string;
+    title: string;
+    mime: string | null;
+    text: string;
+  },
+  onProgress?: (event: SourceProgressEvent) => void,
+): Promise<AddSourceResult> {
+  assertDurableDb("Add source");
   const notebook = await getNotebook(params.notebookId);
   if (!notebook) throw new Error("Notebook not found");
 
@@ -294,19 +397,7 @@ export async function addSource(params: {
 
   const sourceId = randomUUID();
   const now = new Date().toISOString();
-  const docChunks = chunkDocument({
-    documentId: sourceId,
-    title: params.title,
-    text: params.text,
-  });
-  const embeddings = await embedChunksForStorage(docChunks);
-
-  const existingChunkCount = await countChunks(params.notebookId);
-  if (docChunks.length + existingChunkCount > IR_DEFAULTS.maxChunksPerNotebook) {
-    throw new Error(
-      `Notebook chunk limit exceeded (${IR_DEFAULTS.maxChunksPerNotebook}).`,
-    );
-  }
+  const storeStart = Date.now();
 
   if (!hasDb()) {
     const source: MemSource = {
@@ -318,23 +409,17 @@ export async function addSource(params: {
       createdAt: now,
     };
     memSources.set(sourceId, source);
-    for (const c of docChunks) {
-      const row: MemChunk = {
-        id: c.chunkId,
-        sourceId,
-        notebookId: params.notebookId,
-        chunkIndex: c.chunkIndex,
-        text: c.text,
-        embedding: embeddings.vectors.get(c.chunkId) || null,
-        embeddingModel: embeddings.model,
-      };
-      memChunks.set(c.chunkId, row);
-    }
+    // deliberately no memChunks writes
+    const storeMs = Date.now() - storeStart;
+    onProgress?.({ stage: "store", ms: storeMs });
     return {
       id: sourceId,
       title: params.title,
-      chunkCount: docChunks.length,
+      chunkCount: 0,
       charCount: params.text.length,
+      timing: { storeMs },
+      embeddedCount: 0,
+      mode: "raw-sources-only",
     };
   }
 
@@ -350,40 +435,16 @@ export async function addSource(params: {
     });
     if (sErr) throw new Error(`Save source failed: ${sbError(sErr)}`);
 
-    if (docChunks.length) {
-      const rowsWithEmbeddings = docChunks.map((c) => ({
-          id: c.chunkId,
-          source_id: sourceId,
-          notebook_id: params.notebookId,
-          chunk_index: c.chunkIndex,
-          text: c.text,
-          token_est: Math.ceil(c.text.split(/\s+/).length * 1.3),
-          embedding_json: embeddings.vectors.get(c.chunkId) || null,
-          embedding_model: embeddings.model,
-      }));
-      const { error: cErr } = await sb.from("chunks").insert(rowsWithEmbeddings);
-      if (cErr && isMissingEmbeddingColumn(cErr)) {
-        const { error: legacyErr } = await sb.from("chunks").insert(
-          rowsWithEmbeddings.map((row) => ({
-            id: row.id,
-            source_id: row.source_id,
-            notebook_id: row.notebook_id,
-            chunk_index: row.chunk_index,
-            text: row.text,
-            token_est: row.token_est,
-          })),
-        );
-        if (legacyErr) throw new Error(`Save chunks failed: ${sbError(legacyErr)}`);
-      } else if (cErr) {
-        throw new Error(`Save chunks failed: ${sbError(cErr)}`);
-      }
-    }
-
+    const storeMs = Date.now() - storeStart;
+    onProgress?.({ stage: "store", ms: storeMs });
     return {
       id: sourceId,
       title: params.title,
-      chunkCount: docChunks.length,
+      chunkCount: 0,
       charCount: params.text.length,
+      timing: { storeMs },
+      embeddedCount: 0,
+      mode: "raw-sources-only",
     };
   }
 
@@ -396,30 +457,22 @@ export async function addSource(params: {
     text: params.text,
     createdAt: new Date(now),
   });
-  if (docChunks.length) {
-    await db.insert(chunks).values(
-      docChunks.map((c) => ({
-        id: c.chunkId,
-        sourceId,
-        notebookId: params.notebookId,
-        chunkIndex: c.chunkIndex,
-        text: c.text,
-        tokenEst: Math.ceil(c.text.split(/\s+/).length * 1.3),
-        embeddingJson: embeddings.vectors.get(c.chunkId) || null,
-        embeddingModel: embeddings.model,
-      })),
-    );
-  }
 
+  const storeMs = Date.now() - storeStart;
+  onProgress?.({ stage: "store", ms: storeMs });
   return {
     id: sourceId,
     title: params.title,
-    chunkCount: docChunks.length,
+    chunkCount: 0,
     charCount: params.text.length,
+    timing: { storeMs },
+    embeddedCount: 0,
+    mode: "raw-sources-only",
   };
 }
 
-async function countChunks(notebookId: string) {
+/** Count stored chunk rows (legacy corpora only; raw ingest writes 0). */
+export async function countChunks(notebookId: string) {
   if (!hasDb()) {
     return Array.from(memChunks.values()).filter((c) => c.notebookId === notebookId)
       .length;
@@ -443,10 +496,16 @@ async function countChunks(notebookId: string) {
   return rows.length;
 }
 
+/**
+ * Load retrieval units for a notebook.
+ * Prefer stored chunks when present; if the notebook is raw-only (sources with
+ * no chunks), expose each source as one unprocessed unit (no embedding).
+ */
 export async function loadChunks(
   notebookId: string,
   sourceIds?: string[],
 ): Promise<ChunkWithEmbedding[]> {
+  assertDurableDb('Load chunks');
   if (!hasDb()) {
     let rows = Array.from(memChunks.values()).filter((c) => c.notebookId === notebookId);
     if (sourceIds?.length) {
@@ -456,14 +515,33 @@ export async function loadChunks(
     const sourceMap = new Map(
       Array.from(memSources.values()).map((s) => [s.id, s] as const),
     );
-    return rows.map((c) => ({
-      chunkId: c.id,
-      documentId: c.sourceId,
-      title: sourceMap.get(c.sourceId)?.title || "Source",
-      text: c.text,
-      chunkIndex: c.chunkIndex,
-      embedding: c.embedding,
-      embeddingModel: c.embeddingModel,
+    if (rows.length) {
+      return rows.map((c) => ({
+        chunkId: c.id,
+        documentId: c.sourceId,
+        title: sourceMap.get(c.sourceId)?.title || "Source",
+        text: c.text,
+        chunkIndex: c.chunkIndex,
+        embedding: c.embedding,
+        embeddingModel: c.embeddingModel,
+      }));
+    }
+    // raw sources only
+    let srcs = Array.from(memSources.values()).filter(
+      (s) => s.notebookId === notebookId,
+    );
+    if (sourceIds?.length) {
+      const set = new Set(sourceIds);
+      srcs = srcs.filter((s) => set.has(s.id));
+    }
+    return srcs.map((s, i) => ({
+      chunkId: `raw-${s.id}`,
+      documentId: s.id,
+      title: s.title,
+      text: s.text,
+      chunkIndex: i,
+      embedding: null,
+      embeddingModel: null,
     }));
   }
 
@@ -491,30 +569,50 @@ export async function loadChunks(
     }
     if (error) throw new Error(`Load chunks failed: ${sbError(error)}`);
 
-    const ids = [...new Set((chunkRows || []).map((c) => c.source_id as string))];
-    let sourceMap = new Map<string, string>();
-    if (ids.length) {
-      const { data: sourceRows } = await sb
-        .from("sources")
-        .select("id,title")
-        .in("id", ids);
-      sourceMap = new Map(
-        (sourceRows || []).map((s) => [s.id as string, s.title as string]),
-      );
+    if (chunkRows && chunkRows.length > 0) {
+      const ids = [...new Set(chunkRows.map((c) => c.source_id as string))];
+      let sourceMap = new Map<string, string>();
+      if (ids.length) {
+        const { data: sourceRows } = await sb
+          .from("sources")
+          .select("id,title")
+          .in("id", ids);
+        sourceMap = new Map(
+          (sourceRows || []).map((s) => [s.id as string, s.title as string]),
+        );
+      }
+
+      return chunkRows.map((c) => ({
+        chunkId: c.id as string,
+        documentId: c.source_id as string,
+        title: sourceMap.get(c.source_id as string) || "Source",
+        text: c.text as string,
+        chunkIndex: c.chunk_index as number,
+        embedding: hasEmbeddingColumns
+          ? vectorOrNull(c.embedding_json)
+          : null,
+        embeddingModel: hasEmbeddingColumns
+          ? (c.embedding_model ?? null)
+          : null,
+      }));
     }
 
-    return (chunkRows || []).map((c) => ({
-      chunkId: c.id as string,
-      documentId: c.source_id as string,
-      title: sourceMap.get(c.source_id as string) || "Source",
-      text: c.text as string,
-      chunkIndex: c.chunk_index as number,
-      embedding: hasEmbeddingColumns
-        ? vectorOrNull(c.embedding_json)
-        : null,
-      embeddingModel: hasEmbeddingColumns
-        ? (c.embedding_model ?? null)
-        : null,
+    // RAW corpus: sources only — no chunk rows, no embeddings
+    let srcQuery = sb
+      .from("sources")
+      .select("id,title,text")
+      .eq("notebook_id", notebookId);
+    if (sourceIds?.length) srcQuery = srcQuery.in("id", sourceIds);
+    const { data: rawSources, error: sErr } = await srcQuery;
+    if (sErr) throw new Error(`Load sources failed: ${sbError(sErr)}`);
+    return (rawSources || []).map((s, i) => ({
+      chunkId: `raw-${s.id as string}`,
+      documentId: s.id as string,
+      title: (s.title as string) || "Source",
+      text: (s.text as string) || "",
+      chunkIndex: i,
+      embedding: null,
+      embeddingModel: null,
     }));
   }
 
@@ -530,20 +628,44 @@ export async function loadChunks(
     rows = await db.select().from(chunks).where(eq(chunks.notebookId, notebookId));
   }
 
-  const sourceIdsNeeded = [...new Set(rows.map((r) => r.sourceId))];
-  const sourceRows =
-    sourceIdsNeeded.length === 0
-      ? []
-      : await db.select().from(sources).where(inArray(sources.id, sourceIdsNeeded));
-  const sourceMap = new Map(sourceRows.map((s) => [s.id, s] as const));
+  if (rows.length > 0) {
+    const sourceIdsNeeded = [...new Set(rows.map((r) => r.sourceId))];
+    const sourceRows =
+      sourceIdsNeeded.length === 0
+        ? []
+        : await db
+            .select()
+            .from(sources)
+            .where(inArray(sources.id, sourceIdsNeeded));
+    const sourceMap = new Map(sourceRows.map((s) => [s.id, s] as const));
 
-  return rows.map((c) => ({
-    chunkId: c.id,
-    documentId: c.sourceId,
-    title: sourceMap.get(c.sourceId)?.title || "Source",
-    text: c.text,
-    chunkIndex: c.chunkIndex,
-    embedding: vectorOrNull(c.embeddingJson),
-    embeddingModel: c.embeddingModel,
+    return rows.map((c) => ({
+      chunkId: c.id,
+      documentId: c.sourceId,
+      title: sourceMap.get(c.sourceId)?.title || "Source",
+      text: c.text,
+      chunkIndex: c.chunkIndex,
+      embedding: vectorOrNull(c.embeddingJson),
+      embeddingModel: c.embeddingModel,
+    }));
+  }
+
+  // RAW: full sources as retrieval units
+  let sourceRows = await db
+    .select()
+    .from(sources)
+    .where(eq(sources.notebookId, notebookId));
+  if (sourceIds?.length) {
+    const set = new Set(sourceIds);
+    sourceRows = sourceRows.filter((s) => set.has(s.id));
+  }
+  return sourceRows.map((s, i) => ({
+    chunkId: `raw-${s.id}`,
+    documentId: s.id,
+    title: s.title,
+    text: s.text,
+    chunkIndex: i,
+    embedding: null,
+    embeddingModel: null,
   }));
 }

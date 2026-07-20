@@ -19,7 +19,7 @@ const jetbrains = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "SearchEngine — AI Research",
   description:
-    "Serverless web search + notebooks with BM25 retrieval and cited answers",
+    "Web search and document notebooks with BM25 retrieval and cited answers",
 };
 
 export default function RootLayout({
@@ -28,7 +28,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="vi" className="dark">
+    <html lang="vi">
       <body
         className={`${inter.variable} ${jetbrains.variable} min-h-dvh antialiased`}
       >

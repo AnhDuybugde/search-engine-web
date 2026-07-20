@@ -1,5 +1,5 @@
 import { dbSetupHint, getConfig } from "@/lib/config";
-import { dbBackend, getDb } from "@/lib/db/client";
+import { dbBackend, getDb, isMemoryDbAllowed } from "@/lib/db/client";
 import { getSupabaseAdmin, sbError } from "@/lib/db/supabase";
 import { sql } from "drizzle-orm";
 
@@ -38,14 +38,44 @@ async function probeDb(backend: ReturnType<typeof dbBackend>) {
   if (backend === "supabase-rest") {
     try {
       const sb = getSupabaseAdmin()!;
-      const { error } = await sb.from("notebooks").select("id").limit(1);
-      if (error) {
+      const notebooks = await sb.from("notebooks").select("id").limit(1);
+      if (notebooks.error) {
         dbProbe = {
           ok: false,
-          detail: `${sbError(error)}. If relation missing, run drizzle/0000_init.sql in Supabase SQL Editor.`,
+          detail: `${sbError(notebooks.error)}. If relation missing, run drizzle SQL in Supabase SQL Editor.`,
         };
       } else {
-        dbProbe = { ok: true, detail: "notebooks table reachable via REST" };
+        const sessions = await sb.from("search_sessions").select("id").limit(1);
+        if (sessions.error) {
+          dbProbe = {
+            ok: false,
+            detail: `notebooks OK but search_sessions failed: ${sbError(sessions.error)}`,
+          };
+        } else {
+          // Best-effort embedding column presence (non-fatal if missing — app has fallback).
+          const chunks = await sb
+            .from("chunks")
+            .select("id,embedding_json,embedding_model")
+            .limit(1);
+          if (chunks.error) {
+            const msg = sbError(chunks.error);
+            const missingEmb =
+              msg.includes("embedding") ||
+              msg.includes("PGRST204") ||
+              msg.includes("42703");
+            dbProbe = {
+              ok: true,
+              detail: missingEmb
+                ? "tables reachable; chunks embedding columns missing — run drizzle/0002_chunk_embeddings.sql"
+                : `tables reachable; chunks probe: ${msg}`,
+            };
+          } else {
+            dbProbe = {
+              ok: true,
+              detail: "notebooks + search_sessions + chunks (with embeddings) reachable via REST",
+            };
+          }
+        }
       }
     } catch (err) {
       dbProbe = {
@@ -59,6 +89,7 @@ async function probeDb(backend: ReturnType<typeof dbBackend>) {
       await db.execute(sql`select 1`);
       try {
         await db.execute(sql`select id from notebooks limit 1`);
+        await db.execute(sql`select id from search_sessions limit 1`);
         dbProbe = {
           ok: true,
           detail:
@@ -68,7 +99,7 @@ async function probeDb(backend: ReturnType<typeof dbBackend>) {
         const m = tableErr instanceof Error ? tableErr.message : String(tableErr);
         dbProbe = {
           ok: false,
-          detail: `Connected but notebooks query failed: ${m}. Run drizzle/0000_init.sql. ${dbSetupHint(cfg)}`,
+          detail: `Connected but table query failed: ${m}. Run drizzle migrations. ${dbSetupHint(cfg)}`,
         };
       }
     } catch (err) {
@@ -88,19 +119,25 @@ export async function GET(req: Request) {
   const backend = dbBackend();
   const authorized = isAuthorized(req);
 
-  // Lightweight readiness (no secrets, no stack fingerprints)
+  const status = {
+    search: cfg.hasSearch,
+    llm: cfg.hasLlm,
+    embedding: cfg.RETRIEVAL_MODE === "bm25" || cfg.hasEmbedding,
+    db: cfg.hasDb && (backend === "supabase-rest" || backend === "postgres"),
+  };
+
+  // Product readiness: search + LLM + durable DB (embedding optional when bm25).
+  // Public ok=false → HTTP 503 so load balancers can fail the instance.
+  const ok = Boolean(status.search && status.llm && status.db && status.embedding);
+
   const publicBody = {
-    ok: true,
-    status: {
-      search: cfg.hasSearch,
-      llm: cfg.hasLlm,
-      embedding: cfg.RETRIEVAL_MODE === "bm25" || cfg.hasEmbedding,
-      db: cfg.hasDb && (backend === "supabase-rest" || backend === "postgres"),
-    },
+    ok,
+    status,
   };
 
   if (!authorized) {
     return Response.json(publicBody, {
+      status: ok ? 200 : 503,
       headers: {
         "Cache-Control": "no-store",
       },
@@ -108,6 +145,7 @@ export async function GET(req: Request) {
   }
 
   const dbProbe = await probeDb(backend);
+  const ready = ok && (backend === "memory" ? false : dbProbe.ok);
 
   const missing: string[] = [];
   if (!cfg.hasSearch) missing.push("TAVILY_API_KEY (or BRAVE_API_KEY)");
@@ -119,10 +157,14 @@ export async function GET(req: Request) {
     if (!cfg.supabaseUrl) missing.push("SUPABASE_URL");
     if (!cfg.SUPABASE_SECRET_KEY) missing.push("SUPABASE_SECRET_KEY");
   }
+  if (!cfg.hasDb && !isMemoryDbAllowed()) {
+    missing.push("durable DB (SUPABASE_URL+SUPABASE_SECRET_KEY or DATABASE_URL)");
+  }
 
   return Response.json(
     {
       ...publicBody,
+      ok: ready,
       mode: "serverless",
       diagnostics: true,
       providers: {
@@ -160,6 +202,7 @@ export async function GET(req: Request) {
       },
     },
     {
+      status: ready ? 200 : 503,
       headers: {
         "Cache-Control": "no-store",
       },

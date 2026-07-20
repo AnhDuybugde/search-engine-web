@@ -119,34 +119,48 @@ export function SearchChatLayout({
     }
   };
 
-  // Consume pending first message after session mount
+  // Consume pending first message after session mount (create on /search → navigate).
+  // Defer slightly so this runs after the chat hook attaches sessionId, without
+  // racing an abort-on-mount (see useSearchChat session effect).
   useEffect(() => {
     if (!sessionId) return;
     const raw = sessionStorage.getItem("pendingSearch");
     if (!raw) return;
-    try {
-      const pending = JSON.parse(raw) as {
-        id: string;
-        query: string;
-        opts: {
-          searchLimit: number;
-          contextTopK: number;
-          generateAnswer: boolean;
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      try {
+        const pending = JSON.parse(raw) as {
+          id: string;
+          query: string;
+          opts: {
+            searchLimit: number;
+            contextTopK: number;
+            generateAnswer: boolean;
+          };
         };
-      };
-      if (pending.id !== sessionId) return;
-      sessionStorage.removeItem("pendingSearch");
-      void chat
-        .send(pending.query, pending.opts)
-        .then(() => refresh())
-        .catch((err: unknown) => {
-          setUiError(
-            err instanceof Error ? err.message : "Failed to send first message",
-          );
-        });
-    } catch {
-      sessionStorage.removeItem("pendingSearch");
-    }
+        if (pending.id !== sessionId) return;
+        sessionStorage.removeItem("pendingSearch");
+        void chat
+          .send(pending.query, pending.opts)
+          .then(() => refresh())
+          .catch((err: unknown) => {
+            setUiError(
+              err instanceof Error
+                ? err.message
+                : "Failed to send first message",
+            );
+          });
+      } catch {
+        sessionStorage.removeItem("pendingSearch");
+      }
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per session mount
   }, [sessionId]);
 
@@ -164,7 +178,7 @@ export function SearchChatLayout({
         {sidebarOpen && (
           <button
             type="button"
-            className="absolute inset-0 z-30 bg-black/50 lg:hidden"
+            className="absolute inset-0 z-30 bg-black/55 lg:hidden"
             aria-label="Close sidebar"
             onClick={() => setSidebarOpen(false)}
           />
@@ -188,36 +202,38 @@ export function SearchChatLayout({
             }
           }}
           className={cn(
-            "absolute inset-y-0 left-0 z-40 w-[260px] bg-[#070b14]/95 transition-transform lg:static lg:translate-x-0 lg:bg-black/20",
+            "absolute inset-y-0 left-0 z-40 w-[var(--sidebar-w)] transition-transform duration-200 lg:static lg:translate-x-0",
             sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
             !sidebarOpen && "pointer-events-none lg:pointer-events-auto",
           )}
         />
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <div className="flex shrink-0 items-center gap-2 border-b border-white/10 px-3 py-2 sm:px-4">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--bg-base)]">
+          <div className="chat-toolbar">
             <button
               type="button"
-              className="btn-ghost !min-h-9 lg:hidden"
+              className="btn-ghost !min-h-8 !rounded-lg lg:hidden"
               onClick={() => setSidebarOpen(true)}
+              aria-label="Open chat list"
             >
               <Menu className="h-4 w-4" />
             </button>
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-sm font-semibold sm:text-base">
+              <h1 className="truncate text-sm font-semibold tracking-tight">
                 {sessionId ? chat.sessionTitle : "Web Search"}
               </h1>
               {chat.lastExpanded?.usedContext && (
-                <p className="truncate text-[11px] text-indigo-200/75">
-                  Context: searched “{chat.lastExpanded.expanded}”
+                <p className="truncate text-[11px] text-[var(--fg-subtle)]">
+                  Context: “{chat.lastExpanded.expanded}”
                 </p>
               )}
             </div>
             <button
               type="button"
               className={cn(
-                "btn-ghost !min-h-9",
-                showEvidence && "ring-1 ring-indigo-400/30",
+                "btn-ghost !min-h-8 !rounded-lg",
+                showEvidence &&
+                  "bg-[var(--primary-soft)] text-[var(--fg)] ring-1 ring-[var(--primary-border)]",
               )}
               title="Toggle evidence"
               onClick={() => setEvidenceOpen((v) => !v)}
@@ -230,13 +246,20 @@ export function SearchChatLayout({
           {bannerError && (
             <div
               role="alert"
-              className="mx-3 mt-2 flex shrink-0 items-start gap-2 rounded-xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-100 sm:mx-4"
+              className={cn(
+                "alert mx-3 mt-2 shrink-0 sm:mx-4",
+                /token|context length|maximum context/i.test(bannerError)
+                  ? "alert-warn"
+                  : "alert-error",
+              )}
             >
               <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span className="min-w-0 break-words">{bannerError}</span>
+              <span className="min-w-0 flex-1 break-words line-clamp-3">
+                {bannerError}
+              </span>
               <button
                 type="button"
-                className="ml-auto shrink-0"
+                className="ml-1 shrink-0 rounded-md p-1 hover:bg-black/5"
                 aria-label="Dismiss error"
                 onClick={() => setUiError(null)}
               >
@@ -245,30 +268,27 @@ export function SearchChatLayout({
             </div>
           )}
 
-          {chat.status === "running" && (
-            <div className="shrink-0 px-3 pt-2 sm:px-4">
-              <StepRail steps={chat.steps} />
-            </div>
-          )}
+          {(chat.status === "running" ||
+            Object.values(chat.steps || {}).some(
+              (s) => s === "success" || s === "failed" || s === "running",
+            )) && <StepRail steps={chat.steps} />}
 
           <ChatThread
             messages={chat.messages}
             activeAssistantId={chat.activeAssistantId}
             onSelectAssistant={chat.setActiveAssistantId}
             empty={
-              <div className="w-full max-w-xl text-center">
-                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-indigo-300/25 bg-indigo-500/10 px-3 py-1 text-xs font-medium text-indigo-100">
-                  <Sparkles className="h-3.5 w-3.5" aria-hidden />
+              <div className="chat-empty">
+                <div className="chat-empty-badge">
+                  <Sparkles className="h-3 w-3 text-[var(--primary)]" aria-hidden />
                   Session-aware research
                 </div>
-                <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                  Ask the web anything
-                </h2>
-                <p className="mx-auto mt-3 max-w-md text-sm text-[var(--fg-muted)]">
+                <h2 className="chat-empty-title">Ask the web anything</h2>
+                <p className="chat-empty-copy">
                   Multi-turn chat remembers entities in this session — e.g. ask
                   “Messi là ai?” then “ông ấy bao nhiêu tuổi?”.
                 </p>
-                <div className="mt-6 flex flex-wrap justify-center gap-2">
+                <div className="chat-empty-actions">
                   {SUGGESTIONS.map((s) => (
                     <button
                       key={s}
@@ -299,10 +319,16 @@ export function SearchChatLayout({
           />
         </div>
 
+        {/* Desktop evidence column — secondary, does not fight chat */}
         {showEvidence && (
-          <aside className="hidden w-[300px] shrink-0 flex-col border-l border-white/10 bg-black/15 xl:flex">
-            <div className="border-b border-white/10 px-3 py-2.5 text-sm font-semibold">
+          <aside className="chat-panel hidden w-[var(--evidence-w)] shrink-0 xl:flex">
+            <div className="chat-toolbar !border-l-0 text-sm font-semibold">
               Evidence
+              {chat.activeEvidence.length > 0 && (
+                <span className="ml-2 rounded-md bg-[var(--primary-soft)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--primary)] ring-1 ring-[var(--primary-border)]">
+                  {chat.activeEvidence.length}
+                </span>
+              )}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
               <EvidenceList
@@ -311,15 +337,17 @@ export function SearchChatLayout({
                 onHover={setActiveCitation}
               />
               {!chat.activeEvidence.length && (
-                <p className="text-xs text-[var(--fg-muted)]">
+                <p className="text-xs leading-relaxed text-[var(--fg-muted)]">
                   Sources for the selected answer will appear here.
                 </p>
               )}
             </div>
             {chat.logs.length > 0 && (
-              <details className="border-t border-white/10 p-3 text-[11px] text-[var(--fg-muted)]">
-                <summary className="cursor-pointer">Pipeline log</summary>
-                <ul className="mt-2 max-h-40 space-y-1 overflow-y-auto font-mono">
+              <details className="shrink-0 border-t border-[var(--border)] p-3 text-[11px] text-[var(--fg-muted)]">
+                <summary className="cursor-pointer font-medium hover:text-[var(--fg)]">
+                  Pipeline log
+                </summary>
+                <ul className="mt-2 max-h-36 space-y-1 overflow-y-auto font-mono text-[10px] text-[var(--fg-subtle)]">
                   {chat.logs.map((l, i) => (
                     <li key={i}>{l}</li>
                   ))}
@@ -330,9 +358,9 @@ export function SearchChatLayout({
         )}
       </div>
 
-      {/* Mobile evidence sheet when messages exist */}
+      {/* Mobile / tablet evidence sheet */}
       {hasMessages && chat.activeEvidence.length > 0 && (
-        <details className="shrink-0 border-t border-white/10 bg-black/20 p-3 xl:hidden">
+        <details className="shrink-0 border-t border-[var(--border)] bg-[var(--bg-panel)] p-3 xl:hidden">
           <summary className="cursor-pointer text-sm font-semibold">
             Evidence ({chat.activeEvidence.length})
           </summary>

@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { dbSetupHint } from "@/lib/config";
-import { dbBackend } from "@/lib/db/client";
+import {
+  DurableDbRequiredError,
+  dbBackend,
+  requireDurableDb,
+} from "@/lib/db/client";
 import { createNotebook, listNotebooks } from "@/lib/db/notebooks-repo";
 
 export const runtime = "nodejs";
@@ -11,12 +15,15 @@ const createSchema = z.object({
 });
 
 export async function GET() {
+  const denied = requireDurableDb("List notebooks");
+  if (denied) return denied;
   try {
     const items = await listNotebooks();
     return Response.json({ items, backend: dbBackend() });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to list notebooks";
     console.error("[GET /api/notebooks]", message);
+    const status = err instanceof DurableDbRequiredError ? 503 : 500;
     return Response.json(
       {
         error: message,
@@ -24,12 +31,14 @@ export async function GET() {
         backend: dbBackend(),
         hint: dbSetupHint(),
       },
-      { status: 500 },
+      { status },
     );
   }
 }
 
 export async function POST(req: Request) {
+  const denied = requireDurableDb("Create notebook");
+  if (denied) return denied;
   try {
     const json = await req.json().catch(() => null);
     const parsed = createSchema.safeParse(json);
@@ -44,9 +53,10 @@ export async function POST(req: Request) {
   } catch (err) {
     const message = err instanceof Error ? err.message : "Failed to create notebook";
     console.error("[POST /api/notebooks]", message);
+    const status = err instanceof DurableDbRequiredError ? 503 : 500;
     return Response.json(
       { error: message, backend: dbBackend(), hint: dbSetupHint() },
-      { status: 500 },
+      { status },
     );
   }
 }

@@ -3,44 +3,74 @@ import { cn } from "@/lib/utils";
 
 const labels: Record<string, string> = {
   expand: "Context",
+  corpus: "Sources",
   search: "Search",
   fetch: "Fetch",
-  chunk: "Chunk",
+  chunk: "Units",
+  query: "Query",
   retrieve: "Retrieve",
+  embedding: "Embed",
+  fusion: "Fusion",
+  pack: "Pack",
   generate: "Generate",
 };
 
 export function StepRail({
   steps,
+  className,
 }: {
   steps: Record<string, "pending" | "running" | "success" | "failed">;
+  className?: string;
 }) {
+  const keys = Object.keys(labels).filter((key) => key in steps);
+  if (!keys.length) return null;
+
   return (
-    <div className="flex flex-wrap gap-2" role="list" aria-label="Pipeline steps">
-      {Object.entries(labels).map(([key, label]) => {
+    <div
+      className={cn(
+        "chat-step-rail",
+        className,
+      )}
+      role="list"
+      aria-label="Pipeline steps"
+    >
+      {keys.map((key, i) => {
+        const label = labels[key] || key;
         const status = steps[key] || "pending";
+        const isLast = i === keys.length - 1;
         return (
-          <div
-            key={key}
-            role="listitem"
-            className={cn(
-              "inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition",
-              status === "success" &&
-                "border-emerald-400/35 bg-emerald-500/10 text-emerald-300",
-              status === "running" &&
-                "border-indigo-400/40 bg-indigo-500/15 text-indigo-200",
-              status === "failed" &&
-                "border-rose-400/40 bg-rose-500/10 text-rose-300",
-              status === "pending" &&
-                "border-white/10 bg-white/[0.03] text-[var(--fg-muted)]",
+          <div key={key} className="flex min-w-0 items-center" role="listitem">
+            <div
+              className={cn(
+                "chat-step-pill",
+                status === "success" && "chat-step-pill--success",
+                status === "running" && "chat-step-pill--running",
+                status === "failed" && "chat-step-pill--failed",
+                status === "pending" && "chat-step-pill--pending",
+              )}
+            >
+              <span className="chat-step-icon" aria-hidden>
+                {status === "running" && (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                )}
+                {status === "success" && <Check className="h-3 w-3" strokeWidth={2.5} />}
+                {status === "failed" && <X className="h-3 w-3" strokeWidth={2.5} />}
+                {status === "pending" && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-current opacity-50" />
+                )}
+              </span>
+              <span className="truncate">{label}</span>
+            </div>
+            {!isLast && (
+              <span
+                className={cn(
+                  "chat-step-connector",
+                  (status === "success" || status === "running") &&
+                    "chat-step-connector--active",
+                )}
+                aria-hidden
+              />
             )}
-          >
-            {status === "running" && (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-            )}
-            {status === "success" && <Check className="h-3.5 w-3.5" aria-hidden />}
-            {status === "failed" && <X className="h-3.5 w-3.5" aria-hidden />}
-            {label}
           </div>
         );
       })}

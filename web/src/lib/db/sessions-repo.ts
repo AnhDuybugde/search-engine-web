@@ -2,7 +2,7 @@ import { asc, desc, eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import type { SessionEntity } from "@/lib/context/types";
 import type { Metrics, RankedChunk, Timing } from "@/lib/ir/types";
-import { enrichDbError, getDb, hasDb } from "./client";
+import { assertDurableDb, enrichDbError, getDb, hasDb } from "./client";
 import { searchMessages, searchSessions } from "./schema";
 import { getSupabaseAdmin, sbError, toIso } from "./supabase";
 import {
@@ -72,6 +72,7 @@ function memMessageToDto(m: MemSearchMessage): SearchMessageDto {
 }
 
 export async function listSessions(limit = 40): Promise<SessionListItem[]> {
+  assertDurableDb('List sessions');
   if (!hasDb()) {
     return Array.from(memSessions.values())
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -129,6 +130,7 @@ export async function listSessions(limit = 40): Promise<SessionListItem[]> {
 }
 
 export async function createSession(title?: string): Promise<SearchSessionDto> {
+  assertDurableDb('Create session');
   const id = randomUUID();
   const now = new Date().toISOString();
   const row: SearchSessionDto = {
@@ -192,6 +194,7 @@ export async function createSession(title?: string): Promise<SearchSessionDto> {
 }
 
 export async function getSession(id: string): Promise<SearchSessionDto | null> {
+  assertDurableDb('Get session');
   if (!hasDb()) {
     const s = memSessions.get(id);
     return s ? memSessionToDto(s) : null;
@@ -234,6 +237,7 @@ export async function getSession(id: string): Promise<SearchSessionDto | null> {
 }
 
 export async function listMessages(sessionId: string): Promise<SearchMessageDto[]> {
+  assertDurableDb('List messages');
   if (!hasDb()) {
     return Array.from(memMessages.values())
       .filter((m) => m.sessionId === sessionId)
@@ -299,6 +303,7 @@ export async function updateSession(
     entities?: SessionEntity[];
   },
 ): Promise<SearchSessionDto | null> {
+  assertDurableDb('Update session');
   const existing = await getSession(id);
   if (!existing) return null;
 
@@ -357,6 +362,7 @@ export async function updateSession(
 }
 
 export async function deleteSession(id: string): Promise<boolean> {
+  assertDurableDb('Delete session');
   if (!hasDb()) {
     const existed = memSessions.has(id);
     memSessions.delete(id);
@@ -394,6 +400,7 @@ export async function addMessage(params: {
   metrics?: Metrics | null;
   status?: string;
 }): Promise<SearchMessageDto> {
+  assertDurableDb('Save message');
   const id = randomUUID();
   const now = new Date().toISOString();
   const row: SearchMessageDto = {
@@ -443,7 +450,7 @@ export async function addMessage(params: {
       created_at: now,
     });
     if (error) {
-      console.error("[addMessage]", sbError(error));
+      throw new Error(`Save message failed: ${sbError(error)}`);
     }
     await sb
       .from("search_sessions")
@@ -471,7 +478,7 @@ export async function addMessage(params: {
       .set({ updatedAt: new Date(now) })
       .where(eq(searchSessions.id, params.sessionId));
   } catch (err) {
-    console.error("[addMessage postgres]", err);
+    throw enrichDbError(err, "Save message");
   }
 
   return row;

@@ -7,6 +7,16 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 
+/** Application users (email/password accounts) */
+export const users = pgTable("users", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  email: text("email").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  displayName: text("display_name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
 export const notebooks = pgTable("notebooks", {
   id: varchar("id", { length: 36 }).primaryKey(),
   title: text("title").notNull(),

@@ -10,6 +10,9 @@ export type HybridRetrievalDiagnostics = {
   embeddingProvider?: string;
   embeddingModel?: string;
   embeddingMs?: number;
+  bm25Ms?: number;
+  denseMs?: number;
+  fusionMs?: number;
   bm25Weight?: number;
 };
 
@@ -139,15 +142,21 @@ function bm25Fallback(
   topK: number,
   reason?: string,
 ): HybridRetrievalResult {
+  const bm25Start = performance.now();
+  const results = bm25Retrieve(query, chunks, topK).map((r) => ({
+    ...r,
+    retrievalMode: (reason ? "bm25_fallback" : "bm25") as RankedChunk["retrievalMode"],
+  }));
+  const bm25Ms = Math.round(performance.now() - bm25Start);
   return {
-    results: bm25Retrieve(query, chunks, topK).map((r) => ({
-      ...r,
-      retrievalMode: reason ? "bm25_fallback" : "bm25",
-    })),
+    results,
     diagnostics: {
       mode: reason ? "bm25_fallback" : "bm25",
       denseUsed: false,
       denseSkippedReason: reason,
+      bm25Ms,
+      fusionMs: 0,
+      denseMs: 0,
     },
   };
 }
@@ -167,7 +176,9 @@ export async function retrieveEvidence(
   }
 
   const bm25TopK = Math.max(topK, IR_DEFAULTS.denseTopK, IR_DEFAULTS.maxDenseChunks);
+  const bm25Start = performance.now();
   const bm25All = bm25Retrieve(query, chunks, bm25TopK);
+  const bm25Ms = Math.round(performance.now() - bm25Start);
   const selectedIds = new Set(
     bm25All.slice(0, IR_DEFAULTS.maxDenseChunks).map((hit) => hit.chunkId),
   );
@@ -207,6 +218,7 @@ export async function retrieveEvidence(
         byId: new Map(embeddedChunks.map((chunk) => [chunk.chunkId, chunk])),
         topK,
         embeddingMs: Math.round(performance.now() - start),
+        bm25Ms,
         embeddingProvider,
         embeddingModel,
       });
@@ -223,16 +235,24 @@ export async function retrieveEvidence(
       byId,
       topK,
       embeddingMs: Math.round(performance.now() - start),
+      bm25Ms,
       embeddingProvider,
       embeddingModel,
     });
   } catch (err) {
-    return bm25Fallback(
+    const fallback = bm25Fallback(
       query,
       chunks,
       topK,
       err instanceof Error ? err.message : "Dense retrieval failed",
     );
+    return {
+      ...fallback,
+      diagnostics: {
+        ...fallback.diagnostics,
+        bm25Ms: fallback.diagnostics.bm25Ms ?? bm25Ms,
+      },
+    };
   }
 }
 
@@ -244,18 +264,27 @@ function fuseRuns(params: {
   byId: Map<string, ChunkWithEmbedding>;
   topK: number;
   embeddingMs: number;
+  bm25Ms: number;
   embeddingProvider: string;
   embeddingModel: string;
 }): HybridRetrievalResult {
+  const denseStart = performance.now();
   const dense = denseRetrieve(
     params.chunks,
     params.queryEmbedding,
     Math.max(params.topK, IR_DEFAULTS.denseTopK),
   );
+  const denseMs = Math.round(performance.now() - denseStart);
   if (dense.length === 0) {
-    return bm25Fallback(params.query, params.chunks, params.topK, "No dense embeddings available");
+    return bm25Fallback(
+      params.query,
+      params.chunks,
+      params.topK,
+      "No dense embeddings available",
+    );
   }
 
+  const fusionStart = performance.now();
   const bm25Weight = adaptiveBm25Weight(params.query, params.chunks);
   const scores = new Map<string, number>();
   const bm25Map = new Map(params.bm25.map((hit) => [hit.chunkId, hit]));
@@ -295,6 +324,7 @@ function fuseRuns(params: {
       });
     })
     .filter((r): r is RankedChunk => Boolean(r));
+  const fusionMs = Math.round(performance.now() - fusionStart);
 
   return {
     results,
@@ -304,6 +334,9 @@ function fuseRuns(params: {
       embeddingProvider: params.embeddingProvider,
       embeddingModel: params.embeddingModel,
       embeddingMs: params.embeddingMs,
+      bm25Ms: params.bm25Ms,
+      denseMs,
+      fusionMs,
       bm25Weight,
     },
   };

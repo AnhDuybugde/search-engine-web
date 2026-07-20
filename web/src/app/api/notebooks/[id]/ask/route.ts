@@ -11,6 +11,8 @@ const bodySchema = z.object({
   query: z.string().min(1).max(2000),
   sourceIds: z.array(z.string()).optional(),
   contextTopK: z.number().int().min(1).max(12).optional(),
+  retrieveTopK: z.number().int().min(1).max(80).optional(),
+  documentTopK: z.number().int().min(1).max(20).optional(),
   generateAnswer: z.boolean().optional(),
 });
 
@@ -33,21 +35,23 @@ export async function POST(
   const chunks = await loadChunks(id, parsed.data.sourceIds);
   if (chunks.length === 0) {
     return Response.json(
-      { error: "Notebook has no chunks. Upload a document first." },
+      { error: "Notebook has no sources. Store a raw document first." },
       { status: 400 },
     );
   }
 
-  return createSseResponse(async (emit) => {
-    emit({ type: "search_started", query: parsed.data.query });
+  return createSseResponse(async (emit, { signal }) => {
     await runNotebookAskPipeline(
       {
         query: parsed.data.query,
         chunks,
         contextTopK: parsed.data.contextTopK,
+        retrieveTopK: parsed.data.retrieveTopK,
+        documentTopK: parsed.data.documentTopK ?? 10,
         generateAnswer: parsed.data.generateAnswer,
+        signal,
       },
       emit,
     );
-  });
+  }, req);
 }
