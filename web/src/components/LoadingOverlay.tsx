@@ -12,13 +12,13 @@ export function LoadingOverlay({
   if (!show) return null;
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 top-16 z-50 flex justify-center px-4"
+      className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center px-4 sm:left-[var(--rail-w)]"
       role="status"
       aria-live="polite"
     >
-      <div className="inline-flex items-center gap-2 rounded-full border border-[var(--border-strong)] bg-[var(--bg-elevated)]/95 px-3.5 py-1.5 text-sm text-[var(--fg)] shadow-[var(--shadow-md)] backdrop-blur-md">
+      <div className="anim-enter inline-flex items-center gap-2 rounded-full border border-[var(--mood-border)] bg-[var(--bg-elevated)]/95 px-3.5 py-2 text-sm text-[var(--fg)] shadow-[var(--shadow-md)] backdrop-blur-md">
         <Loader2
-          className="h-3.5 w-3.5 animate-spin text-[var(--primary)]"
+          className="h-3.5 w-3.5 animate-spin text-[var(--mood)]"
           aria-hidden
         />
         <span className="text-[13px] font-medium">{label}</span>

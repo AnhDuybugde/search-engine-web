@@ -1,3 +1,4 @@
+import { requireUserId } from "@/lib/auth";
 import {
   deleteNotebook,
   getNotebook,
@@ -5,25 +6,53 @@ import {
 } from "@/lib/db/notebooks-repo";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
+  const auth = requireUserId(req);
+  if ("error" in auth) return auth.error;
+
   const { id } = await ctx.params;
-  const notebook = await getNotebook(id);
-  if (!notebook) {
-    return Response.json({ error: "Not found" }, { status: 404 });
+  try {
+    // Parallel reads for realtime notebook open
+    const [notebook, sources] = await Promise.all([
+      getNotebook(id),
+      listSources(id),
+    ]);
+    if (!notebook) {
+      return Response.json({ error: "Not found" }, { status: 404 });
+    }
+    return Response.json({ notebook, sources });
+  } catch (err) {
+    return Response.json(
+      {
+        error: err instanceof Error ? err.message : "Failed to load notebook",
+        notebook: null,
+        sources: [],
+      },
+      { status: 500 },
+    );
   }
-  const sources = await listSources(id);
-  return Response.json({ notebook, sources });
 }
 
 export async function DELETE(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
+  const auth = requireUserId(req);
+  if ("error" in auth) return auth.error;
+
   const { id } = await ctx.params;
-  await deleteNotebook(id);
-  return Response.json({ ok: true });
+  try {
+    await deleteNotebook(id);
+    return Response.json({ ok: true });
+  } catch (err) {
+    return Response.json(
+      { error: err instanceof Error ? err.message : "Delete failed" },
+      { status: 500 },
+    );
+  }
 }

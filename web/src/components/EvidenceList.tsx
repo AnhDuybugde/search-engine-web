@@ -46,15 +46,15 @@ export function EvidenceList({
             onMouseEnter={() => onHover?.(r.citationId)}
             onMouseLeave={() => onHover?.(null)}
             className={cn(
-              "rounded-lg border p-3 transition-colors duration-150",
+              "hover-lift rounded-xl border p-3 transition-colors duration-150",
               activeId === r.citationId
-                ? "border-[var(--primary-border)] bg-[var(--primary-soft)]"
-                : "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--border-strong)]",
+                ? "border-[var(--mood-border)] bg-[var(--mood-soft)]"
+                : "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--mood-border)]",
             )}
           >
             <div className="mb-1.5 flex items-start justify-between gap-2">
               <div className="text-[13px] font-medium leading-snug text-[var(--fg)]">
-                <span className="mr-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded bg-[var(--primary-soft)] px-1 text-[11px] font-semibold text-[var(--primary)] ring-1 ring-[var(--primary-border)]">
+                <span className="mr-1.5 inline-flex h-5 min-w-5 items-center justify-center rounded bg-[var(--mood-soft)] px-1 text-[11px] font-semibold text-[var(--mood)] ring-1 ring-[var(--mood-border)]">
                   [{r.citationId}]
                 </span>
                 {r.title}
@@ -90,7 +90,7 @@ export function EvidenceList({
             {r.text.length > 180 && (
               <button
                 type="button"
-                className="mt-1 inline-flex items-center gap-0.5 text-[11px] font-medium text-[var(--primary)] hover:underline"
+                className="mt-1 inline-flex items-center gap-0.5 text-[11px] font-medium text-[var(--mood)] hover:underline"
                 onClick={() =>
                   setExpanded((cur) => (cur === r.chunkId ? null : r.chunkId))
                 }

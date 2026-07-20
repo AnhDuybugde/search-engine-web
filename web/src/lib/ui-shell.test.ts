@@ -39,6 +39,63 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     }
   });
 
+  it("lively multi-accent tokens + motion utilities ship in globals.css", () => {
+    const css = readSrc("app", "globals.css");
+    // Multi-accent palette beyond single navy/blue
+    for (const token of [
+      "--violet",
+      "--cyan",
+      "--teal",
+      "--amber",
+      "--mood",
+      "--mood-soft",
+      "--mood-grad",
+    ]) {
+      expect(css, `missing lively token ${token}`).toContain(token);
+    }
+    // Dataset vs Web module moods
+    expect(css).toContain('[data-mood="dataset"]');
+    expect(css).toContain('[data-mood="web"]');
+    // Motion primitives + reduced-motion kill switch
+    for (const util of [
+      "@keyframes se-enter-up",
+      ".anim-enter",
+      ".anim-stagger",
+      ".anim-message",
+      ".hover-lift",
+      ".bento-grid",
+      ".bento-card",
+      "prefers-reduced-motion",
+    ]) {
+      expect(css, `missing motion/bento util ${util}`).toContain(util);
+    }
+    expect(css).toMatch(
+      /@media\s*\(\s*prefers-reduced-motion\s*:\s*reduce\s*\)/,
+    );
+  });
+
+  it("AppShell applies data-mood and lively rail labels", () => {
+    const shell = readSrc("components", "AppShell.tsx");
+    expect(shell).toContain('data-mood={mood}');
+    expect(shell).toContain('mood =');
+    expect(shell).toContain('"web"');
+    expect(shell).toContain('"dataset"');
+  });
+
+  it("empty states use bento grid + staggered enter classes", () => {
+    const search = readSrc("components", "search", "SearchChatLayout.tsx");
+    const dataset = readSrc("components", "dataset", "DatasetChatLayout.tsx");
+    expect(search).toContain("bento-grid");
+    expect(search).toContain("anim-stagger");
+    expect(search).toContain("chip-tint-cyan");
+    expect(dataset).toContain("bento-grid");
+    expect(dataset).toContain("anim-stagger");
+    expect(dataset).toContain("bento-card--violet");
+    const thread = readSrc("components", "search", "ChatThread.tsx");
+    expect(thread).toContain("anim-message");
+    expect(thread).toContain("thinking-dot");
+  });
+
   it("AppShell exposes primary nav to Dataset Search then Web Search", () => {
     const shell = readSrc("components", "AppShell.tsx");
     expect(shell).toContain('href: "/notebooks"');
@@ -51,6 +108,54 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(shell.indexOf('href: "/notebooks"')).toBeLessThan(
       shell.indexOf('href: "/search"'),
     );
+  });
+
+  it("uses readable Plus Jakarta + Sora fonts at 16px body base", () => {
+    const layout = readSrc("app", "layout.tsx");
+    expect(layout).toContain("Plus_Jakarta_Sans");
+    expect(layout).toContain("Sora");
+    expect(layout).not.toContain("DM_Sans");
+    const css = readSrc("app", "globals.css");
+    expect(css).toContain("--font-plus-jakarta");
+    expect(css).toContain("--font-sora");
+    expect(css).toMatch(/--text-base:\s*1rem/);
+    expect(css).toContain("confirm-panel");
+  });
+
+  it("dataset delete uses in-app ConfirmDialog, not window.confirm", () => {
+    const layout = readSrc("components", "dataset", "DatasetChatLayout.tsx");
+    expect(layout).toContain("ConfirmDialog");
+    expect(layout).toContain("confirmDelete");
+    expect(layout).not.toMatch(/\bconfirm\s*\(/);
+    const dialog = readSrc("components", "ConfirmDialog.tsx");
+    expect(dialog).toContain('role="alertdialog"');
+    expect(dialog).toContain("aria-modal");
+    const sidebar = readSrc("components", "dataset", "DatasetSidebar.tsx");
+    expect(sidebar).toContain('role="listbox"');
+    expect(sidebar).toContain("aria-selected");
+    expect(sidebar).toContain("Active");
+  });
+
+  it("New dataset CTA is only in the left sidebar, not center empty state", () => {
+    const layout = readSrc("components", "dataset", "DatasetChatLayout.tsx");
+    expect(layout).toContain("Select a dataset");
+    expect(layout).toContain("left sidebar");
+    // Center empty state must not render a New dataset primary button
+    expect(layout).not.toMatch(
+      /chat-empty[\s\S]*?btn-primary[\s\S]*?New dataset/,
+    );
+    const sidebar = readSrc("components", "dataset", "DatasetSidebar.tsx");
+    expect(sidebar).toContain("New dataset");
+    expect(sidebar).toContain("onNew");
+  });
+
+  it("search session delete uses ConfirmDialog and verified remove", () => {
+    const layout = readSrc("components", "search", "SearchChatLayout.tsx");
+    expect(layout).toContain("ConfirmDialog");
+    expect(layout).toContain("onRequestDelete");
+    expect(layout).not.toMatch(/\bconfirm\s*\(/);
+    const hook = readSrc("lib", "hooks", "use-search-chat.ts");
+    expect(hook).toContain("still appears in the list after delete");
   });
 
   it("SearchChatLayout is a multi-panel workspace wired to chat hooks", () => {

@@ -43,7 +43,13 @@ export function DatasetComposer({
       <div className="mx-auto max-w-[var(--chat-max)] space-y-2">
         <div className="chat-composer-box !pl-1.5">
           {onUpload && (
-            <label className="inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl text-[var(--fg-muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--primary)]">
+            <label
+              className={cn(
+                "inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl text-[var(--fg-muted)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]",
+                (uploading || running) && "pointer-events-none opacity-50",
+              )}
+              title="Upload document"
+            >
               {uploading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -74,6 +80,7 @@ export function DatasetComposer({
               placeholder ||
               "Ask about your documents… (Enter send · Shift+Enter newline)"
             }
+            aria-label="Message"
             className="max-h-36 min-h-[2.75rem] flex-1 resize-none bg-transparent py-2 text-[15px] text-[var(--fg)] outline-none placeholder:text-[var(--fg-subtle)]"
             disabled={disabled || running}
           />
@@ -82,7 +89,7 @@ export function DatasetComposer({
               <button
                 type="button"
                 onClick={onCancel}
-                className="btn-ghost !min-h-9 !rounded-lg"
+                className="btn-secondary !min-h-10 !rounded-xl"
               >
                 <Square className="h-3.5 w-3.5" />
                 Stop
@@ -92,7 +99,7 @@ export function DatasetComposer({
                 type="button"
                 onClick={submit}
                 disabled={disabled || !query.trim()}
-                className="btn-primary !min-h-9 !rounded-lg"
+                className="btn-primary !min-h-10 !rounded-xl"
               >
                 <CornerDownLeft className="h-4 w-4" />
                 Send
@@ -101,8 +108,7 @@ export function DatasetComposer({
           </div>
         </div>
         <p className="text-center text-[11px] text-[var(--fg-subtle)]">
-          Paperclip stores raw sources · search ranks full text at query time ·
-          process lab
+          Paperclip stores raw sources · ranking runs at query time
         </p>
       </div>
     </div>

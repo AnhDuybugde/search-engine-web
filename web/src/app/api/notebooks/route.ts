@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { requireUserId } from "@/lib/auth";
 import { dbSetupHint } from "@/lib/config";
 import {
   DurableDbRequiredError,
@@ -14,9 +15,11 @@ const createSchema = z.object({
   title: z.string().min(1).max(200),
 });
 
-export async function GET() {
+export async function GET(req: Request) {
   const denied = requireDurableDb("List notebooks");
   if (denied) return denied;
+  const auth = requireUserId(req);
+  if ("error" in auth) return auth.error;
   try {
     const items = await listNotebooks();
     return Response.json({ items, backend: dbBackend() });
@@ -39,6 +42,8 @@ export async function GET() {
 export async function POST(req: Request) {
   const denied = requireDurableDb("Create notebook");
   if (denied) return denied;
+  const auth = requireUserId(req);
+  if ("error" in auth) return auth.error;
   try {
     const json = await req.json().catch(() => null);
     const parsed = createSchema.safeParse(json);

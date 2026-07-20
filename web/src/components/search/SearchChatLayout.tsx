@@ -4,12 +4,16 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
+  Globe2,
+  Layers,
   Menu,
+  MessageSquareText,
   PanelRight,
   Sparkles,
   X,
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EvidenceList } from "@/components/EvidenceList";
 import { StepRail } from "@/components/StepRail";
 import { ChatComposer } from "@/components/search/ChatComposer";
@@ -45,6 +49,11 @@ export function SearchChatLayout({
   } = useSearchSessions();
 
   const chat = useSearchChat(sessionId);
+  const [pendingDelete, setPendingDelete] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [evidenceOpen, setEvidenceOpen] = useState(true);
   const [activeCitation, setActiveCitation] = useState<number | null>(null);
@@ -191,15 +200,9 @@ export function SearchChatLayout({
           onNew={() => void onNew()}
           onSelect={goSession}
           onRename={rename}
-          onDelete={async (id) => {
-            try {
-              await remove(id);
-              if (id === sessionId) goSession(null);
-            } catch (err) {
-              setUiError(
-                err instanceof Error ? err.message : "Delete session failed",
-              );
-            }
+          onRequestDelete={(id, title) => {
+            setUiError(null);
+            setPendingDelete({ id, title });
           }}
           className={cn(
             "absolute inset-y-0 left-0 z-40 w-[var(--sidebar-w)] transition-transform duration-200 lg:static lg:translate-x-0",
@@ -212,30 +215,43 @@ export function SearchChatLayout({
           <div className="chat-toolbar">
             <button
               type="button"
-              className="btn-ghost !min-h-8 !rounded-lg lg:hidden"
+              className="btn-ghost !min-h-9 !rounded-lg lg:hidden"
               onClick={() => setSidebarOpen(true)}
               aria-label="Open chat list"
             >
               <Menu className="h-4 w-4" />
             </button>
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-sm font-semibold tracking-tight">
-                {sessionId ? chat.sessionTitle : "Web Search"}
-              </h1>
-              {chat.lastExpanded?.usedContext && (
+              <div className="flex items-center gap-2">
+                <span className="mood-pill hidden sm:inline-flex">
+                  Web Search
+                </span>
+                <h1
+                  className="truncate text-sm font-semibold tracking-tight"
+                  style={{ fontFamily: "var(--font-display)" }}
+                >
+                  {sessionId ? chat.sessionTitle : "Web research"}
+                </h1>
+              </div>
+              {chat.lastExpanded?.usedContext ? (
                 <p className="truncate text-[11px] text-[var(--fg-subtle)]">
-                  Context: “{chat.lastExpanded.expanded}”
+                  Expanded: “{chat.lastExpanded.expanded}”
+                </p>
+              ) : (
+                <p className="truncate text-[11px] text-[var(--fg-subtle)]">
+                  Multi-turn search · cited answers · session memory
                 </p>
               )}
             </div>
             <button
               type="button"
               className={cn(
-                "btn-ghost !min-h-8 !rounded-lg",
+                "btn-ghost !min-h-9 !rounded-lg",
                 showEvidence &&
-                  "bg-[var(--primary-soft)] text-[var(--fg)] ring-1 ring-[var(--primary-border)]",
+                  "bg-[var(--accent-soft)] text-[var(--fg)] ring-1 ring-[var(--accent-border)]",
               )}
               title="Toggle evidence"
+              aria-pressed={showEvidence}
               onClick={() => setEvidenceOpen((v) => !v)}
             >
               <PanelRight className="h-4 w-4" />
@@ -278,22 +294,54 @@ export function SearchChatLayout({
             activeAssistantId={chat.activeAssistantId}
             onSelectAssistant={chat.setActiveAssistantId}
             empty={
-              <div className="chat-empty">
+              <div className="chat-empty anim-enter">
                 <div className="chat-empty-badge">
-                  <Sparkles className="h-3 w-3 text-[var(--primary)]" aria-hidden />
-                  Session-aware research
+                  <Sparkles className="h-3 w-3 text-[var(--cyan)]" aria-hidden />
+                  Session-aware web research
                 </div>
-                <h2 className="chat-empty-title">Ask the web anything</h2>
+                <h2 className="chat-empty-title">Ask the open web</h2>
                 <p className="chat-empty-copy">
-                  Multi-turn chat remembers entities in this session — e.g. ask
-                  “Who is Lionel Messi?” then “How old is he?”.
+                  Follow-ups keep context in this session — ask who someone is,
+                  then “How old is he?” without repeating the name.
                 </p>
-                <div className="chat-empty-actions">
-                  {SUGGESTIONS.map((s) => (
+                <div className="bento-grid anim-stagger">
+                  <div className="bento-card bento-card--cyan">
+                    <div className="bento-card-icon">
+                      <Globe2 className="h-3.5 w-3.5" />
+                    </div>
+                    <h3>Live search</h3>
+                    <p>
+                      Provider results ranked with hybrid retrieval and cited
+                      answers in one thread.
+                    </p>
+                  </div>
+                  <div className="bento-card bento-card--violet">
+                    <div className="bento-card-icon">
+                      <MessageSquareText className="h-3.5 w-3.5" />
+                    </div>
+                    <h3>Multi-turn</h3>
+                    <p>Query expansion uses entities from prior turns.</p>
+                  </div>
+                  <div className="bento-card bento-card--teal">
+                    <div className="bento-card-icon">
+                      <Layers className="h-3.5 w-3.5" />
+                    </div>
+                    <h3>Evidence</h3>
+                    <p>Open sources beside the answer anytime.</p>
+                  </div>
+                </div>
+                <div className="chat-empty-actions anim-stagger">
+                  {SUGGESTIONS.map((s, i) => (
                     <button
                       key={s}
                       type="button"
-                      className="chip"
+                      className={cn(
+                        "chip",
+                        i % 4 === 0 && "chip-tint-cyan",
+                        i % 4 === 1 && "chip-tint-violet",
+                        i % 4 === 2 && "chip-tint-teal",
+                        i % 4 === 3 && "chip-tint-amber",
+                      )}
                       disabled={creating || chat.status === "running"}
                       onClick={() =>
                         void ensureSessionAndSend(s, {
@@ -322,10 +370,10 @@ export function SearchChatLayout({
         {/* Desktop evidence column — secondary, does not fight chat */}
         {showEvidence && (
           <aside className="chat-panel hidden w-[var(--evidence-w)] shrink-0 xl:flex">
-            <div className="chat-toolbar !border-l-0 text-sm font-semibold">
-              Evidence
+            <div className="chat-toolbar !border-l-0 gap-2 text-sm font-semibold">
+              <span>Evidence</span>
               {chat.activeEvidence.length > 0 && (
-                <span className="ml-2 rounded-md bg-[var(--primary-soft)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--primary)] ring-1 ring-[var(--primary-border)]">
+                <span className="rounded-md bg-[var(--accent-soft)] px-1.5 py-0.5 text-[11px] font-semibold text-[var(--accent)] ring-1 ring-[var(--accent-border)]">
                   {chat.activeEvidence.length}
                 </span>
               )}
@@ -337,14 +385,19 @@ export function SearchChatLayout({
                 onHover={setActiveCitation}
               />
               {!chat.activeEvidence.length && (
-                <p className="text-xs leading-relaxed text-[var(--fg-muted)]">
-                  Sources for the selected answer will appear here.
-                </p>
+                <div className="rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--bg-panel)] px-3 py-6 text-center">
+                  <p className="text-xs font-medium text-[var(--fg-muted)]">
+                    No sources yet
+                  </p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-[var(--fg-subtle)]">
+                    Sources for the selected answer appear here after a run.
+                  </p>
+                </div>
               )}
             </div>
             {chat.logs.length > 0 && (
               <details className="shrink-0 border-t border-[var(--border)] p-3 text-[11px] text-[var(--fg-muted)]">
-                <summary className="cursor-pointer font-medium hover:text-[var(--fg)]">
+                <summary className="cursor-pointer font-semibold hover:text-[var(--fg)]">
                   Pipeline log
                 </summary>
                 <ul className="mt-2 max-h-36 space-y-1 overflow-y-auto font-mono text-[10px] text-[var(--fg-subtle)]">
@@ -373,6 +426,40 @@ export function SearchChatLayout({
           </div>
         </details>
       )}
+
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title="Delete this chat session?"
+        description="Messages and search history for this session will be permanently removed."
+        resourceLabel={pendingDelete?.title}
+        confirmLabel="Delete session"
+        cancelLabel="Keep session"
+        busy={deleting}
+        onConfirm={() => {
+          if (!pendingDelete) return;
+          const { id } = pendingDelete;
+          setDeleting(true);
+          void (async () => {
+            try {
+              await remove(id);
+              setPendingDelete(null);
+              if (id === sessionId) goSession(null);
+              void refresh({ quiet: true });
+            } catch (err) {
+              setUiError(
+                err instanceof Error ? err.message : "Delete session failed",
+              );
+              setPendingDelete(null);
+              void refresh({ quiet: true });
+            } finally {
+              setDeleting(false);
+            }
+          })();
+        }}
+        onCancel={() => {
+          if (!deleting) setPendingDelete(null);
+        }}
+      />
     </AppShell>
   );
 }

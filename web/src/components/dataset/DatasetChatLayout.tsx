@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
-  BookOpen,
+  Database,
+  FileSearch,
   FileText,
   Menu,
   PanelLeft,
@@ -14,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { DatasetComposer } from "@/components/dataset/DatasetComposer";
 import { DatasetSidebar, type DatasetSummary } from "@/components/dataset/DatasetSidebar";
 import { DocumentDetailDrawer } from "@/components/dataset/DocumentDetailDrawer";
@@ -72,6 +74,11 @@ export function DatasetChatLayout({
   const [selectedDoc, setSelectedDoc] = useState<RankedDocument | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const { state, run, cancel, reset } = useSsePipeline();
   const uploadSse = useUploadSse();
@@ -83,11 +90,16 @@ export function DatasetChatLayout({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to load datasets");
       const items = (Array.isArray(data.items) ? data.items : []).map(
-        (n: { id: string; title: string; createdAt: string }) => ({
+        (n: {
+          id: string;
+          title: string;
+          createdAt: string;
+          updatedAt?: string;
+        }) => ({
           id: n.id,
           title: n.title,
           createdAt: n.createdAt,
-          updatedAt: n.createdAt,
+          updatedAt: n.updatedAt || n.createdAt,
         }),
       );
       setDatasets(items);
@@ -232,18 +244,68 @@ export function DatasetChatLayout({
     }
   };
 
-  const onDelete = async (id: string, name: string) => {
-    if (!confirm(`Delete dataset “${name}”?`)) return;
+  const requestDelete = (id: string, name: string) => {
+    setUiError(null);
+    setPendingDelete({ id, title: name });
+  };
+
+  /**
+   * Delete via shipped API, then re-list + GET to prove the record is gone
+   * (no silent UI-only removal).
+   */
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    const { id } = pendingDelete;
+    setDeleting(true);
+    setUiError(null);
     try {
       const res = await fetch(`/api/notebooks/${id}`, { method: "DELETE" });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error((data as { error?: string }).error || "Delete failed");
       }
-      await loadDatasets();
+
+      // Verify 1: detail endpoint should 404
+      const check = await fetch(`/api/notebooks/${id}`, { cache: "no-store" });
+      if (check.ok) {
+        throw new Error(
+          "Delete reported success but dataset is still reachable. Refresh and retry.",
+        );
+      }
+
+      // Verify 2: list must not include the id
+      const listRes = await fetch("/api/notebooks", { cache: "no-store" });
+      const listData = await listRes.json().catch(() => ({}));
+      const items = Array.isArray(listData.items) ? listData.items : [];
+      if (items.some((n: { id?: string }) => n.id === id)) {
+        throw new Error(
+          "Dataset still appears in the list after delete. Refresh and retry.",
+        );
+      }
+
+      setDatasets(
+        items.map(
+          (n: {
+            id: string;
+            title: string;
+            createdAt: string;
+            updatedAt?: string;
+          }) => ({
+            id: n.id,
+            title: n.title,
+            createdAt: n.createdAt,
+            updatedAt: n.updatedAt || n.createdAt,
+          }),
+        ),
+      );
+      setPendingDelete(null);
       if (notebookId === id) goDataset(null);
     } catch (err) {
       setUiError(err instanceof Error ? err.message : "Delete failed");
+      setPendingDelete(null);
+      void loadDatasets();
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -397,7 +459,7 @@ export function DatasetChatLayout({
               goDataset(id);
               setMobileSidebarOpen(false);
             }}
-            onDelete={(id, t) => void onDelete(id, t)}
+            onDelete={requestDelete}
             onCollapse={closeLeft}
             className="h-full border-0"
           />
@@ -417,7 +479,7 @@ export function DatasetChatLayout({
           <div className="chat-toolbar">
             <button
               type="button"
-              className="btn-ghost !min-h-8 !rounded-lg !px-2 xl:hidden"
+              className="btn-ghost !min-h-9 !rounded-lg !px-2 xl:hidden"
               onClick={() => setMobileSidebarOpen(true)}
               aria-label="Open datasets"
             >
@@ -426,9 +488,9 @@ export function DatasetChatLayout({
             <button
               type="button"
               className={cn(
-                "btn-ghost !min-h-8 !rounded-lg !px-2 hidden xl:inline-flex",
+                "btn-ghost !min-h-9 !rounded-lg !px-2 hidden xl:inline-flex",
                 leftOpen &&
-                  "bg-[var(--primary-soft)] text-[var(--fg)] ring-1 ring-[var(--primary-border)]",
+                  "bg-[var(--accent-soft)] text-[var(--fg)] ring-1 ring-[var(--accent-border)]",
               )}
               onClick={toggleLeft}
               aria-label={leftOpen ? "Collapse datasets" : "Expand datasets"}
@@ -439,14 +501,26 @@ export function DatasetChatLayout({
               <span className="hidden sm:inline">Datasets</span>
             </button>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-semibold tracking-tight text-[var(--fg)]">
-                {notebookId ? title || "Dataset chat" : "Dataset Search"}
+              <div className="flex items-center gap-2">
+                <span className="mood-pill hidden sm:inline-flex">
+                  Dataset Search
+                </span>
+                <div
+                  className="truncate text-sm font-semibold tracking-tight text-[var(--fg)]"
+                  style={{ fontFamily: "var(--font-display)" }}
+                >
+                  {notebookId ? title || "Dataset chat" : "Dataset search"}
+                </div>
               </div>
-              {notebookId && (
+              {notebookId ? (
                 <div className="truncate text-[11px] text-[var(--fg-subtle)]">
                   {sources.length} raw source
-                  {sources.length === 1 ? "" : "s"} · full-text search · no
-                  pre-index
+                  {sources.length === 1 ? "" : "s"} · full-text at query time ·
+                  no pre-index
+                </div>
+              ) : (
+                <div className="truncate text-[11px] text-[var(--fg-subtle)]">
+                  Upload documents · rank · cited answers
                 </div>
               )}
             </div>
@@ -454,9 +528,9 @@ export function DatasetChatLayout({
               <button
                 type="button"
                 className={cn(
-                  "btn-ghost !min-h-8 !rounded-lg !px-2",
+                  "btn-ghost !min-h-9 !rounded-lg !px-2",
                   rightOpen &&
-                    "bg-[var(--primary-soft)] text-[var(--fg)] ring-1 ring-[var(--primary-border)]",
+                    "bg-[var(--accent-soft)] text-[var(--fg)] ring-1 ring-[var(--accent-border)]",
                 )}
                 onClick={toggleRight}
                 aria-label={rightOpen ? "Collapse side panel" : "Expand side panel"}
@@ -464,7 +538,7 @@ export function DatasetChatLayout({
                 title={rightOpen ? "Collapse panel" : "Expand panel"}
               >
                 <PanelRight className="h-4 w-4" />
-                <span className="hidden sm:inline">Panel</span>
+                <span className="hidden sm:inline">Inspector</span>
               </button>
             )}
           </div>
@@ -502,42 +576,67 @@ export function DatasetChatLayout({
               setRightTab("evidence");
             }}
             empty={
-              <div className="chat-empty">
+              <div className="chat-empty anim-enter">
                 <div className="chat-empty-badge">
-                  <Sparkles className="h-3 w-3 text-[var(--primary)]" />
-                  Dataset chat
+                  <Sparkles className="h-3 w-3 text-[var(--violet)]" />
+                  Dataset workspace
                 </div>
                 <h2 className="chat-empty-title">
                   {notebookId
                     ? sources.length
                       ? "Ask your documents"
-                      : "Store a raw source to start"
-                    : "Create or open a dataset"}
+                      : "Store a source to begin"
+                    : "Select a dataset"}
                 </h2>
                 <p className="chat-empty-copy">
                   {notebookId
                     ? sources.length
-                      ? "Search runs over full source text at query time. Upload stores documents only — no chunk or embedding index."
-                      : "Attach PDF/TXT/MD with the paperclip. We extract text and store the raw source only, then you can ask."
-                    : "Sidebar datasets · message thread · composer — store raw sources, then chat."}
+                      ? "Retrieval runs over full source text at query time. Upload only stores raw documents — no pre-chunk or embed index."
+                      : "Attach PDF, TXT, MD, CSV or JSON. Text is extracted and stored raw; ranking starts when you ask."
+                    : "Pick an existing workspace in the left sidebar — or use New there if you need another dataset."}
                 </p>
-                <div className="chat-empty-actions">
-                  {!notebookId && (
-                    <button
-                      type="button"
-                      onClick={() => void onNew()}
-                      className="btn-primary"
-                    >
-                      <BookOpen className="h-4 w-4" />
-                      New dataset
-                    </button>
-                  )}
-                  {notebookId && sources.length > 0 &&
-                    SUGGESTIONS.map((s) => (
+                {!notebookId && (
+                  <div className="bento-grid anim-stagger">
+                    <div className="bento-card bento-card--violet">
+                      <div className="bento-card-icon">
+                        <Database className="h-3.5 w-3.5" />
+                      </div>
+                      <h3>Raw corpus</h3>
+                      <p>
+                        Durable full-text sources per dataset — store once,
+                        rank on every question.
+                      </p>
+                    </div>
+                    <div className="bento-card bento-card--cyan">
+                      <div className="bento-card-icon">
+                        <FileSearch className="h-3.5 w-3.5" />
+                      </div>
+                      <h3>Query-time rank</h3>
+                      <p>BM25 / hybrid RRF when you ask.</p>
+                    </div>
+                    <div className="bento-card bento-card--amber">
+                      <div className="bento-card-icon">
+                        <Sparkles className="h-3.5 w-3.5" />
+                      </div>
+                      <h3>Process lab</h3>
+                      <p>Metrics, ranks, and pipeline inspector.</p>
+                    </div>
+                  </div>
+                )}
+                <div className="chat-empty-actions anim-stagger">
+                  {/* New dataset CTA lives only in the left sidebar — center stays for browse/open */}
+                  {notebookId &&
+                    sources.length > 0 &&
+                    SUGGESTIONS.map((s, i) => (
                       <button
                         key={s}
                         type="button"
-                        className="chip"
+                        className={cn(
+                          "chip",
+                          i % 3 === 0 && "chip-tint-violet",
+                          i % 3 === 1 && "chip-tint-cyan",
+                          i % 3 === 2 && "chip-tint-amber",
+                        )}
                         disabled={running}
                         onClick={() => void onSend(s)}
                       >
@@ -545,13 +644,13 @@ export function DatasetChatLayout({
                       </button>
                     ))}
                   {notebookId && !sources.length && (
-                    <label className="inline-flex cursor-pointer flex-col items-center gap-2 rounded-2xl border border-dashed border-[var(--border-strong)] bg-[var(--bg-elevated)] px-7 py-6 text-xs text-[var(--fg-muted)] shadow-sm transition hover:border-[var(--primary-border)] hover:bg-[var(--primary-soft)]">
-                      <Upload className="h-5 w-5 text-[var(--primary)]" />
+                    <label className="hover-lift inline-flex cursor-pointer flex-col items-center gap-2 rounded-2xl border border-dashed border-[var(--violet-border)] bg-[var(--violet-soft)] px-7 py-7 text-xs text-[var(--fg-muted)] shadow-sm transition hover:border-[var(--mood-border)] hover:bg-[var(--mood-soft)]">
+                      <Upload className="h-6 w-6 text-[var(--violet)]" />
                       <span className="text-sm font-semibold text-[var(--fg)]">
                         Store first raw source
                       </span>
                       <span className="text-[var(--fg-subtle)]">
-                        PDF · TXT · MD · CSV · no chunk/embed at upload
+                        PDF · TXT · MD · CSV · JSON
                       </span>
                       <input
                         type="file"
@@ -783,6 +882,20 @@ export function DatasetChatLayout({
           onClose={() => setDrawerOpen(false)}
         />
       )}
+
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title="Delete this dataset?"
+        description="Sources, chat history, and retrieval data for this workspace will be permanently removed."
+        resourceLabel={pendingDelete?.title}
+        confirmLabel="Delete dataset"
+        cancelLabel="Keep dataset"
+        busy={deleting}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => {
+          if (!deleting) setPendingDelete(null);
+        }}
+      />
     </AppShell>
   );
 }

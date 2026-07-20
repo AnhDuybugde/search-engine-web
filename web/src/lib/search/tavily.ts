@@ -26,7 +26,9 @@ export async function searchTavily(
       api_key: apiKey,
       query,
       max_results: limit,
-      include_raw_content: true,
+      // Snippets (`content`) are enough for pack+BM25; full raw_content adds
+      // multi-second latency on the realtime search path with little gain.
+      include_raw_content: false,
       search_depth: "basic",
     }),
   });

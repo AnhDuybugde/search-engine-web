@@ -1,3 +1,4 @@
+import { requireUserId } from "@/lib/auth";
 import { IR_DEFAULTS } from "@/lib/config";
 import { addSource, getNotebook } from "@/lib/db/notebooks-repo";
 import { extractPdfText } from "@/lib/extract/pdf";
@@ -13,6 +14,9 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
+  const auth = requireUserId(req);
+  if ("error" in auth) return auth.error;
+
   const { id } = await ctx.params;
   const notebook = await getNotebook(id);
   if (!notebook) {

@@ -48,8 +48,12 @@ export function ChatComposer({
     <div className={cn("chat-composer-shell", className)}>
       <div className="mx-auto max-w-[var(--chat-max)] space-y-2">
         {showOpts && (
-          <div className="flex flex-wrap items-center gap-4 rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3 py-2.5 text-xs text-[var(--fg-muted)] shadow-sm">
-            <label className="inline-flex items-center gap-1.5">
+          <div
+            className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3.5 py-3 text-xs text-[var(--fg-muted)] shadow-sm"
+            role="group"
+            aria-label="Search options"
+          >
+            <label className="inline-flex items-center gap-2 font-medium">
               Results
               <input
                 type="number"
@@ -57,10 +61,11 @@ export function ChatComposer({
                 max={12}
                 value={searchLimit}
                 onChange={(e) => setSearchLimit(Number(e.target.value))}
-                className="field w-14 min-h-8 !px-2 !py-1 text-center"
+                className="field w-14 min-h-9 !px-2 !py-1 text-center"
+                aria-label="Number of search results"
               />
             </label>
-            <label className="inline-flex items-center gap-1.5">
+            <label className="inline-flex items-center gap-2 font-medium">
               Context
               <input
                 type="number"
@@ -68,15 +73,16 @@ export function ChatComposer({
                 max={5}
                 value={contextTopK}
                 onChange={(e) => setContextTopK(Number(e.target.value))}
-                className="field w-14 min-h-8 !px-2 !py-1 text-center"
+                className="field w-14 min-h-9 !px-2 !py-1 text-center"
+                aria-label="Context top-k for generation"
               />
             </label>
-            <label className="inline-flex cursor-pointer items-center gap-2">
+            <label className="inline-flex cursor-pointer items-center gap-2 font-medium">
               <input
                 type="checkbox"
                 checked={generateAnswer}
                 onChange={(e) => setGenerateAnswer(e.target.checked)}
-                className="h-3.5 w-3.5 accent-[var(--primary)]"
+                className="h-4 w-4 accent-[var(--accent)]"
               />
               Generate answer
             </label>
@@ -93,18 +99,24 @@ export function ChatComposer({
               })
             }
             rows={2}
-            placeholder="Ask a follow-up or start a new research question…"
+            placeholder="Ask a research question or follow up…"
             disabled={disabled || running}
+            aria-label="Message"
             className="max-h-36 min-h-[2.75rem] flex-1 resize-none bg-transparent py-2 text-[15px] text-[var(--fg)] outline-none placeholder:text-[var(--fg-subtle)]"
           />
           <div className="flex shrink-0 items-center gap-1 pb-0.5">
             <button
               type="button"
-              className="btn-ghost !min-h-9 !rounded-lg !px-2"
+              className={cn(
+                "btn-ghost !min-h-10 !rounded-xl !px-2.5",
+                showOpts && "bg-[var(--accent-soft)] text-[var(--accent)]",
+              )}
               title="Options"
+              aria-expanded={showOpts}
+              aria-label="Toggle search options"
               onClick={() => setShowOpts((v) => !v)}
             >
-              <Settings2 className="h-3.5 w-3.5" />
+              <Settings2 className="h-4 w-4" />
               <ChevronDown
                 className={cn(
                   "h-3 w-3 transition-transform",
@@ -116,7 +128,7 @@ export function ChatComposer({
               <button
                 type="button"
                 onClick={onCancel}
-                className="btn-ghost !min-h-9 !rounded-lg"
+                className="btn-secondary !min-h-10 !rounded-xl"
               >
                 <Square className="h-3 w-3 fill-current" />
                 Stop
@@ -126,7 +138,7 @@ export function ChatComposer({
                 type="button"
                 onClick={submit}
                 disabled={disabled || !query.trim()}
-                className="btn-primary !min-h-9 !rounded-lg"
+                className="btn-primary !min-h-10 !rounded-xl"
               >
                 <CornerDownLeft className="h-3.5 w-3.5" />
                 Send
@@ -141,7 +153,7 @@ export function ChatComposer({
         </p>
       </div>
       {running && (
-        <div className="mx-auto mt-2 flex max-w-[var(--chat-max)] items-center justify-center gap-2 text-xs font-medium text-[var(--primary)]">
+        <div className="mx-auto mt-2 flex max-w-[var(--chat-max)] items-center justify-center gap-2 text-xs font-medium text-[var(--accent)]">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Searching & answering…
         </div>

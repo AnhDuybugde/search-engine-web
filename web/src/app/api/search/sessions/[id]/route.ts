@@ -19,6 +19,7 @@ export async function GET(
 
   const { id } = await ctx.params;
   try {
+    // Ownership check first (cheap); messages only if owned
     const session = await getSession(id, auth.userId);
     if (!session) {
       return Response.json({ error: "Session not found" }, { status: 404 });

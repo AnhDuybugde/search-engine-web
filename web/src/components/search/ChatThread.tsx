@@ -26,7 +26,7 @@ export function ChatThread({
 
   if (messages.length === 0) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-6">
         {empty}
       </div>
     );
@@ -42,13 +42,13 @@ export function ChatThread({
             <div
               key={m.id}
               className={cn(
-                "flex gap-3",
+                "anim-message flex gap-2.5 sm:gap-3",
                 isUser ? "justify-end" : "justify-start",
               )}
             >
               {!isUser && (
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--primary-soft)] text-[var(--primary)] ring-1 ring-[var(--primary-border)]">
-                  <Bot className="h-3.5 w-3.5" aria-hidden />
+                <div className="msg-avatar msg-avatar--bot" aria-hidden>
+                  <Bot className="h-3.5 w-3.5" />
                 </div>
               )}
               <button
@@ -58,14 +58,9 @@ export function ChatThread({
                   if (!isUser) onSelectAssistant(m.id);
                 }}
                 className={cn(
-                  "max-w-[min(100%,40rem)] rounded-2xl px-3.5 py-2.5 text-left text-sm shadow-sm transition-colors",
-                  isUser
-                    ? "bg-[var(--primary-soft)] text-[var(--fg)] ring-1 ring-[var(--primary-border)]"
-                    : "border border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--fg)] hover:border-[var(--border-strong)] hover:shadow-md",
-                  active &&
-                    !isUser &&
-                    "border-[var(--primary-border)] ring-1 ring-[var(--primary-border)] shadow-md",
-                  !isUser && "cursor-pointer",
+                  "msg-bubble hover-lift",
+                  isUser ? "msg-bubble--user" : "msg-bubble--assistant",
+                  active && "msg-bubble--active",
                 )}
               >
                 {isUser ? (
@@ -76,28 +71,40 @@ export function ChatThread({
                   <Markdown content={m.content} />
                 ) : (
                   <p className="text-[var(--fg-muted)]">
-                    {m.streaming ? "Thinking…" : "No answer yet."}
+                    {m.streaming ? (
+                      <span className="inline-flex items-center gap-2">
+                        <span className="inline-flex gap-1" aria-hidden>
+                          <span className="thinking-dot" />
+                          <span className="thinking-dot" />
+                          <span className="thinking-dot" />
+                        </span>
+                        Thinking…
+                      </span>
+                    ) : (
+                      "No answer yet."
+                    )}
                   </p>
                 )}
                 {isUser &&
                   m.expandedQuery &&
                   m.expandedQuery !== m.content && (
-                    <p className="mt-2 text-[11px] text-[var(--fg-subtle)]">
+                    <p className="mt-2 rounded-md bg-white/50 px-2 py-1 text-[11px] text-[var(--fg-subtle)]">
                       Searched: {m.expandedQuery}
                     </p>
                   )}
                 {!isUser && m.timing?.totalMs != null && (
-                  <p className="mt-2 text-[11px] text-[var(--fg-subtle)]">
+                  <p className="mt-2.5 border-t border-[var(--border)] pt-2 text-[11px] text-[var(--fg-subtle)]">
                     {m.timing.totalMs}ms
                     {m.results?.length
                       ? ` · ${m.results.length} sources`
                       : ""}
+                    {active ? " · viewing evidence" : ""}
                   </p>
                 )}
               </button>
               {isUser && (
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--surface)] text-[var(--fg-muted)] ring-1 ring-[var(--border)]">
-                  <User className="h-3.5 w-3.5" aria-hidden />
+                <div className="msg-avatar msg-avatar--user" aria-hidden>
+                  <User className="h-3.5 w-3.5" />
                 </div>
               )}
             </div>

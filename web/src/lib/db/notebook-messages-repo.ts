@@ -1,10 +1,16 @@
 import { randomUUID } from "crypto";
 import { and, asc, eq } from "drizzle-orm";
 import type { Metrics, RankedChunk, RankedDocument, Timing } from "@/lib/ir/types";
-import { assertDurableDb, enrichDbError, getDb, hasDb } from "./client";
+import {
+  assertDurableDb,
+  enrichDbError,
+  getDb,
+  hasDb,
+  isMemoryDbAllowed,
+} from "./client";
 import {
   ensureChatHistorySqlSchema,
-  hasSqlDatabaseUrl,
+  preferSqlChatHistory,
 } from "./chat-history-schema";
 import { notebookMessages } from "./schema";
 import { getSupabaseAdmin, sbError, toIso } from "./supabase";
@@ -59,11 +65,41 @@ function isMissingNotebookMessagesTable(error: unknown): boolean {
   );
 }
 
+function listFromMemory(
+  notebookId: string,
+  userId: string,
+): NotebookMessageDto[] {
+  return Array.from(memNotebookMessages.values())
+    .filter((m) => m.notebookId === notebookId && m.userId === userId)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .map(memToDto);
+}
+
+function saveToMemory(row: NotebookMessageDto): NotebookMessageDto {
+  memNotebookMessages.set(row.id, {
+    id: row.id,
+    notebookId: row.notebookId,
+    userId: row.userId,
+    role: row.role,
+    content: row.content,
+    results: row.results,
+    timing: row.timing,
+    metrics: row.metrics,
+    documents: row.documents,
+    status: row.status,
+    createdAt: row.createdAt,
+  });
+  return row;
+}
+
 async function listViaSql(
   notebookId: string,
   userId: string,
 ): Promise<NotebookMessageDto[]> {
-  await ensureChatHistorySqlSchema();
+  const ready = await ensureChatHistorySqlSchema();
+  if (!ready) {
+    throw new Error("SQL chat-history schema is not available");
+  }
   const db = getDb();
   const rows = await db
     .select()
@@ -91,7 +127,10 @@ async function listViaSql(
 }
 
 async function insertViaSql(row: NotebookMessageDto): Promise<void> {
-  await ensureChatHistorySqlSchema();
+  const ready = await ensureChatHistorySqlSchema();
+  if (!ready) {
+    throw new Error("SQL chat-history schema is not available");
+  }
   const db = getDb();
   await db.insert(notebookMessages).values({
     id: row.id,
@@ -114,24 +153,19 @@ export async function listNotebookMessages(
 ): Promise<NotebookMessageDto[]> {
   assertDurableDb("List notebook messages");
   if (!hasDb()) {
-    return Array.from(memNotebookMessages.values())
-      .filter((m) => m.notebookId === notebookId && m.userId === userId)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-      .map(memToDto);
+    return listFromMemory(notebookId, userId);
   }
 
-  // Prefer SQL when available so local DATABASE_URL can host history even if
-  // Supabase REST is missing notebook_messages (common pre-migration state).
-  if (hasSqlDatabaseUrl()) {
+  // Prefer SQL only when DATABASE_URL is reachable and schema is ready.
+  if (await preferSqlChatHistory()) {
     try {
       return await listViaSql(notebookId, userId);
     } catch (err) {
-      // Fall through to REST if SQL fails (e.g. only REST configured incorrectly)
-      if (!getSupabaseAdmin()) {
+      if (!getSupabaseAdmin() && !isMemoryDbAllowed()) {
         throw enrichDbError(err, "List notebook messages");
       }
       console.warn(
-        "[listNotebookMessages] SQL path failed, trying REST:",
+        "[listNotebookMessages] SQL path failed, trying REST/memory:",
         err instanceof Error ? err.message : err,
       );
     }
@@ -146,10 +180,18 @@ export async function listNotebookMessages(
       .eq("user_id", userId)
       .order("created_at", { ascending: true });
     if (error) {
-      if (isMissingNotebookMessagesTable(error) && hasSqlDatabaseUrl()) {
-        return listViaSql(notebookId, userId);
-      }
       if (isMissingNotebookMessagesTable(error)) {
+        // REST table missing — try SQL once more only if ready, else memory.
+        if (await preferSqlChatHistory()) {
+          try {
+            return await listViaSql(notebookId, userId);
+          } catch {
+            /* fall through */
+          }
+        }
+        if (isMemoryDbAllowed()) {
+          return listFromMemory(notebookId, userId);
+        }
         throw new Error(
           "List notebook messages failed: table notebook_messages is missing. " +
             "Run: cd web && npm run db:init (or apply drizzle/0004_chat_history_owners.sql in Supabase SQL Editor).",
@@ -172,11 +214,20 @@ export async function listNotebookMessages(
     }));
   }
 
-  try {
-    return await listViaSql(notebookId, userId);
-  } catch (err) {
-    throw enrichDbError(err, "List notebook messages");
+  if (await preferSqlChatHistory()) {
+    try {
+      return await listViaSql(notebookId, userId);
+    } catch (err) {
+      if (isMemoryDbAllowed()) return listFromMemory(notebookId, userId);
+      throw enrichDbError(err, "List notebook messages");
+    }
   }
+
+  if (isMemoryDbAllowed()) return listFromMemory(notebookId, userId);
+  throw new Error(
+    "List notebook messages failed: no durable chat-history backend. " +
+      "Configure DATABASE_URL with migrations, or SUPABASE notebook_messages table.",
+  );
 }
 
 export async function addNotebookMessage(params: {
@@ -208,34 +259,19 @@ export async function addNotebookMessage(params: {
   };
 
   if (!hasDb()) {
-    memNotebookMessages.set(id, {
-      id,
-      notebookId: row.notebookId,
-      userId: row.userId,
-      role: row.role,
-      content: row.content,
-      results: row.results,
-      timing: row.timing,
-      metrics: row.metrics,
-      documents: row.documents,
-      status: row.status,
-      createdAt: now,
-    });
-    return row;
+    return saveToMemory(row);
   }
 
-  // Prefer SQL path when DATABASE_URL is set (ensures durable history even when
-  // Supabase REST schema lags migrations).
-  if (hasSqlDatabaseUrl()) {
+  if (await preferSqlChatHistory()) {
     try {
       await insertViaSql(row);
       return row;
     } catch (err) {
-      if (!getSupabaseAdmin()) {
+      if (!getSupabaseAdmin() && !isMemoryDbAllowed()) {
         throw enrichDbError(err, "Save notebook message");
       }
       console.warn(
-        "[addNotebookMessage] SQL path failed, trying REST:",
+        "[addNotebookMessage] SQL path failed, trying REST/memory:",
         err instanceof Error ? err.message : err,
       );
     }
@@ -257,26 +293,42 @@ export async function addNotebookMessage(params: {
       created_at: now,
     });
     if (error) {
-      if (isMissingNotebookMessagesTable(error) && hasSqlDatabaseUrl()) {
-        await insertViaSql(row);
-        return row;
-      }
-      const detail = sbError(error);
       if (isMissingNotebookMessagesTable(error)) {
+        if (await preferSqlChatHistory()) {
+          try {
+            await insertViaSql(row);
+            return row;
+          } catch {
+            /* fall through */
+          }
+        }
+        if (isMemoryDbAllowed()) {
+          return saveToMemory(row);
+        }
+        const detail = sbError(error);
         throw new Error(
           `Save notebook message failed: table notebook_messages is missing. ` +
             `Run: cd web && npm run db:init (or apply drizzle/0004_chat_history_owners.sql). Details: ${detail}`,
         );
       }
-      throw new Error(`Save notebook message failed: ${detail}`);
+      throw new Error(`Save notebook message failed: ${sbError(error)}`);
     }
     return row;
   }
 
-  try {
-    await insertViaSql(row);
-    return row;
-  } catch (err) {
-    throw enrichDbError(err, "Save notebook message");
+  if (await preferSqlChatHistory()) {
+    try {
+      await insertViaSql(row);
+      return row;
+    } catch (err) {
+      if (isMemoryDbAllowed()) return saveToMemory(row);
+      throw enrichDbError(err, "Save notebook message");
+    }
   }
+
+  if (isMemoryDbAllowed()) return saveToMemory(row);
+  throw new Error(
+    "Save notebook message failed: no durable chat-history backend. " +
+      "Configure DATABASE_URL with migrations, or SUPABASE notebook_messages table.",
+  );
 }

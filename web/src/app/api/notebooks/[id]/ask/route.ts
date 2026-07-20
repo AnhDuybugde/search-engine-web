@@ -18,6 +18,22 @@ const bodySchema = z.object({
   generateAnswer: z.boolean().optional(),
 });
 
+/** Persist history without blocking the answer stream (log failures). */
+function persistHistory(
+  label: string,
+  work: () => Promise<unknown>,
+): Promise<void> {
+  return work().then(
+    () => undefined,
+    (err) => {
+      console.error(
+        `[notebook ask] ${label}`,
+        err instanceof Error ? err.message : err,
+      );
+    },
+  );
+}
+
 export async function POST(
   req: Request,
   ctx: { params: Promise<{ id: string }> },
@@ -26,18 +42,26 @@ export async function POST(
   if ("error" in auth) return auth.error;
 
   const { id } = await ctx.params;
-  const notebook = await getNotebook(id);
-  if (!notebook) {
-    return Response.json({ error: "Notebook not found" }, { status: 404 });
-  }
 
-  const json = await req.json().catch(() => null);
+  let json: unknown;
+  try {
+    json = await req.json();
+  } catch {
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
   const parsed = bodySchema.safeParse(json);
   if (!parsed.success) {
     return Response.json({ error: "Invalid body" }, { status: 400 });
   }
 
-  const chunks = await loadChunks(id, parsed.data.sourceIds);
+  // Parallel DB reads: existence check + retrieval units
+  const [notebook, chunks] = await Promise.all([
+    getNotebook(id),
+    loadChunks(id, parsed.data.sourceIds),
+  ]);
+  if (!notebook) {
+    return Response.json({ error: "Notebook not found" }, { status: 404 });
+  }
   if (chunks.length === 0) {
     return Response.json(
       { error: "Notebook has no sources. Store a raw document first." },
@@ -48,24 +72,16 @@ export async function POST(
   const query = parsed.data.query.trim();
 
   return createSseResponse(async (emit, { signal }) => {
-    try {
-      await addNotebookMessage({
+    // Fire-and-forget user message so TTFT is not blocked on history I/O
+    const userSave = persistHistory("save user message", () =>
+      addNotebookMessage({
         notebookId: id,
         userId: auth.userId,
         role: "user",
         content: query,
         status: "completed",
-      });
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Failed to save user message";
-      console.error("[notebook ask] save user message", message);
-      emit({
-        type: "error",
-        message: `Chat history not saved: ${message}`,
-      });
-      // Continue pipeline so the user still gets an answer, but history is broken loudly.
-    }
+      }),
+    );
 
     try {
       const result = await runNotebookAskPipeline(
@@ -81,44 +97,38 @@ export async function POST(
         emit,
       );
 
-      try {
-        await addNotebookMessage({
-          notebookId: id,
-          userId: auth.userId,
-          role: "assistant",
-          content: result.answer || "",
-          results: result.results,
-          timing: result.timing,
-          metrics: result.metrics,
-          documents: result.documents,
-          status: "completed",
-        });
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Failed to save assistant message";
-        console.error("[notebook ask] save assistant message", message);
-        emit({
-          type: "error",
-          message: `Chat history not saved: ${message}`,
-        });
-      }
+      // Persist assistant after answer; still await so stream end ≈ durable history
+      await Promise.all([
+        userSave,
+        persistHistory("save assistant message", () =>
+          addNotebookMessage({
+            notebookId: id,
+            userId: auth.userId,
+            role: "assistant",
+            content: result.answer || "",
+            results: result.results,
+            timing: result.timing,
+            metrics: result.metrics,
+            documents: result.documents,
+            status: "completed",
+          }),
+        ),
+      ]);
     } catch (err) {
       if ((err as Error)?.name === "AbortError") throw err;
       const message = err instanceof Error ? err.message : "Ask failed";
-      try {
-        await addNotebookMessage({
-          notebookId: id,
-          userId: auth.userId,
-          role: "assistant",
-          content: `Error: ${message}`,
-          status: "failed",
-        });
-      } catch (saveErr) {
-        console.error(
-          "[notebook ask] save failed assistant",
-          saveErr instanceof Error ? saveErr.message : saveErr,
-        );
-      }
+      await Promise.all([
+        userSave,
+        persistHistory("save failed assistant", () =>
+          addNotebookMessage({
+            notebookId: id,
+            userId: auth.userId,
+            role: "assistant",
+            content: `Error: ${message}`,
+            status: "failed",
+          }),
+        ),
+      ]);
       emit({ type: "error", message });
     }
   }, req);

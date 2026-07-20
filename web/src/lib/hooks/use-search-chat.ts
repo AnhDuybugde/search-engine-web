@@ -126,11 +126,35 @@ export function useSearchSessions() {
 
   const remove = useCallback(
     async (id: string) => {
-      setSessions((prev) => prev.filter((s) => s.id !== id));
-      await fetch(`/api/search/sessions/${id}`, { method: "DELETE" });
-      void refresh({ quiet: true });
+      const res = await fetch(`/api/search/sessions/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error || `Delete failed (HTTP ${res.status})`);
+      }
+
+      // Verify gone: detail 404 and list no longer contains id
+      const detail = await fetch(`/api/search/sessions/${id}`, {
+        cache: "no-store",
+      });
+      if (detail.ok) {
+        throw new Error(
+          "Delete reported success but session is still reachable.",
+        );
+      }
+      const listRes = await fetch("/api/search/sessions", {
+        cache: "no-store",
+      });
+      const listData = await listRes.json().catch(() => ({}));
+      const items = Array.isArray(listData.items) ? listData.items : [];
+      if (items.some((s: { id?: string }) => s.id === id)) {
+        throw new Error("Session still appears in the list after delete.");
+      }
+
+      setSessions(items);
     },
-    [refresh],
+    [],
   );
 
   return { sessions, loading, error, refresh, create, rename, remove };

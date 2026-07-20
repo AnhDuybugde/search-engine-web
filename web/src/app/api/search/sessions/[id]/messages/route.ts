@@ -66,6 +66,7 @@ export async function POST(
   }
 
   const input = parsed.data;
+  // Load prior turns while we already know session ownership (parallel-ready path)
   const priorMessages = await listMessages(sessionId);
 
   return createSseResponse(async (emit, { signal }) => {
@@ -78,7 +79,9 @@ export async function POST(
     });
 
     const expansion = await expandQuery(input.query.trim(), memory);
-    if (signal.aborted) throw Object.assign(new Error("Aborted"), { name: "AbortError" });
+    if (signal.aborted) {
+      throw Object.assign(new Error("Aborted"), { name: "AbortError" });
+    }
 
     emit({
       type: "query_expanded",
@@ -87,23 +90,35 @@ export async function POST(
       usedContext: expansion.usedContext,
       method: expansion.method,
     });
+    // Start search immediately — do not wait on history I/O before Tavily
+    emit({ type: "search_started", query: expansion.expandedQuery });
 
-    const userMsg = await addMessage({
+    // History write must not cancel a successful search stream
+    const userMsgPromise = addMessage({
       sessionId,
       role: "user",
       content: expansion.originalQuery,
       expandedQuery: expansion.expandedQuery,
       status: "completed",
+    }).catch((err) => {
+      console.warn(
+        "[session messages] save user",
+        err instanceof Error ? err.message : err,
+      );
+      return null;
     });
 
-    // Auto-title on first user message
+    // Auto-title on first user message (non-blocking)
     if (priorMessages.length === 0 && session.title === "New chat") {
-      await updateSession(sessionId, {
+      void updateSession(sessionId, {
         title: titleFromQuery(expansion.originalQuery),
-      });
+      }).catch((err) =>
+        console.warn(
+          "[session messages] auto-title",
+          err instanceof Error ? err.message : err,
+        ),
+      );
     }
-
-    emit({ type: "search_started", query: expansion.expandedQuery });
 
     // Drop pipeline's run_completed; we emit a richer one after persisting messages.
     const pipelineEmit = (event: Parameters<typeof emit>[0]) => {
@@ -112,18 +127,33 @@ export async function POST(
     };
 
     try {
-      const result = await runWebSearchPipeline(
-        {
-          query: expansion.expandedQuery,
-          searchLimit: input.searchLimit,
-          retrieveTopK: input.retrieveTopK,
-          contextTopK: input.contextTopK,
-          generateAnswer: input.generateAnswer,
-          enrichThinPages: input.enrichThinPages ?? false,
-          signal,
-        },
-        pipelineEmit,
-      );
+      const [userMsgSaved, result] = await Promise.all([
+        userMsgPromise,
+        runWebSearchPipeline(
+          {
+            query: expansion.expandedQuery,
+            searchLimit: input.searchLimit,
+            retrieveTopK: input.retrieveTopK,
+            contextTopK: input.contextTopK,
+            generateAnswer: input.generateAnswer,
+            enrichThinPages: input.enrichThinPages ?? false,
+            signal,
+          },
+          pipelineEmit,
+        ),
+      ]);
+      const userMsg = userMsgSaved ?? {
+        id: `tmp-u-${Date.now()}`,
+        sessionId,
+        role: "user" as const,
+        content: expansion.originalQuery,
+        expandedQuery: expansion.expandedQuery,
+        results: null,
+        timing: null,
+        metrics: null,
+        status: "completed",
+        createdAt: new Date().toISOString(),
+      };
 
       if (signal.aborted) {
         await addMessage({
@@ -163,14 +193,7 @@ export async function POST(
         status: generationFailed || !finalAnswer ? "failed" : "completed",
       });
 
-      // Update entity memory from expansion + answer proper nouns
-      const fromAnswer = entitiesFromText(content);
-      const nextEntities = mergeEntities(
-        session.entities,
-        mergeEntities(expansion.entitiesDelta, fromAnswer),
-      );
-      await updateSession(sessionId, { entities: nextEntities });
-
+      // Emit completed answer first (realtime UI), then persist memory off the critical path
       emit({
         type: "run_completed",
         answer: content,
@@ -181,6 +204,18 @@ export async function POST(
         sessionId,
         expandedQuery: expansion.expandedQuery,
       });
+
+      const fromAnswer = entitiesFromText(content);
+      const nextEntities = mergeEntities(
+        session.entities,
+        mergeEntities(expansion.entitiesDelta, fromAnswer),
+      );
+      void updateSession(sessionId, { entities: nextEntities }).catch((err) =>
+        console.warn(
+          "[session messages] entity update",
+          err instanceof Error ? err.message : err,
+        ),
+      );
     } catch (err) {
       if ((err as Error)?.name === "AbortError") throw err;
       const message = err instanceof Error ? err.message : "Search failed";

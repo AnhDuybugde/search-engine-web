@@ -43,7 +43,7 @@ export function DocumentResultsList({
               className={cn(
                 "group flex w-full items-stretch gap-0 overflow-hidden rounded-xl border text-left transition-all",
                 active
-                  ? "border-[var(--primary-border)] bg-[var(--primary-soft)] shadow-sm ring-1 ring-[var(--primary-border)]"
+                  ? "border-[var(--accent-border)] bg-[var(--accent-soft)] shadow-sm ring-1 ring-[var(--accent-border)]"
                   : "border-[var(--border)] bg-[var(--bg-elevated)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]",
               )}
             >
@@ -52,7 +52,7 @@ export function DocumentResultsList({
                 className={cn(
                   "flex w-11 shrink-0 flex-col items-center justify-center border-r border-[var(--border)] font-mono text-sm font-bold",
                   active
-                    ? "bg-[var(--primary)] text-white"
+                    ? "bg-[var(--accent)] text-white"
                     : "bg-[var(--bg-panel)] text-[var(--fg-muted)]",
                 )}
                 aria-label={`Rank ${doc.finalRank}`}
@@ -65,7 +65,7 @@ export function DocumentResultsList({
                   <FileText
                     className={cn(
                       "mt-0.5 h-4 w-4 shrink-0",
-                      active ? "text-[var(--primary)]" : "text-[var(--fg-subtle)]",
+                      active ? "text-[var(--accent)]" : "text-[var(--fg-subtle)]",
                     )}
                     aria-hidden
                   />
@@ -104,7 +104,7 @@ export function DocumentResultsList({
                         pct >= 70
                           ? "bg-emerald-500"
                           : pct >= 40
-                            ? "bg-[var(--primary)]"
+                            ? "bg-[var(--accent)]"
                             : "bg-amber-500",
                       )}
                       style={{ width: `${pct}%` }}
@@ -137,7 +137,7 @@ export function DocumentResultsList({
                 <ChevronRight
                   className={cn(
                     "h-4 w-4 text-[var(--fg-subtle)] transition-transform group-hover:translate-x-0.5",
-                    active && "text-[var(--primary)]",
+                    active && "text-[var(--accent)]",
                   )}
                 />
               </span>
@@ -166,7 +166,7 @@ function MetricCell({
       className={cn(
         "rounded-md border px-1.5 py-1 text-center",
         emphasis
-          ? "border-[var(--primary-border)] bg-[var(--primary-soft)]"
+          ? "border-[var(--accent-border)] bg-[var(--accent-soft)]"
           : "border-[var(--border)] bg-[var(--bg-panel)]",
       )}
     >
@@ -176,7 +176,7 @@ function MetricCell({
       <span
         className={cn(
           "mt-0.5 block font-mono text-[11px] font-semibold tabular-nums",
-          emphasis ? "text-[var(--primary)]" : "text-[var(--fg)]",
+          emphasis ? "text-[var(--accent)]" : "text-[var(--fg)]",
         )}
       >
         {value}
