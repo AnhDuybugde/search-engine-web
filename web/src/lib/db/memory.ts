@@ -9,6 +9,12 @@ import type { RankedChunk, Metrics, Timing } from "@/lib/ir/types";
 export type MemNotebook = {
   id: string;
   title: string;
+  locked: boolean;
+  indexStatus: string;
+  indexMessage: string | null;
+  unitCount: number;
+  embeddedCount: number;
+  indexedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };

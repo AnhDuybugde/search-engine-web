@@ -227,7 +227,6 @@ function deriveStepStatus(
     case "fusion": {
       if (legacySteps.retrieve === "running" && !metrics) return "running";
       if (
-        metrics?.retrievalMode === "rrf" ||
         metrics?.retrievalMode === "adaptive_rrf"
       )
         return "success";
@@ -626,7 +625,6 @@ function stepShortHint(
       return metrics.denseSkippedReason || "Dense not used";
     case "fusion":
       if (
-        metrics?.retrievalMode === "rrf" ||
         metrics?.retrievalMode === "adaptive_rrf"
       )
         return "Classic RRF · equal weights · k=60";
@@ -728,7 +726,6 @@ function StepDetail({
       rows.push({
         k: "Method",
         v:
-          metrics?.retrievalMode === "rrf" ||
           metrics?.retrievalMode === "adaptive_rrf"
             ? "Classic RRF (Cormack et al.)"
             : metrics?.retrievalMode === "bm25_fallback"
@@ -736,7 +733,6 @@ function StepDetail({
               : "BM25 only",
       });
       if (
-        metrics?.retrievalMode === "rrf" ||
         metrics?.retrievalMode === "adaptive_rrf"
       ) {
         rows.push({ k: "List weights", v: "1.0 (BM25) + 1.0 (dense)" });

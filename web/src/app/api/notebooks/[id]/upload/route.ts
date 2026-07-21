@@ -3,7 +3,10 @@ import { IR_DEFAULTS } from "@/lib/config";
 import { addSource, getNotebook } from "@/lib/db/notebooks-repo";
 import { extractPdfText } from "@/lib/extract/pdf";
 import { extractPlainText } from "@/lib/extract/text";
-import { scheduleNotebookIndex } from "@/lib/ir/index-embeddings";
+import {
+  indexNotebookEmbeddings,
+  scheduleNotebookIndex,
+} from "@/lib/ir/index-embeddings";
 import { createUploadSseResponse } from "@/lib/sse";
 import { elapsed, nowMs } from "@/lib/utils";
 
@@ -69,7 +72,7 @@ export async function POST(
         mime,
         text,
       });
-      // Background: pre-embed corpus units so next query only embeds the question
+      // Background index (no progress channel on JSON path)
       scheduleNotebookIndex(id);
       return Response.json(
         {
@@ -79,6 +82,7 @@ export async function POST(
             storeMs: source.timing.storeMs,
             totalMs: extractMs + source.timing.storeMs,
           },
+          indexing: "scheduled",
         },
         { status: 201 },
       );
@@ -141,37 +145,89 @@ export async function POST(
         ms: source.timing?.storeMs ?? storeMs,
       });
 
+      // Blocking index with live progress (vectors → Supabase Postgres)
+      const indexResult = await indexNotebookEmbeddings(id, {
+        onProgress: (ev) => {
+          if (ev.type === "index_started") {
+            emit({
+              type: "index_started",
+              unitCount: ev.unitCount,
+              message: ev.message,
+            });
+          } else if (ev.type === "index_progress") {
+            emit({
+              type: "index_progress",
+              done: ev.done,
+              total: ev.total,
+              message: ev.message,
+            });
+          } else if (ev.type === "index_completed") {
+            emit({
+              type: "index_completed",
+              unitCount: ev.unitCount,
+              embeddedCount: ev.embeddedCount,
+              model: ev.model,
+              provider: ev.provider,
+              embedMs: ev.embedMs,
+              totalMs: ev.totalMs,
+              storage: ev.storage,
+              message: ev.message,
+            });
+          } else if (ev.type === "index_failed") {
+            emit({ type: "index_failed", message: ev.message });
+          } else if (ev.type === "index_skipped") {
+            emit({
+              type: "index_skipped",
+              message: ev.message,
+              reason: ev.reason,
+            });
+          }
+        },
+      });
+
       const timing = {
         extractMs,
         storeMs: source.timing?.storeMs ?? storeMs,
+        embedMs: indexResult.embedMs,
         totalMs: elapsed(totalStart),
       };
+
+      const mode =
+        indexResult.status === "ready"
+          ? ("indexed" as const)
+          : ("raw-sources-only" as const);
 
       emit({
         type: "upload_completed",
         source: {
           id: source.id,
           title: source.title,
-          chunkCount: 0,
+          chunkCount: indexResult.unitCount,
           charCount: source.charCount,
-          mode: "raw-sources-only",
+          mode,
         },
         timing,
         metrics: {
-          chunkCount: 0,
+          chunkCount: indexResult.unitCount,
           charCount: source.charCount,
-          embeddedCount: 0,
-          mode: "raw-sources-only",
+          embeddedCount: indexResult.embeddedCount,
+          mode:
+            indexResult.status === "ready"
+              ? "indexed"
+              : indexResult.status === "failed"
+                ? "index-failed"
+                : indexResult.status === "skipped"
+                  ? "index-skipped"
+                  : "raw-sources-only",
+          indexStatus: indexResult.status,
+          storage: "supabase-postgres",
         },
       });
-
-      // Non-blocking dense index — retrieval will use stored vectors once ready
-      scheduleNotebookIndex(id);
     } catch (err) {
       emit({
         type: "error",
         message: err instanceof Error ? err.message : "Save failed",
       });
     }
-  });
+  }, req);
 }

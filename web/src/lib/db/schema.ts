@@ -1,4 +1,5 @@
 import {
+  boolean,
   integer,
   jsonb,
   pgTable,
@@ -17,9 +18,17 @@ export const users = pgTable("users", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+/** Index status: none | indexing | ready | failed | skipped */
 export const notebooks = pgTable("notebooks", {
   id: varchar("id", { length: 36 }).primaryKey(),
   title: text("title").notNull(),
+  /** When true, delete is blocked (demo / user-protected corpora). */
+  locked: boolean("locked").notNull().default(false),
+  indexStatus: text("index_status").notNull().default("none"),
+  indexMessage: text("index_message"),
+  unitCount: integer("unit_count").notNull().default(0),
+  embeddedCount: integer("embedded_count").notNull().default(0),
+  indexedAt: timestamp("indexed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 });

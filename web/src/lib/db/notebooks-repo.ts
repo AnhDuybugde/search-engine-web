@@ -49,45 +49,157 @@ type ChunkRow = {
   embedding_model?: string | null;
 };
 
-export async function listNotebooks() {
-  assertDurableDb('List notebooks');
+export type NotebookIndexStatus =
+  | "none"
+  | "indexing"
+  | "ready"
+  | "failed"
+  | "skipped";
+
+export type NotebookDto = {
+  id: string;
+  title: string;
+  locked: boolean;
+  indexStatus: NotebookIndexStatus;
+  indexMessage: string | null;
+  unitCount: number;
+  embeddedCount: number;
+  indexedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const NOTEBOOK_SELECT =
+  "id,title,locked,index_status,index_message,unit_count,embedded_count,indexed_at,created_at,updated_at";
+const NOTEBOOK_SELECT_LEGACY = "id,title,created_at,updated_at";
+
+function asIndexStatus(v: unknown): NotebookIndexStatus {
+  const s = String(v || "none");
+  if (
+    s === "none" ||
+    s === "indexing" ||
+    s === "ready" ||
+    s === "failed" ||
+    s === "skipped"
+  ) {
+    return s;
+  }
+  return "none";
+}
+
+function mapNotebookRow(r: Record<string, unknown>, fallbackNow?: string): NotebookDto {
+  return {
+    id: String(r.id),
+    title: String(r.title),
+    locked: Boolean(r.locked),
+    indexStatus: asIndexStatus(r.index_status ?? r.indexStatus),
+    indexMessage:
+      r.index_message != null
+        ? String(r.index_message)
+        : r.indexMessage != null
+          ? String(r.indexMessage)
+          : null,
+    unitCount: Number(r.unit_count ?? r.unitCount ?? 0) || 0,
+    embeddedCount: Number(r.embedded_count ?? r.embeddedCount ?? 0) || 0,
+    indexedAt: r.indexed_at
+      ? toIso(r.indexed_at)
+      : r.indexedAt
+        ? toIso(r.indexedAt)
+        : null,
+    createdAt: toIso(r.created_at ?? r.createdAt, fallbackNow),
+    updatedAt: toIso(r.updated_at ?? r.updatedAt, fallbackNow),
+  };
+}
+
+function mapMemNotebook(row: MemNotebook): NotebookDto {
+  return {
+    id: row.id,
+    title: row.title,
+    locked: row.locked,
+    indexStatus: asIndexStatus(row.indexStatus),
+    indexMessage: row.indexMessage,
+    unitCount: row.unitCount,
+    embeddedCount: row.embeddedCount,
+    indexedAt: row.indexedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function isMissingLockColumns(error: unknown) {
+  const text =
+    typeof error === "string"
+      ? error
+      : error && typeof error === "object"
+        ? JSON.stringify(error)
+        : "";
+  return (
+    (text.includes("locked") ||
+      text.includes("index_status") ||
+      text.includes("unit_count") ||
+      text.includes("embedded_count")) &&
+    (text.includes("42703") ||
+      text.includes("PGRST204") ||
+      text.includes("schema cache") ||
+      text.includes("does not exist") ||
+      text.includes("Could not find"))
+  );
+}
+
+export async function listNotebooks(): Promise<NotebookDto[]> {
+  assertDurableDb("List notebooks");
   if (!hasDb()) {
-    return Array.from(memNotebooks.values()).sort((a, b) =>
-      b.createdAt.localeCompare(a.createdAt),
-    );
+    return Array.from(memNotebooks.values())
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .map(mapMemNotebook);
   }
 
   const sb = getSupabaseAdmin();
   if (sb) {
     const { data, error } = await sb
       .from("notebooks")
-      .select("id,title,created_at,updated_at")
+      .select(NOTEBOOK_SELECT)
       .order("created_at", { ascending: false });
+    if (error && isMissingLockColumns(error)) {
+      const legacy = await sb
+        .from("notebooks")
+        .select(NOTEBOOK_SELECT_LEGACY)
+        .order("created_at", { ascending: false });
+      if (legacy.error) {
+        throw new Error(`List notebooks failed: ${sbError(legacy.error)}`);
+      }
+      return (legacy.data || []).map((r) =>
+        mapNotebookRow(r as Record<string, unknown>),
+      );
+    }
     if (error) throw new Error(`List notebooks failed: ${sbError(error)}`);
-    return (data || []).map((r) => ({
-      id: r.id as string,
-      title: r.title as string,
-      createdAt: toIso(r.created_at),
-      updatedAt: toIso(r.updated_at),
-    }));
+    return (data || []).map((r) => mapNotebookRow(r as Record<string, unknown>));
   }
 
   try {
     const db = getDb();
     const rows = await db.select().from(notebooks).orderBy(desc(notebooks.createdAt));
-    return rows.map((r) => ({
-      id: r.id,
-      title: r.title,
-      createdAt: toIso(r.createdAt),
-      updatedAt: toIso(r.updatedAt),
-    }));
+    return rows.map((r) =>
+      mapNotebookRow({
+        id: r.id,
+        title: r.title,
+        locked: r.locked,
+        index_status: r.indexStatus,
+        index_message: r.indexMessage,
+        unit_count: r.unitCount,
+        embedded_count: r.embeddedCount,
+        indexed_at: r.indexedAt,
+        created_at: r.createdAt,
+        updated_at: r.updatedAt,
+      }),
+    );
   } catch (err) {
     throw enrichDbError(err, "List notebooks");
   }
 }
 
-export async function createNotebook(title: string) {
-  assertDurableDb('Create notebook');
+export async function createNotebook(title: string): Promise<NotebookDto> {
+  assertDurableDb("Create notebook");
   const clean = title.trim();
   if (!clean) throw new Error("Title is required");
 
@@ -98,39 +210,61 @@ export async function createNotebook(title: string) {
     const row: MemNotebook = {
       id,
       title: clean,
+      locked: false,
+      indexStatus: "none",
+      indexMessage: null,
+      unitCount: 0,
+      embeddedCount: 0,
+      indexedAt: null,
       createdAt: now,
       updatedAt: now,
     };
     memNotebooks.set(id, row);
-    return row;
+    return mapMemNotebook(row);
   }
 
   const sb = getSupabaseAdmin();
   if (sb) {
+    const payload = {
+      id,
+      title: clean,
+      locked: false,
+      index_status: "none",
+      index_message: null,
+      unit_count: 0,
+      embedded_count: 0,
+      indexed_at: null,
+      created_at: now,
+      updated_at: now,
+    };
     const { data, error } = await sb
       .from("notebooks")
-      .insert({
-        id,
-        title: clean,
-        created_at: now,
-        updated_at: now,
-      })
-      .select("id,title,created_at,updated_at")
+      .insert(payload)
+      .select(NOTEBOOK_SELECT)
       .single();
+
+    if (error && isMissingLockColumns(error)) {
+      const legacy = await sb
+        .from("notebooks")
+        .insert({ id, title: clean, created_at: now, updated_at: now })
+        .select(NOTEBOOK_SELECT_LEGACY)
+        .single();
+      if (legacy.error) {
+        throw new Error(
+          `Supabase insert failed (${dbBackend()}): ${sbError(legacy.error)}`,
+        );
+      }
+      return mapNotebookRow(legacy.data as Record<string, unknown>, now);
+    }
 
     if (error) {
       throw new Error(
         `Supabase insert failed (${dbBackend()}): ${sbError(error)}. ` +
-          `If table missing, run web/drizzle/0000_init.sql in Supabase SQL Editor.`,
+          `If table missing, run web/drizzle/0000_init.sql (+ 0005) in Supabase SQL Editor.`,
       );
     }
 
-    return {
-      id: data.id as string,
-      title: data.title as string,
-      createdAt: toIso(data.created_at, now),
-      updatedAt: toIso(data.updated_at, now),
-    };
+    return mapNotebookRow(data as Record<string, unknown>, now);
   }
 
   try {
@@ -138,6 +272,12 @@ export async function createNotebook(title: string) {
     await db.insert(notebooks).values({
       id,
       title: clean,
+      locked: false,
+      indexStatus: "none",
+      indexMessage: null,
+      unitCount: 0,
+      embeddedCount: 0,
+      indexedAt: null,
       createdAt: new Date(now),
       updatedAt: new Date(now),
     });
@@ -148,111 +288,229 @@ export async function createNotebook(title: string) {
   return {
     id,
     title: clean,
+    locked: false,
+    indexStatus: "none",
+    indexMessage: null,
+    unitCount: 0,
+    embeddedCount: 0,
+    indexedAt: null,
     createdAt: now,
     updatedAt: now,
   };
 }
 
-export async function getNotebook(id: string) {
-  assertDurableDb('Get notebook');
+export async function getNotebook(id: string): Promise<NotebookDto | null> {
+  assertDurableDb("Get notebook");
   if (!hasDb()) {
-    return memNotebooks.get(id) || null;
+    const row = memNotebooks.get(id);
+    return row ? mapMemNotebook(row) : null;
   }
 
   const sb = getSupabaseAdmin();
   if (sb) {
     const { data, error } = await sb
       .from("notebooks")
-      .select("id,title,created_at,updated_at")
+      .select(NOTEBOOK_SELECT)
       .eq("id", id)
       .maybeSingle();
+    if (error && isMissingLockColumns(error)) {
+      const legacy = await sb
+        .from("notebooks")
+        .select(NOTEBOOK_SELECT_LEGACY)
+        .eq("id", id)
+        .maybeSingle();
+      if (legacy.error) {
+        throw new Error(`Get notebook failed: ${sbError(legacy.error)}`);
+      }
+      if (!legacy.data) return null;
+      return mapNotebookRow(legacy.data as Record<string, unknown>);
+    }
     if (error) throw new Error(`Get notebook failed: ${sbError(error)}`);
     if (!data) return null;
-    return {
-      id: data.id as string,
-      title: data.title as string,
-      createdAt: toIso(data.created_at),
-      updatedAt: toIso(data.updated_at),
-    };
+    return mapNotebookRow(data as Record<string, unknown>);
   }
 
   const db = getDb();
   const rows = await db.select().from(notebooks).where(eq(notebooks.id, id)).limit(1);
   const r = rows[0];
   if (!r) return null;
-  return {
+  return mapNotebookRow({
     id: r.id,
     title: r.title,
-    createdAt: toIso(r.createdAt),
-    updatedAt: toIso(r.updatedAt),
-  };
+    locked: r.locked,
+    index_status: r.indexStatus,
+    index_message: r.indexMessage,
+    unit_count: r.unitCount,
+    embedded_count: r.embeddedCount,
+    indexed_at: r.indexedAt,
+    created_at: r.createdAt,
+    updated_at: r.updatedAt,
+  });
 }
 
 export async function updateNotebook(
   id: string,
-  patch: { title: string },
-): Promise<{
-  id: string;
-  title: string;
-  createdAt: string;
-  updatedAt: string;
-} | null> {
+  patch: { title?: string; locked?: boolean },
+): Promise<NotebookDto | null> {
   assertDurableDb("Update notebook");
-  const clean = patch.title.trim();
-  if (!clean) throw new Error("Title is required");
-  if (clean.length > 200) throw new Error("Title is too long (max 200)");
-
   const existing = await getNotebook(id);
   if (!existing) return null;
   const now = new Date().toISOString();
 
+  let nextTitle = existing.title;
+  if (patch.title !== undefined) {
+    const clean = patch.title.trim();
+    if (!clean) throw new Error("Title is required");
+    if (clean.length > 200) throw new Error("Title is too long (max 200)");
+    nextTitle = clean;
+  }
+  const nextLocked =
+    patch.locked !== undefined ? Boolean(patch.locked) : existing.locked;
+
   if (!hasDb()) {
     const row = memNotebooks.get(id);
     if (!row) return null;
-    row.title = clean;
+    row.title = nextTitle;
+    row.locked = nextLocked;
     row.updatedAt = now;
     memNotebooks.set(id, row);
-    return { ...row };
+    return mapMemNotebook(row);
   }
 
   const sb = getSupabaseAdmin();
   if (sb) {
+    const body: Record<string, unknown> = {
+      title: nextTitle,
+      updated_at: now,
+    };
+    if (patch.locked !== undefined) body.locked = nextLocked;
+
     const { data, error } = await sb
       .from("notebooks")
-      .update({ title: clean, updated_at: now })
+      .update(body)
       .eq("id", id)
-      .select("id,title,created_at,updated_at")
+      .select(NOTEBOOK_SELECT)
       .maybeSingle();
+
+    if (error && isMissingLockColumns(error)) {
+      const legacy = await sb
+        .from("notebooks")
+        .update({ title: nextTitle, updated_at: now })
+        .eq("id", id)
+        .select(NOTEBOOK_SELECT_LEGACY)
+        .maybeSingle();
+      if (legacy.error) {
+        throw new Error(`Update notebook failed: ${sbError(legacy.error)}`);
+      }
+      if (!legacy.data) return null;
+      const mapped = mapNotebookRow(legacy.data as Record<string, unknown>, now);
+      if (patch.locked !== undefined) {
+        throw new Error(
+          "Dataset lock requires migration web/drizzle/0005_notebook_lock_index.sql",
+        );
+      }
+      return mapped;
+    }
     if (error) throw new Error(`Update notebook failed: ${sbError(error)}`);
     if (!data) return null;
-    return {
-      id: data.id as string,
-      title: data.title as string,
-      createdAt: toIso(data.created_at),
-      updatedAt: toIso(data.updated_at, now),
-    };
+    return mapNotebookRow(data as Record<string, unknown>, now);
   }
 
   try {
     const db = getDb();
     await db
       .update(notebooks)
-      .set({ title: clean, updatedAt: new Date(now) })
+      .set({
+        title: nextTitle,
+        locked: nextLocked,
+        updatedAt: new Date(now),
+      })
       .where(eq(notebooks.id, id));
   } catch (err) {
     throw enrichDbError(err, "Update notebook");
   }
 
   return {
-    id,
-    title: clean,
-    createdAt: existing.createdAt,
+    ...existing,
+    title: nextTitle,
+    locked: nextLocked,
     updatedAt: now,
   };
 }
 
+/** Persist embed index status after upload indexing (Supabase Postgres). */
+export async function updateNotebookIndexMeta(
+  id: string,
+  meta: {
+    indexStatus: NotebookIndexStatus;
+    indexMessage?: string | null;
+    unitCount?: number;
+    embeddedCount?: number;
+    indexedAt?: string | null;
+  },
+): Promise<void> {
+  assertDurableDb("Update notebook index meta");
+  const now = new Date().toISOString();
+
+  if (!hasDb()) {
+    const row = memNotebooks.get(id);
+    if (!row) return;
+    row.indexStatus = meta.indexStatus;
+    if (meta.indexMessage !== undefined) row.indexMessage = meta.indexMessage;
+    if (meta.unitCount !== undefined) row.unitCount = meta.unitCount;
+    if (meta.embeddedCount !== undefined) row.embeddedCount = meta.embeddedCount;
+    if (meta.indexedAt !== undefined) row.indexedAt = meta.indexedAt;
+    row.updatedAt = now;
+    memNotebooks.set(id, row);
+    return;
+  }
+
+  const sb = getSupabaseAdmin();
+  if (sb) {
+    const body: Record<string, unknown> = {
+      index_status: meta.indexStatus,
+      updated_at: now,
+    };
+    if (meta.indexMessage !== undefined) body.index_message = meta.indexMessage;
+    if (meta.unitCount !== undefined) body.unit_count = meta.unitCount;
+    if (meta.embeddedCount !== undefined) body.embedded_count = meta.embeddedCount;
+    if (meta.indexedAt !== undefined) body.indexed_at = meta.indexedAt;
+
+    const { error } = await sb.from("notebooks").update(body).eq("id", id);
+    if (error && !isMissingLockColumns(error)) {
+      console.warn("[index meta]", sbError(error));
+    }
+    return;
+  }
+
+  try {
+    const db = getDb();
+    await db
+      .update(notebooks)
+      .set({
+        indexStatus: meta.indexStatus,
+        indexMessage: meta.indexMessage ?? null,
+        unitCount: meta.unitCount,
+        embeddedCount: meta.embeddedCount,
+        indexedAt: meta.indexedAt ? new Date(meta.indexedAt) : null,
+        updatedAt: new Date(now),
+      })
+      .where(eq(notebooks.id, id));
+  } catch (err) {
+    console.warn("[index meta]", err);
+  }
+}
+
 export async function deleteNotebook(id: string) {
-  assertDurableDb('Delete notebook');
+  assertDurableDb("Delete notebook");
+  const existing = await getNotebook(id);
+  if (!existing) return;
+  if (existing.locked) {
+    throw new Error(
+      "This dataset is locked. Unlock it first if you really want to delete it.",
+    );
+  }
+
   if (!hasDb()) {
     memNotebooks.delete(id);
     for (const [sid, s] of memSources) {
@@ -611,12 +869,20 @@ export async function addSource(
   if (!notebook) throw new Error("Notebook not found");
 
   const existing = await listSources(params.notebookId);
-  let totalChars = params.text.length;
-  for (const s of existing) totalChars += s.charCount;
+  const usedChars = existing.reduce((n, s) => n + s.charCount, 0);
+  const incoming = params.text.length;
+  const totalChars = usedChars + incoming;
+  const limit = IR_DEFAULTS.maxNotebookChars;
 
-  if (totalChars > IR_DEFAULTS.maxNotebookChars) {
+  if (totalChars > limit) {
+    const room = Math.max(0, limit - usedChars);
     throw new Error(
-      `Notebook text limit exceeded (${IR_DEFAULTS.maxNotebookChars} chars).`,
+      `Notebook text limit exceeded: this file is ${incoming.toLocaleString()} chars, ` +
+        `dataset already has ${usedChars.toLocaleString()}, total would be ` +
+        `${totalChars.toLocaleString()} (max ${limit.toLocaleString()}). ` +
+        (room > 0
+          ? `About ${room.toLocaleString()} chars free — use a smaller file, split into a new dataset, or raise MAX_NOTEBOOK_CHARS.`
+          : `No room left in this dataset — open a new dataset for additional documents, or raise MAX_NOTEBOOK_CHARS.`),
     );
   }
 

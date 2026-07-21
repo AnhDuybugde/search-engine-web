@@ -36,7 +36,6 @@ export function EvidenceList({
       {results.map((r) => {
         const isOpen = expanded === r.chunkId;
         const hybrid =
-          r.retrievalMode === "rrf" ||
           r.retrievalMode === "adaptive_rrf" ||
           r.denseScore != null ||
           r.denseRank != null;
