@@ -14,7 +14,7 @@ export function buildExpandSystemPrompt(): string {
     "Return ONLY valid JSON (no markdown) with keys:",
     'expandedQuery (string), entitiesToAdd (array of {name, type?}), resolvedReferents (string[]).',
     "Keep expandedQuery concise and searchable (under 200 chars).",
-    "Prefer the user's language (Vietnamese or English).",
+    "Write expandedQuery in English only (product language is English).",
     "Do not invent facts; only rewrite the query.",
   ].join(" ");
 }

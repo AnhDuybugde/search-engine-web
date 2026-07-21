@@ -36,6 +36,7 @@ export async function streamAnswer(params: {
   query: string;
   chunks: RankedChunk[];
   onToken: (token: string) => void | Promise<void>;
+  signal?: AbortSignal;
 }): Promise<string> {
   const cfg = getConfig();
   const openai = createLlmProvider();
@@ -45,9 +46,15 @@ export async function streamAnswer(params: {
   let workingChunks = shrinkChunks(params.chunks, Math.min(params.chunks.length, 4));
   let maxPerChunk = 700;
   let maxTotal = 3200;
+  let partial = "";
 
   for (let attempt = 0; attempt < 3; attempt++) {
-    const system = buildCitationSystemPrompt();
+    if (params.signal?.aborted) {
+      const err = new Error("Aborted");
+      err.name = "AbortError";
+      throw err;
+    }
+    const system = buildCitationSystemPrompt(params.query);
     const prompt = buildCitationUserPrompt(params.query, workingChunks, {
       maxCharsPerChunk: maxPerChunk,
       maxTotalChars: maxTotal,
@@ -60,11 +67,19 @@ export async function streamAnswer(params: {
         prompt,
         temperature: IR_DEFAULTS.temperature,
         maxOutputTokens: Math.min(IR_DEFAULTS.maxOutputTokens, 600),
+        abortSignal: params.signal,
       });
 
       let full = "";
       for await (const part of result.textStream) {
+        if (params.signal?.aborted) {
+          const err = new Error("Aborted");
+          err.name = "AbortError";
+          (err as Error & { partial?: string }).partial = full;
+          throw err;
+        }
         full += part;
+        partial = full;
         await params.onToken(part);
       }
       if (!full.trim()) {
@@ -72,6 +87,9 @@ export async function streamAnswer(params: {
       }
       return full;
     } catch (err) {
+      if ((err as Error)?.name === "AbortError") {
+        throw err;
+      }
       const message = err instanceof Error ? err.message : String(err);
       const tooLarge =
         /too large|rate_limit|TPM|tokens per minute|413|reduce your message/i.test(

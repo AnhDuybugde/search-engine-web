@@ -45,16 +45,15 @@ export function ChatComposer({
   };
 
   return (
-    <div
-      className={cn(
-        "border-t border-white/10 bg-[#070b14]/80 px-3 py-3 backdrop-blur-xl sm:px-6",
-        className,
-      )}
-    >
-      <div className="mx-auto max-w-3xl space-y-2">
+    <div className={cn("chat-composer-shell", className)}>
+      <div className="mx-auto max-w-[var(--chat-max)] space-y-2">
         {showOpts && (
-          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-[var(--fg-muted)]">
-            <label className="inline-flex items-center gap-1.5">
+          <div
+            className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3.5 py-3 text-xs text-[var(--fg-muted)] shadow-sm"
+            role="group"
+            aria-label="Search options"
+          >
+            <label className="inline-flex items-center gap-2 font-medium">
               Results
               <input
                 type="number"
@@ -62,10 +61,11 @@ export function ChatComposer({
                 max={12}
                 value={searchLimit}
                 onChange={(e) => setSearchLimit(Number(e.target.value))}
-                className="field w-14 min-h-8 px-2 py-1 text-center"
+                className="field w-14 min-h-9 !px-2 !py-1 text-center"
+                aria-label="Number of search results"
               />
             </label>
-            <label className="inline-flex items-center gap-1.5">
+            <label className="inline-flex items-center gap-2 font-medium">
               Context
               <input
                 type="number"
@@ -73,22 +73,23 @@ export function ChatComposer({
                 max={5}
                 value={contextTopK}
                 onChange={(e) => setContextTopK(Number(e.target.value))}
-                className="field w-14 min-h-8 px-2 py-1 text-center"
+                className="field w-14 min-h-9 !px-2 !py-1 text-center"
+                aria-label="Context top-k for generation"
               />
             </label>
-            <label className="inline-flex cursor-pointer items-center gap-2">
+            <label className="inline-flex cursor-pointer items-center gap-2 font-medium">
               <input
                 type="checkbox"
                 checked={generateAnswer}
                 onChange={(e) => setGenerateAnswer(e.target.checked)}
-                className="h-4 w-4 accent-indigo-500"
+                className="h-4 w-4 accent-[var(--accent)]"
               />
               Generate answer
             </label>
           </div>
         )}
 
-        <div className="relative">
+        <div className="chat-composer-box">
           <textarea
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -98,21 +99,27 @@ export function ChatComposer({
               })
             }
             rows={2}
-            placeholder="Ask a follow-up or start a new research question…"
+            placeholder="Ask a research question or follow up…"
             disabled={disabled || running}
-            className="field min-h-[72px] resize-none py-3 pr-28 text-base shadow-[0_0_0_1px_rgba(129,140,248,0.12)]"
+            aria-label="Message"
+            className="max-h-36 min-h-[2.75rem] flex-1 resize-none bg-transparent py-2 text-[15px] text-[var(--fg)] outline-none placeholder:text-[var(--fg-subtle)]"
           />
-          <div className="absolute bottom-2.5 right-2.5 flex items-center gap-1.5">
+          <div className="flex shrink-0 items-center gap-1 pb-0.5">
             <button
               type="button"
-              className="btn-ghost !min-h-9 !px-2"
+              className={cn(
+                "btn-ghost !min-h-10 !rounded-xl !px-2.5",
+                showOpts && "bg-[var(--accent-soft)] text-[var(--accent)]",
+              )}
               title="Options"
+              aria-expanded={showOpts}
+              aria-label="Toggle search options"
               onClick={() => setShowOpts((v) => !v)}
             >
               <Settings2 className="h-4 w-4" />
               <ChevronDown
                 className={cn(
-                  "h-3 w-3 transition",
+                  "h-3 w-3 transition-transform",
                   showOpts && "rotate-180",
                 )}
               />
@@ -121,9 +128,9 @@ export function ChatComposer({
               <button
                 type="button"
                 onClick={onCancel}
-                className="btn-ghost !min-h-9"
+                className="btn-secondary !min-h-10 !rounded-xl"
               >
-                <Square className="h-3.5 w-3.5 fill-current" />
+                <Square className="h-3 w-3 fill-current" />
                 Stop
               </button>
             ) : (
@@ -131,23 +138,22 @@ export function ChatComposer({
                 type="button"
                 onClick={submit}
                 disabled={disabled || !query.trim()}
-                className="btn-primary !min-h-9"
+                className="btn-primary !min-h-10 !rounded-xl"
               >
-                <CornerDownLeft className="h-4 w-4" />
+                <CornerDownLeft className="h-3.5 w-3.5" />
                 Send
               </button>
             )}
           </div>
         </div>
-        <p className="text-center text-[11px] text-[var(--fg-muted)]">
+        <p className="text-center text-[11px] text-[var(--fg-subtle)]">
           <span className="kbd">Enter</span> send ·{" "}
           <span className="kbd">Shift</span>+
-          <span className="kbd">Enter</span> newline · context stays in this
-          chat
+          <span className="kbd">Enter</span> newline
         </p>
       </div>
       {running && (
-        <div className="mx-auto mt-2 flex max-w-3xl items-center justify-center gap-2 text-xs text-indigo-200/80">
+        <div className="mx-auto mt-2 flex max-w-[var(--chat-max)] items-center justify-center gap-2 text-xs font-medium text-[var(--accent)]">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
           Searching & answering…
         </div>

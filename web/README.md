@@ -44,9 +44,11 @@ npm run db:init   # create tables on Supabase
 npm run dev
 ```
 
-Open http://localhost:3000
+Open http://localhost:3001 (scripts bind port **3001**).
 
-Without Supabase REST keys (or `DATABASE_URL`), history/notebooks use **in-memory** storage (lost on restart / cold start).
+If `APP_PASSWORD` is set, open `/login` first (or send `Authorization: Bearer <APP_PASSWORD>` to APIs).
+
+Without Supabase REST keys (or `DATABASE_URL`), history/notebooks use **in-memory** storage (lost on restart / cold start). Production/Vercel without durable DB is fail-closed unless `ALLOW_MEMORY_DB=1`.
 
 ## Environment
 
@@ -65,7 +67,8 @@ Without Supabase REST keys (or `DATABASE_URL`), history/notebooks use **in-memor
 | `SUPABASE_SECRET_KEY` | **yes on Vercel** | secret / service_role key (Dashboard → API Keys) |
 | `DATABASE_URL` | optional | SQL fallback; prefer pooler `:6543` if used |
 | `SUPABASE_PUBLIC_KEY` | optional | not required by this app |
-| `HEALTH_SECRET` or `APP_PASSWORD` | optional | unlocks detailed `/api/health` diagnostics |
+| `APP_PASSWORD` | **required on Vercel/production** | Shared-secret gate for all product APIs/pages (Bearer or `/login` cookie) |
+| `HEALTH_SECRET` | optional | unlocks detailed `/api/health` diagnostics (falls back to `APP_PASSWORD`) |
 
 **Critical on Vercel:** search can work without DB, but **history + notebooks need** `SUPABASE_URL` + `SUPABASE_SECRET_KEY`.  
 If `/api/health` shows `"db": "postgres"` and `hasSecretKey: false`, history/notebooks will fail.

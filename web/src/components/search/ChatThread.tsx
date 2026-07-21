@@ -26,15 +26,15 @@ export function ChatThread({
 
   if (messages.length === 0) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4">
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-6">
         {empty}
       </div>
     );
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6">
-      <div className="mx-auto flex max-w-3xl flex-col gap-4">
+    <div className="min-h-0 flex-1 overflow-y-auto px-3 py-5 sm:px-6">
+      <div className="mx-auto flex max-w-[var(--chat-max)] flex-col gap-5">
         {messages.map((m) => {
           const isUser = m.role === "user";
           const active = !isUser && m.id === activeAssistantId;
@@ -42,13 +42,13 @@ export function ChatThread({
             <div
               key={m.id}
               className={cn(
-                "flex gap-3",
+                "anim-message flex gap-2.5 sm:gap-3",
                 isUser ? "justify-end" : "justify-start",
               )}
             >
               {!isUser && (
-                <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-200 ring-1 ring-indigo-400/30">
-                  <Bot className="h-4 w-4" aria-hidden />
+                <div className="msg-avatar msg-avatar--bot" aria-hidden>
+                  <Bot className="h-3.5 w-3.5" />
                 </div>
               )}
               <button
@@ -58,41 +58,53 @@ export function ChatThread({
                   if (!isUser) onSelectAssistant(m.id);
                 }}
                 className={cn(
-                  "max-w-[min(100%,42rem)] rounded-2xl px-4 py-3 text-left text-sm transition",
-                  isUser
-                    ? "bg-gradient-to-b from-indigo-500/35 to-indigo-600/20 text-white ring-1 ring-indigo-300/30"
-                    : "glass cursor-pointer hover:ring-1 hover:ring-indigo-300/25",
-                  active && !isUser && "ring-1 ring-indigo-400/40",
+                  "msg-bubble hover-lift",
+                  isUser ? "msg-bubble--user" : "msg-bubble--assistant",
+                  active && "msg-bubble--active",
                 )}
               >
                 {isUser ? (
-                  <p className="whitespace-pre-wrap">{m.content}</p>
+                  <p className="whitespace-pre-wrap leading-relaxed">
+                    {m.content}
+                  </p>
                 ) : m.content ? (
                   <Markdown content={m.content} />
                 ) : (
                   <p className="text-[var(--fg-muted)]">
-                    {m.streaming ? "Thinking…" : "No answer yet."}
+                    {m.streaming ? (
+                      <span className="inline-flex items-center gap-2">
+                        <span className="inline-flex gap-1" aria-hidden>
+                          <span className="thinking-dot" />
+                          <span className="thinking-dot" />
+                          <span className="thinking-dot" />
+                        </span>
+                        Thinking…
+                      </span>
+                    ) : (
+                      "No answer yet."
+                    )}
                   </p>
                 )}
                 {isUser &&
                   m.expandedQuery &&
                   m.expandedQuery !== m.content && (
-                    <p className="mt-2 text-[11px] text-indigo-100/70">
+                    <p className="mt-2 rounded-md bg-white/50 px-2 py-1 text-[11px] text-[var(--fg-subtle)]">
                       Searched: {m.expandedQuery}
                     </p>
                   )}
                 {!isUser && m.timing?.totalMs != null && (
-                  <p className="mt-2 text-[11px] text-[var(--fg-muted)]">
+                  <p className="mt-2.5 border-t border-[var(--border)] pt-2 text-[11px] text-[var(--fg-subtle)]">
                     {m.timing.totalMs}ms
                     {m.results?.length
                       ? ` · ${m.results.length} sources`
                       : ""}
+                    {active ? " · viewing evidence" : ""}
                   </p>
                 )}
               </button>
               {isUser && (
-                <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/10 text-white/80 ring-1 ring-white/15">
-                  <User className="h-4 w-4" aria-hidden />
+                <div className="msg-avatar msg-avatar--user" aria-hidden>
+                  <User className="h-3.5 w-3.5" />
                 </div>
               )}
             </div>
