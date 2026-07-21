@@ -61,7 +61,7 @@ const envSchema = z.object({
   LLM_API_KEY: z.string().optional(),
   LLM_MODEL: z.string().default("llama-3.1-8b-instant"),
   RETRIEVAL_MODE: z
-    .enum(["bm25", "adaptive_rrf"])
+    .enum(["bm25", "adaptive_rrf", "sgaf"])
     .default("bm25"),
   EMBEDDING_PROVIDER: z
     .enum(["openai", "huggingface", "tei"])
@@ -69,6 +69,11 @@ const envSchema = z.object({
   EMBEDDING_API_URL: z.string().url().optional(),
   EMBEDDING_API_KEY: z.string().optional(),
   EMBEDDING_MODEL: z.string().default("BAAI/bge-base-en-v1.5"),
+  SPECIALIST_EMBEDDING_MODEL: z.string().optional(),
+  SPECIALIST_EMBEDDING_API_URL: z.string().url().optional(),
+  SGAF_SHIFT_THRESHOLD: z.string().default("2.0"),
+  P3_WINDOW: z.string().default("20"),
+  P3_ALPHA: z.string().default("0.10"),
   TAVILY_API_KEY: z.string().optional(),
   BRAVE_API_KEY: z.string().optional(),
   DATABASE_URL: z.string().optional(),
@@ -103,6 +108,8 @@ function readRawEnv() {
     EMBEDDING_MODEL: process.env.EMBEDDING_MODEL,
     TAVILY_API_KEY: process.env.TAVILY_API_KEY,
     BRAVE_API_KEY: process.env.BRAVE_API_KEY,
+    SPECIALIST_EMBEDDING_MODEL: process.env.SPECIALIST_EMBEDDING_MODEL,
+    SPECIALIST_EMBEDDING_API_URL: process.env.SPECIALIST_EMBEDDING_API_URL,
     DATABASE_URL,
     SUPABASE_URL,
     SUPABASE_PUBLIC_KEY:
@@ -123,7 +130,9 @@ export function getConfig(): AppConfig {
         LLM_API_KEY: raw.LLM_API_KEY,
         LLM_MODEL: raw.LLM_MODEL || "llama-3.1-8b-instant",
         RETRIEVAL_MODE:
-          raw.RETRIEVAL_MODE === "adaptive_rrf" ? "adaptive_rrf" : "bm25",
+          raw.RETRIEVAL_MODE === "adaptive_rrf" || raw.RETRIEVAL_MODE === "sgaf"
+            ? (raw.RETRIEVAL_MODE as "adaptive_rrf" | "sgaf")
+            : "bm25",
         EMBEDDING_PROVIDER:
           raw.EMBEDDING_PROVIDER === "openai" ||
           raw.EMBEDDING_PROVIDER === "huggingface" ||
@@ -135,6 +144,8 @@ export function getConfig(): AppConfig {
         EMBEDDING_MODEL: raw.EMBEDDING_MODEL || "BAAI/bge-base-en-v1.5",
         TAVILY_API_KEY: raw.TAVILY_API_KEY,
         BRAVE_API_KEY: raw.BRAVE_API_KEY,
+        SPECIALIST_EMBEDDING_MODEL: raw.SPECIALIST_EMBEDDING_MODEL,
+        SPECIALIST_EMBEDDING_API_URL: raw.SPECIALIST_EMBEDDING_API_URL,
         DATABASE_URL: raw.DATABASE_URL,
         SUPABASE_URL: raw.SUPABASE_URL,
         SUPABASE_PUBLIC_KEY: raw.SUPABASE_PUBLIC_KEY,
@@ -224,4 +235,8 @@ export const IR_DEFAULTS = {
   adaptiveRrfScale: 1.0,
   adaptiveRrfMinBm25Weight: 0.05,
   adaptiveRrfMaxBm25Weight: 0.9,
+  /** SGAF B5+P3 parameters (from frozen SEG paper) */
+  sgafShiftThreshold: 2.0,
+  p3Window: 20,
+  p3Alpha: 0.10,
 };
