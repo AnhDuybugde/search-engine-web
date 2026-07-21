@@ -10,6 +10,9 @@ import {
 import { handleSubmitOnEnter } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
 
+const ACCEPT =
+  ".pdf,.txt,.md,.markdown,.csv,.json,text/plain,text/csv,application/pdf,application/csv";
+
 export function DatasetComposer({
   disabled,
   running,
@@ -25,6 +28,7 @@ export function DatasetComposer({
   uploading?: boolean;
   onSend: (query: string) => void;
   onCancel?: () => void;
+  /** Add one document to the open dataset (not used for New dataset create). */
   onUpload?: (file: File) => void;
   placeholder?: string;
   className?: string;
@@ -48,19 +52,20 @@ export function DatasetComposer({
                 "inline-flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-xl text-[var(--fg-muted)] transition hover:bg-[var(--accent-soft)] hover:text-[var(--accent)]",
                 (uploading || running) && "pointer-events-none opacity-50",
               )}
-              title="Upload document"
+              title="Add one document to this open dataset"
             >
               {uploading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Paperclip className="h-4 w-4" aria-hidden />
               )}
-              <span className="sr-only">Upload document</span>
+              <span className="sr-only">Add document to this dataset</span>
               <input
                 type="file"
-                accept=".pdf,.txt,.md,.markdown,.csv,.json,text/plain,text/csv,application/pdf,application/csv"
+                accept={ACCEPT}
                 className="hidden"
                 disabled={uploading || running}
+                // one file per pick — no multiple
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f) onUpload(f);
@@ -108,7 +113,9 @@ export function DatasetComposer({
           </div>
         </div>
         <p className="text-center text-[11px] text-[var(--fg-subtle)]">
-          Paperclip stores raw sources · ranking runs at query time
+          {onUpload
+            ? "Paperclip adds one file to this open dataset · ranking at query time"
+            : "Open a dataset to chat · New dataset uses one starter file"}
         </p>
       </div>
     </div>

@@ -20,6 +20,7 @@ import { DatasetComposer } from "@/components/dataset/DatasetComposer";
 import { DatasetSidebar, type DatasetSummary } from "@/components/dataset/DatasetSidebar";
 import { DocumentDetailDrawer } from "@/components/dataset/DocumentDetailDrawer";
 import { DocumentResultsList } from "@/components/dataset/DocumentResultsList";
+import { NewDatasetDialog } from "@/components/dataset/NewDatasetDialog";
 import { ProcessExplainPanel } from "@/components/dataset/ProcessExplainPanel";
 import { RunMetricsStrip } from "@/components/dataset/RunMetricsStrip";
 import { UploadPipelinePanel } from "@/components/dataset/UploadPipelinePanel";
@@ -74,6 +75,9 @@ export function DatasetChatLayout({
   const [selectedDoc, setSelectedDoc] = useState<RankedDocument | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  /** New dataset dialog: exactly one starter document, then open workspace */
+  const [newDialogOpen, setNewDialogOpen] = useState(false);
+  const [newDialogError, setNewDialogError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{
     id: string;
     title: string;
@@ -248,24 +252,60 @@ export function DatasetChatLayout({
     [router],
   );
 
-  const onNew = async () => {
+  /** Opens create dialog — does not create an empty notebook. */
+  const onNew = () => {
     setUiError(null);
+    setNewDialogError(null);
+    setNewDialogOpen(true);
+  };
+
+  /**
+   * New dataset = one starter file only.
+   * Additional sources: open the dataset → Sources / paperclip “Add document”.
+   */
+  const onCreateWithFile = async (payload: { title: string; file: File }) => {
+    setUiError(null);
+    setNewDialogError(null);
     setCreating(true);
     try {
-      const name = `Dataset ${new Date().toLocaleString()}`;
       const res = await fetch("/api/notebooks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: name }),
+        body: JSON.stringify({ title: payload.title }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Create failed");
+      const id = data.id as string;
+      setRightTab("sources");
+      await uploadSse.upload(`/api/notebooks/${id}/upload`, payload.file);
+      setNewDialogOpen(false);
       await loadDatasets();
-      goDataset(data.id as string);
+      goDataset(id);
+      // Ensure corpus list after navigation targets this id
+      await loadNotebook(id);
     } catch (err) {
-      setUiError(err instanceof Error ? err.message : "Create failed");
+      const msg = err instanceof Error ? err.message : "Create failed";
+      setNewDialogError(msg);
+      setUiError(msg);
     } finally {
       setCreating(false);
+    }
+  };
+
+  /** Add one more document to the currently open dataset (not create-new). */
+  const onAddToOpenDataset = async (file: File) => {
+    if (!notebookId) {
+      setUiError("Open a dataset first, then add a document to it.");
+      return;
+    }
+    setUiError(null);
+    setRightTab("sources");
+    try {
+      await uploadSse.upload(`/api/notebooks/${notebookId}/upload`, file);
+      await loadNotebook(notebookId);
+      await loadDatasets();
+    } catch (err) {
+      setUiError(err instanceof Error ? err.message : "Upload failed");
     }
   };
 
@@ -397,22 +437,6 @@ export function DatasetChatLayout({
     })();
   };
 
-  const onUpload = async (file: File) => {
-    if (!notebookId) {
-      setUiError("Create or select a dataset first.");
-      return;
-    }
-    setUiError(null);
-    setRightTab("sources");
-    try {
-      await uploadSse.upload(`/api/notebooks/${notebookId}/upload`, file);
-      await loadNotebook(notebookId);
-      await loadDatasets();
-    } catch (err) {
-      setUiError(err instanceof Error ? err.message : "Upload failed");
-    }
-  };
-
   const onSend = async (query: string) => {
     // Prefer checked datasets; fall back to the open workspace
     const corpus =
@@ -504,9 +528,9 @@ export function DatasetChatLayout({
         show={creating || uploading || running}
         label={
           creating
-            ? "Creating dataset…"
+            ? "Creating dataset & indexing starter file…"
             : uploading
-              ? "Uploading & indexing…"
+              ? "Adding document & indexing…"
               : state.steps.generate === "running"
                 ? "Generating answer…"
                 : "Ranking documents…"
@@ -556,7 +580,7 @@ export function DatasetChatLayout({
             currentId={notebookId}
             checkedIds={checkedIds}
             loading={datasetsLoading}
-            onNew={() => void onNew()}
+            onNew={onNew}
             onSelect={(id) => {
               goDataset(id);
               setMobileSidebarOpen(false);
@@ -624,12 +648,13 @@ export function DatasetChatLayout({
               {notebookId ? (
                 <div className="truncate text-[11px] text-[var(--fg-subtle)]">
                   {sources.length} raw source
-                  {sources.length === 1 ? "" : "s"} · full-text at query time ·
-                  no pre-index
+                  {sources.length === 1 ? "" : "s"} · open session · Sources →
+                  Add document · full-text at query time
                 </div>
               ) : (
                 <div className="truncate text-[11px] text-[var(--fg-subtle)]">
-                  Upload documents · rank · cited answers
+                  New dataset = 1 starter file · open a session to add more ·
+                  rank · cite
                 </div>
               )}
             </div>
@@ -700,9 +725,9 @@ export function DatasetChatLayout({
                 <p className="chat-empty-copy">
                   {notebookId
                     ? sources.length
-                      ? "Retrieval runs over full source text at query time. Upload only stores raw documents — no pre-chunk or embed index."
-                      : "Attach PDF, TXT, MD, CSV or JSON. Text is extracted and stored raw; ranking starts when you ask."
-                    : "Pick an existing workspace in the left sidebar — or use New there if you need another dataset."}
+                      ? "Retrieval runs over full source text at query time. Use Sources → Add document to grow this corpus."
+                      : "This dataset has no sources yet. Use Sources → Add document (or the dropzone below) to attach one file at a time."
+                    : "Open a dataset on the left to chat. New dataset creates a workspace with exactly one starter file — add more later from that open session."}
                 </p>
                 {!notebookId && (
                   <div className="bento-grid anim-stagger">
@@ -756,10 +781,10 @@ export function DatasetChatLayout({
                     <label className="hover-lift inline-flex cursor-pointer flex-col items-center gap-2 rounded-2xl border border-dashed border-[var(--violet-border)] bg-[var(--violet-soft)] px-7 py-7 text-xs text-[var(--fg-muted)] shadow-sm transition hover:border-[var(--mood-border)] hover:bg-[var(--mood-soft)]">
                       <Upload className="h-6 w-6 text-[var(--violet)]" />
                       <span className="text-sm font-semibold text-[var(--fg)]">
-                        Store first raw source
+                        Add first document
                       </span>
                       <span className="text-[var(--fg-subtle)]">
-                        PDF · TXT · MD · CSV · JSON
+                        One file · PDF · TXT · MD · CSV · JSON
                       </span>
                       <input
                         type="file"
@@ -767,7 +792,8 @@ export function DatasetChatLayout({
                         accept=".pdf,.txt,.md,.markdown,.csv,.json,text/plain,text/csv,application/pdf,application/csv"
                         onChange={(e) => {
                           const f = e.target.files?.[0];
-                          if (f) void onUpload(f);
+                          if (f) void onAddToOpenDataset(f);
+                          e.target.value = "";
                         }}
                       />
                     </label>
@@ -783,12 +809,14 @@ export function DatasetChatLayout({
             uploading={uploading}
             onSend={(q) => void onSend(q)}
             onCancel={cancel}
-            onUpload={notebookId ? (f) => void onUpload(f) : undefined}
+            onUpload={
+              notebookId ? (f) => void onAddToOpenDataset(f) : undefined
+            }
             placeholder={
               checkedIds.length === 0 && !notebookId
-                ? "Tick datasets on the left, then ask…"
+                ? "Open or create a dataset on the left, then ask…"
                 : notebookId && !sources.length && checkedIds.length <= 1
-                  ? "Store a raw source first (paperclip)…"
+                  ? "Add a document first (Sources or paperclip)…"
                   : checkedIds.length > 1
                     ? `Ask across ${checkedIds.length} selected datasets…`
                     : "Ask about your stored sources…"
@@ -866,7 +894,7 @@ export function DatasetChatLayout({
                 <div className="space-y-3">
                   <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-panel)] px-2.5 py-2">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
-                      Corpus
+                      Corpus · this open dataset
                     </p>
                     <p className="mt-1 text-[12px] text-[var(--fg)]">
                       <strong>{sources.length}</strong> raw source
@@ -881,9 +909,10 @@ export function DatasetChatLayout({
                       )}
                     </p>
                     <p className="mt-0.5 text-[10px] leading-relaxed text-[var(--fg-subtle)]">
-                      Dataset workspace is separate from Web Search chats. Upload
-                      runs extract → store → embed → Postgres. Lock datasets you
-                      want to keep (demos are locked by default).
+                      Separate from Web Search. New dataset starts with one
+                      file; use <strong>Add document</strong> here to grow the
+                      session you opened. Each add is one file · extract →
+                      store → embed → Postgres.
                     </p>
                     {notebookId &&
                       (() => {
@@ -902,6 +931,34 @@ export function DatasetChatLayout({
                           </p>
                         );
                       })()}
+                    <label
+                      className={cn(
+                        "mt-2.5 flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-[var(--accent-border)] bg-[var(--accent-soft)] px-3 py-2.5 text-[12px] font-semibold text-[var(--accent)] transition hover:bg-[var(--accent)] hover:text-white",
+                        uploading && "pointer-events-none opacity-50",
+                      )}
+                    >
+                      {uploading ? (
+                        <span className="inline-flex items-center gap-2">
+                          Adding…
+                        </span>
+                      ) : (
+                        <>
+                          <Upload className="h-3.5 w-3.5" />
+                          Add document to this dataset
+                        </>
+                      )}
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept=".pdf,.txt,.md,.markdown,.csv,.json,text/plain,text/csv,application/pdf,application/csv"
+                        disabled={uploading || running}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) void onAddToOpenDataset(f);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
                   </div>
                   <UploadPipelinePanel state={uploadSse.state} />
                   <ul className="space-y-1.5">
@@ -926,8 +983,8 @@ export function DatasetChatLayout({
                     ))}
                     {!sources.length && (
                       <li className="py-2 text-xs text-[var(--fg-muted)]">
-                        No sources yet — use the paperclip to store a raw
-                        document.
+                        No sources yet — use <strong>Add document</strong> above
+                        (one file at a time).
                       </li>
                     )}
                   </ul>
@@ -1010,6 +1067,18 @@ export function DatasetChatLayout({
           onClose={() => setDrawerOpen(false)}
         />
       )}
+
+      <NewDatasetDialog
+        open={newDialogOpen}
+        busy={creating || uploading}
+        error={newDialogError}
+        onClose={() => {
+          if (creating || uploading) return;
+          setNewDialogOpen(false);
+          setNewDialogError(null);
+        }}
+        onSubmit={onCreateWithFile}
+      />
 
       <ConfirmDialog
         open={Boolean(pendingDelete)}
