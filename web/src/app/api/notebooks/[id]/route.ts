@@ -40,9 +40,14 @@ export async function GET(
   }
 }
 
-const patchSchema = z.object({
-  title: z.string().min(1).max(200),
-});
+const patchSchema = z
+  .object({
+    title: z.string().min(1).max(200).optional(),
+    locked: z.boolean().optional(),
+  })
+  .refine((v) => v.title !== undefined || v.locked !== undefined, {
+    message: "Provide title and/or locked",
+  });
 
 export async function PATCH(
   req: Request,
@@ -61,14 +66,18 @@ export async function PATCH(
   const parsed = patchSchema.safeParse(json);
   if (!parsed.success) {
     return Response.json(
-      { error: "Title is required (1–200 characters)." },
+      {
+        error:
+          "Provide title (1–200 chars) and/or locked (boolean).",
+      },
       { status: 400 },
     );
   }
 
   try {
     const notebook = await updateNotebook(id, {
-      title: parsed.data.title.trim(),
+      title: parsed.data.title?.trim(),
+      locked: parsed.data.locked,
     });
     if (!notebook) {
       return Response.json({ error: "Not found" }, { status: 404 });
@@ -76,7 +85,7 @@ export async function PATCH(
     return Response.json(notebook);
   } catch (err) {
     return Response.json(
-      { error: err instanceof Error ? err.message : "Rename failed" },
+      { error: err instanceof Error ? err.message : "Update failed" },
       { status: 500 },
     );
   }
@@ -94,9 +103,11 @@ export async function DELETE(
     await deleteNotebook(id);
     return Response.json({ ok: true });
   } catch (err) {
+    const message = err instanceof Error ? err.message : "Delete failed";
+    const locked = message.toLowerCase().includes("locked");
     return Response.json(
-      { error: err instanceof Error ? err.message : "Delete failed" },
-      { status: 500 },
+      { error: message },
+      { status: locked ? 403 : 500 },
     );
   }
 }

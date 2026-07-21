@@ -4,14 +4,23 @@ import { Check, Loader2, X } from "lucide-react";
 import type { UploadSseState } from "@/lib/hooks/use-upload-sse";
 import { cn } from "@/lib/utils";
 
-/** Raw-only store stages — no chunk/embed index at ingest. */
 const STEP_META: { id: string; label: string; hint: string }[] = [
   { id: "receive", label: "Receive file", hint: "Upload received by server" },
-  { id: "extract", label: "Extract text", hint: "PDF/plain text extraction" },
+  { id: "extract", label: "Extract text", hint: "PDF / plain text extraction" },
   {
     id: "store",
-    label: "Store raw source",
-    hint: "Persist full document text only (no chunks, no embeddings)",
+    label: "Store source",
+    hint: "Full text saved to Supabase Postgres (sources)",
+  },
+  {
+    id: "embed",
+    label: "Embed units",
+    hint: "Dense vectors via embedding API (batched)",
+  },
+  {
+    id: "persist",
+    label: "Persist index",
+    hint: "Write chunks + embedding_json to Postgres",
   },
 ];
 
@@ -25,8 +34,16 @@ export function UploadPipelinePanel({ state }: { state: UploadSseState }) {
   if (state.status === "idle" && !state.result) {
     return (
       <p className="text-xs leading-relaxed text-[var(--fg-subtle)]">
-        Upload tracks <strong className="font-medium text-[var(--fg-muted)]">receive → extract → store</strong>{" "}
-        raw text only. Chunking and embedding are not run at ingest time.
+        Upload runs{" "}
+        <strong className="font-medium text-[var(--fg-muted)]">
+          receive → extract → store → embed → persist
+        </strong>
+        . Vectors are stored in{" "}
+        <strong className="font-medium text-[var(--fg-muted)]">
+          Supabase Postgres
+        </strong>{" "}
+        (<code className="text-[10px]">chunks.embedding_json</code>), not MongoDB.
+        Success / fail shows on each step.
       </p>
     );
   }
@@ -35,7 +52,7 @@ export function UploadPipelinePanel({ state }: { state: UploadSseState }) {
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
-          Store pipeline
+          Ingest pipeline
         </h3>
         {state.timing?.totalMs != null && (
           <span className="font-mono text-[10px] text-[var(--fg-muted)]">
@@ -79,6 +96,20 @@ export function UploadPipelinePanel({ state }: { state: UploadSseState }) {
                   )}
                 </div>
                 <p className="text-[10px] text-[var(--fg-subtle)]">{step.hint}</p>
+                {step.id === "embed" && state.indexPercent != null && (
+                  <div className="mt-1.5">
+                    <div className="h-1.5 overflow-hidden rounded-full bg-[var(--bg-panel)] ring-1 ring-[var(--border)]">
+                      <span
+                        className="block h-full rounded-full bg-[var(--accent)] transition-[width]"
+                        style={{ width: `${state.indexPercent}%` }}
+                      />
+                    </div>
+                    <p className="mt-1 font-mono text-[10px] text-[var(--fg-muted)]">
+                      {state.indexPercent}%
+                      {state.indexMessage ? ` · ${state.indexMessage}` : ""}
+                    </p>
+                  </div>
+                )}
               </div>
             </li>
           );
@@ -86,11 +117,22 @@ export function UploadPipelinePanel({ state }: { state: UploadSseState }) {
       </ol>
 
       {state.result && (
-        <p className="rounded-md border border-[var(--border)] bg-[var(--bg-panel)] px-2.5 py-2 text-[11px] text-[var(--fg-muted)]">
-          Stored raw source{" "}
+        <p
+          className={cn(
+            "rounded-md border px-2.5 py-2 text-[11px]",
+            state.status === "failed"
+              ? "border-rose-500/30 bg-rose-50 text-rose-800"
+              : "border-[var(--border)] bg-[var(--bg-panel)] text-[var(--fg-muted)]",
+          )}
+        >
           <strong className="text-[var(--fg)]">{state.result.title}</strong>
           {" · "}
-          {state.result.charCount.toLocaleString()} chars · no chunk/embed index
+          {state.result.charCount.toLocaleString()} chars
+          {" · "}
+          {(state.metrics?.embeddedCount ?? 0).toLocaleString()} vectors
+          {" · "}
+          {state.metrics?.storage || "supabase-postgres"}
+          {state.metrics?.mode ? ` · ${state.metrics.mode}` : ""}
         </p>
       )}
 
@@ -98,6 +140,19 @@ export function UploadPipelinePanel({ state }: { state: UploadSseState }) {
         <p role="alert" className="text-xs text-[var(--danger)]">
           {state.error}
         </p>
+      )}
+
+      {state.logs.length > 0 && (
+        <details className="rounded-md border border-[var(--border)] bg-[var(--surface)]">
+          <summary className="cursor-pointer px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
+            Log ({state.logs.length})
+          </summary>
+          <ul className="max-h-32 space-y-0.5 overflow-y-auto border-t border-[var(--border)] px-2.5 py-2 font-mono text-[10px] text-[var(--fg-muted)]">
+            {state.logs.map((line, i) => (
+              <li key={`${i}-${line.slice(0, 24)}`}>{line}</li>
+            ))}
+          </ul>
+        </details>
       )}
     </div>
   );

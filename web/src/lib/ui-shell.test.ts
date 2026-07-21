@@ -338,38 +338,31 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(sourceApi).toContain("getSourceDetail");
   });
 
-  it("upload UI is raw-store only (no chunk/embed index steps)", () => {
+  it("upload UI shows full ingest pipeline with embed progress", () => {
     const panel = readSrc("components", "dataset", "UploadPipelinePanel.tsx");
-    expect(panel).toContain("Store raw source");
-    expect(panel).toContain("receive → extract → store");
-    expect(panel).not.toMatch(/id:\s*"chunk"/);
-    expect(panel).not.toMatch(/id:\s*"embed"/);
-    expect(panel).not.toMatch(/Index pipeline/i);
+    expect(panel).toContain("Store source");
+    expect(panel).toContain("receive → extract → store → embed → persist");
+    expect(panel).toMatch(/id:\s*"embed"/);
+    expect(panel).toMatch(/id:\s*"persist"/);
+    expect(panel).toContain("Supabase Postgres");
     const hook = readSrc("lib", "hooks", "use-upload-sse.ts");
     expect(hook).toContain('store: "pending"');
-    expect(hook).not.toContain('chunk: "pending"');
-    expect(hook).not.toContain('embed: "pending"');
+    expect(hook).toContain('embed: "pending"');
+    expect(hook).toContain('persist: "pending"');
+    expect(hook).toContain("index_progress");
     const repo = readSrc("lib", "db", "notebooks-repo.ts");
     expect(repo).toContain("raw-sources-only");
-    expect(repo).toMatch(/chunkCount:\s*0/);
-    expect(repo).not.toContain("chunkDocument");
-    expect(repo).not.toContain("embedChunksForStorage");
-    expect(repo).not.toMatch(/from\("chunks"\)\.insert/);
-    expect(repo).not.toMatch(/db\.insert\(chunks\)/);
+    expect(repo).toContain("replaceNotebookChunks");
+    expect(repo).toContain("locked");
   });
 
-  it("dataset UI copy is source-first raw store (not upload→chunk→embed index)", () => {
+  it("dataset UI copy covers lock, index status, and session separation", () => {
     const layout = readSrc("components", "dataset", "DatasetChatLayout.tsx");
-    expect(layout).toContain("Storing raw document");
     expect(layout).toContain("raw source");
-    expect(layout).toContain("pre-index");
-    expect(layout).toContain("full document text only");
-    expect(layout).toContain("units at query time");
-    expect(layout).not.toContain("Indexing document");
-    expect(layout).not.toContain("wait for indexing");
-    expect(layout).not.toContain("ranked chunks with full IR");
-    expect(layout).not.toMatch(/upload\s*→\s*chunk\s*→\s*embed/i);
-    expect(layout).not.toMatch(/extract\s*→\s*chunk\s*→\s*embed/i);
+    expect(layout).toContain("separate from Web Search");
+    expect(layout).toContain("onToggleLock");
+    expect(layout).toContain("extract → store → embed");
+    expect(layout).toContain("locked");
 
     const composer = readSrc("components", "dataset", "DatasetComposer.tsx");
     expect(composer).toContain("stores raw sources");
@@ -377,32 +370,27 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
 
     const sidebar = readSrc("components", "dataset", "DatasetSidebar.tsx");
     expect(sidebar).toContain("store raw sources");
+    expect(sidebar).toContain("onToggleLock");
+    expect(sidebar).toContain("Locked");
 
     const drawer = readSrc("components", "dataset", "DocumentDetailDrawer.tsx");
     expect(drawer).toContain("Stored as raw full text");
     expect(drawer).toContain("Retrieval hits");
     expect(drawer).toContain("Why it ranked");
-    expect(drawer).not.toContain("chunks indexed");
-    expect(drawer).not.toContain("hit chunks");
 
     const docs = readSrc("components", "dataset", "DocumentResultsList.tsx");
     expect(docs).toContain("Confidence");
     expect(docs).toContain("MetricCell");
     expect(docs).toContain("Hits");
-    expect(docs).not.toMatch(/\bchunks\b/);
 
     const metrics = readSrc("components", "dataset", "RunMetricsStrip.tsx");
     expect(metrics).toContain("Retrieval quality");
     expect(metrics).toContain("Latency");
     expect(metrics).toContain("Units ranked");
-    expect(metrics).toContain("not stored chunk rows");
     expect(metrics).toContain("Top match");
-    expect(metrics).toContain("score-derived proxy");
-    expect(metrics).toContain("not calibrated");
 
     const inspector = readSrc("components", "pipeline", "PipelineInspector.tsx");
     expect(inspector).toContain("Sources ready");
-    expect(inspector).toContain("no pre-chunk or embed index at upload");
     expect(inspector).toContain("Retrieval units (this run)");
     expect(inspector).toContain("Raw full text only");
     expect(inspector).toContain("describeNotebookCorpusStorage");
