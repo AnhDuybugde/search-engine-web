@@ -6,6 +6,8 @@ import {
   Check,
   FolderPlus,
   Loader2,
+  Lock,
+  LockOpen,
   PanelLeftClose,
   Pencil,
   Plus,
@@ -19,6 +21,11 @@ export type DatasetSummary = {
   title: string;
   createdAt: string;
   updatedAt?: string;
+  locked?: boolean;
+  indexStatus?: string;
+  indexMessage?: string | null;
+  unitCount?: number;
+  embeddedCount?: number;
 };
 
 function relativeTime(iso: string): string {
@@ -44,6 +51,7 @@ export function DatasetSidebar({
   onSelect,
   onToggleCheck,
   onRename,
+  onToggleLock,
   onDelete,
   onCollapse,
   className,
@@ -58,6 +66,8 @@ export function DatasetSidebar({
   onSelect: (id: string) => void;
   onToggleCheck: (id: string, checked: boolean) => void;
   onRename: (id: string, title: string) => Promise<void>;
+  /** Lock / unlock to prevent accidental delete */
+  onToggleLock?: (id: string, locked: boolean) => Promise<void>;
   onDelete: (id: string, title: string) => void;
   onCollapse?: () => void;
   className?: string;
@@ -97,7 +107,7 @@ export function DatasetSidebar({
         <div className="min-w-0">
           <div className="chat-sidebar-heading truncate">Datasets</div>
           <div className="chat-sidebar-sub truncate">
-            Check to use · open to manage
+            Check to chat · lock to protect · open to manage
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -105,7 +115,7 @@ export function DatasetSidebar({
             type="button"
             onClick={onNew}
             className="btn-primary !min-h-9 !gap-1.5 !px-3 !text-sm !shadow-sm"
-            title="Create a new dataset"
+            title="Create a new dataset workspace (separate from web-search chats)"
             aria-label="New dataset"
           >
             <Plus className="h-4 w-4" />
@@ -275,11 +285,72 @@ export function DatasetSidebar({
                                   In use
                                 </span>
                               ) : null}
+                              {n.locked ? (
+                                <span className="mr-1.5 inline-flex items-center gap-0.5 rounded-md bg-amber-50 px-1.5 py-px text-[11px] font-semibold uppercase tracking-wide text-amber-800 ring-1 ring-amber-600/25">
+                                  <Lock className="h-2.5 w-2.5" />
+                                  Locked
+                                </span>
+                              ) : null}
+                              {n.indexStatus === "ready" ? (
+                                <span className="mr-1.5 inline-flex items-center rounded-md bg-emerald-50 px-1.5 py-px text-[11px] font-semibold uppercase tracking-wide text-emerald-800 ring-1 ring-emerald-600/25">
+                                  Indexed
+                                  {typeof n.embeddedCount === "number"
+                                    ? ` · ${n.embeddedCount}`
+                                    : ""}
+                                </span>
+                              ) : n.indexStatus === "indexing" ? (
+                                <span className="mr-1.5 inline-flex items-center rounded-md bg-sky-50 px-1.5 py-px text-[11px] font-semibold uppercase tracking-wide text-sky-800 ring-1 ring-sky-600/25">
+                                  Indexing…
+                                </span>
+                              ) : n.indexStatus === "failed" ? (
+                                <span className="mr-1.5 inline-flex items-center rounded-md bg-rose-50 px-1.5 py-px text-[11px] font-semibold uppercase tracking-wide text-rose-700 ring-1 ring-rose-500/30">
+                                  Index fail
+                                </span>
+                              ) : n.indexStatus === "skipped" ? (
+                                <span className="mr-1.5 inline-flex items-center rounded-md bg-[var(--bg-panel)] px-1.5 py-px text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-muted)] ring-1 ring-[var(--border)]">
+                                  No embed
+                                </span>
+                              ) : null}
                               {relativeTime(n.updatedAt || n.createdAt)}
                             </span>
                           </span>
                         </button>
                         <div className="flex shrink-0 opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                          {onToggleLock && (
+                            <button
+                              type="button"
+                              className={cn(
+                                "rounded-lg p-2 hover:bg-[var(--surface)]",
+                                n.locked
+                                  ? "text-amber-700 hover:text-amber-900"
+                                  : "text-[var(--fg-subtle)] hover:text-[var(--fg)]",
+                              )}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setBusyId(n.id);
+                                void onToggleLock(n.id, !n.locked).finally(() =>
+                                  setBusyId(null),
+                                );
+                              }}
+                              disabled={busyId === n.id}
+                              aria-label={
+                                n.locked
+                                  ? `Unlock ${n.title}`
+                                  : `Lock ${n.title}`
+                              }
+                              title={
+                                n.locked
+                                  ? "Unlock (allow delete)"
+                                  : "Lock (prevent delete)"
+                              }
+                            >
+                              {n.locked ? (
+                                <Lock className="h-4 w-4" />
+                              ) : (
+                                <LockOpen className="h-4 w-4" />
+                              )}
+                            </button>
+                          )}
                           <button
                             type="button"
                             className="rounded-lg p-2 text-[var(--fg-subtle)] hover:bg-[var(--surface)] hover:text-[var(--fg)]"
@@ -295,12 +366,23 @@ export function DatasetSidebar({
                           <button
                             type="button"
                             aria-label={`Delete ${n.title}`}
-                            title="Delete dataset"
+                            title={
+                              n.locked
+                                ? "Unlock this dataset before deleting"
+                                : "Delete dataset"
+                            }
+                            disabled={Boolean(n.locked)}
                             onClick={(e) => {
                               e.stopPropagation();
+                              if (n.locked) return;
                               onDelete(n.id, n.title);
                             }}
-                            className="rounded-lg p-2 text-[var(--fg-subtle)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"
+                            className={cn(
+                              "rounded-lg p-2",
+                              n.locked
+                                ? "cursor-not-allowed text-[var(--fg-subtle)] opacity-40"
+                                : "text-[var(--fg-subtle)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]",
+                            )}
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>

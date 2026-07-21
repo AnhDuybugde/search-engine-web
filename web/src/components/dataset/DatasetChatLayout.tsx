@@ -97,11 +97,21 @@ export function DatasetChatLayout({
           title: string;
           createdAt: string;
           updatedAt?: string;
+          locked?: boolean;
+          indexStatus?: string;
+          indexMessage?: string | null;
+          unitCount?: number;
+          embeddedCount?: number;
         }) => ({
           id: n.id,
           title: n.title,
           createdAt: n.createdAt,
           updatedAt: n.updatedAt || n.createdAt,
+          locked: Boolean(n.locked),
+          indexStatus: n.indexStatus || "none",
+          indexMessage: n.indexMessage ?? null,
+          unitCount: n.unitCount ?? 0,
+          embeddedCount: n.embeddedCount ?? 0,
         }),
       );
       setDatasets(items);
@@ -301,6 +311,33 @@ export function DatasetChatLayout({
     }
   };
 
+  const onToggleLock = async (id: string, locked: boolean) => {
+    setUiError(null);
+    const res = await fetch(`/api/notebooks/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ locked }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(
+        (data as { error?: string }).error || "Could not update lock",
+      );
+    }
+    setDatasets((prev) =>
+      prev.map((d) =>
+        d.id === id
+          ? {
+              ...d,
+              locked: Boolean((data as { locked?: boolean }).locked ?? locked),
+              updatedAt:
+                (data as { updatedAt?: string }).updatedAt || d.updatedAt,
+            }
+          : d,
+      ),
+    );
+  };
+
   /**
    * Optimistic delete: remove from UI immediately, DELETE runs in background.
    * On failure, restore the row and surface an error (no long wait on confirm).
@@ -309,6 +346,13 @@ export function DatasetChatLayout({
     if (!pendingDelete) return;
     const { id, title: deletedTitle } = pendingDelete;
     const snapshot = datasets.find((d) => d.id === id);
+    if (snapshot?.locked) {
+      setPendingDelete(null);
+      setUiError(
+        `“${deletedTitle}” is locked. Unlock it first if you want to delete.`,
+      );
+      return;
+    }
 
     // 1) Instant UI feedback
     setPendingDelete(null);
@@ -462,7 +506,7 @@ export function DatasetChatLayout({
           creating
             ? "Creating dataset…"
             : uploading
-              ? "Storing raw document…"
+              ? "Uploading & indexing…"
               : state.steps.generate === "running"
                 ? "Generating answer…"
                 : "Ranking documents…"
@@ -523,6 +567,7 @@ export function DatasetChatLayout({
             }}
             onToggleCheck={onToggleCheck}
             onRename={onRename}
+            onToggleLock={onToggleLock}
             onDelete={requestDelete}
             onCollapse={closeLeft}
             className="h-full border-0"
@@ -836,10 +881,27 @@ export function DatasetChatLayout({
                       )}
                     </p>
                     <p className="mt-0.5 text-[10px] leading-relaxed text-[var(--fg-subtle)]">
-                      Durable store is full document text only. Chunking and
-                      embedding are not written at upload; ranking builds
-                      units at query time.
+                      Dataset workspace is separate from Web Search chats. Upload
+                      runs extract → store → embed → Postgres. Lock datasets you
+                      want to keep (demos are locked by default).
                     </p>
+                    {notebookId &&
+                      (() => {
+                        const meta = datasets.find((d) => d.id === notebookId);
+                        if (!meta) return null;
+                        return (
+                          <p className="mt-1.5 text-[10px] text-[var(--fg-muted)]">
+                            Index:{" "}
+                            <strong className="text-[var(--fg)]">
+                              {meta.indexStatus || "none"}
+                            </strong>
+                            {typeof meta.embeddedCount === "number"
+                              ? ` · ${meta.embeddedCount} vectors`
+                              : ""}
+                            {meta.locked ? " · locked" : ""}
+                          </p>
+                        );
+                      })()}
                   </div>
                   <UploadPipelinePanel state={uploadSse.state} />
                   <ul className="space-y-1.5">

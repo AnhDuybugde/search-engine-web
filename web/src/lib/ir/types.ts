@@ -60,6 +60,8 @@ export type Timing = {
   rankMs?: number;
   ttftMs?: number;
   extractMs?: number;
+  /** Dense embed stage during notebook index */
+  embedMs?: number;
   indexEmbedMs?: number;
   storeMs?: number;
 };
@@ -167,21 +169,53 @@ export type UploadStreamEvent =
   | { type: "extract_completed"; chars: number; ms: number }
   | { type: "store_completed"; sourceId: string; ms: number }
   | {
+      type: "index_started";
+      unitCount: number;
+      message: string;
+    }
+  | {
+      type: "index_progress";
+      done: number;
+      total: number;
+      message: string;
+    }
+  | {
+      type: "index_completed";
+      unitCount: number;
+      embeddedCount: number;
+      model: string;
+      provider: string;
+      embedMs: number;
+      totalMs: number;
+      storage: "supabase-postgres";
+      message: string;
+    }
+  | {
+      type: "index_failed";
+      message: string;
+    }
+  | {
+      type: "index_skipped";
+      message: string;
+      reason: string;
+    }
+  | {
       type: "upload_completed";
       source: {
         id: string;
         title: string;
-        /** Always 0 — raw sources only. */
-        chunkCount: 0;
+        chunkCount: number;
         charCount: number;
-        mode?: "raw-sources-only";
+        mode?: "raw-sources-only" | "indexed";
       };
       timing: Timing;
       metrics: {
-        chunkCount: 0;
+        chunkCount: number;
         charCount: number;
-        embeddedCount: 0;
-        mode?: "raw-sources-only";
+        embeddedCount: number;
+        mode?: "raw-sources-only" | "indexed" | "index-failed" | "index-skipped";
+        indexStatus?: string;
+        storage?: string;
       };
     }
   | { type: "error"; message: string };
