@@ -4,6 +4,7 @@ import {
   isRetrievalModeId,
   parseRetrievalMode,
   RETRIEVAL_MODES,
+  RETRIEVAL_MODE_IDS,
   retrievalModeLabel,
 } from "./retrieval-modes";
 
@@ -13,6 +14,7 @@ describe("retrieval-modes registry", () => {
     expect(ids).toContain("adaptive_rrf");
     expect(ids).toContain("bm25");
     expect(ids).toContain("legacy_rrf_ce");
+    expect(RETRIEVAL_MODE_IDS).toEqual(ids);
     expect(DEFAULT_RETRIEVAL_MODE).toBe("adaptive_rrf");
   });
 

@@ -31,6 +31,11 @@ export const RETRIEVAL_MODES = [
 
 export type RetrievalModeId = (typeof RETRIEVAL_MODES)[number]["id"];
 
+/** Tuple form for API validation, derived from the UI registry. */
+export const RETRIEVAL_MODE_IDS = RETRIEVAL_MODES.map(
+  (mode) => mode.id,
+) as [RetrievalModeId, ...RetrievalModeId[]];
+
 export const DEFAULT_RETRIEVAL_MODE: RetrievalModeId = "adaptive_rrf";
 
 const MODE_IDS = new Set<string>(RETRIEVAL_MODES.map((m) => m.id));

@@ -12,6 +12,7 @@ import {
 } from "@/lib/db/sessions-repo";
 import { runWebSearchPipeline } from "@/lib/pipeline/web-search";
 import { createSseResponse } from "@/lib/sse";
+import { RETRIEVAL_MODE_IDS } from "@/lib/ir/retrieval-modes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,9 +26,7 @@ const bodySchema = z.object({
   generateAnswer: z.boolean().optional(),
   enrichThinPages: z.boolean().optional(),
   /** Per-request retrieval method; defaults to RETRIEVAL_MODE env. */
-  retrievalMode: z
-    .enum(["bm25", "adaptive_rrf", "sgaf", "legacy_rrf_ce"])
-    .optional(),
+  retrievalMode: z.enum(RETRIEVAL_MODE_IDS).optional(),
 });
 
 export async function POST(
