@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Timing, UploadStreamEvent } from "@/lib/ir/types";
 
 export type UploadStepStatus = "pending" | "running" | "success" | "failed";
@@ -11,6 +11,8 @@ export type UploadSseState = {
   error: string | null;
   logs: string[];
   timing: Timing | null;
+  elapsedMs: number;
+  startedAt: number | null;
   steps: Record<string, UploadStepStatus>;
   stepMs: Record<string, number | undefined>;
   /** 0–100 during embed step */
@@ -33,11 +35,12 @@ export type UploadSseState = {
   } | null;
 };
 
-/** Full pipeline: receive → extract → store → embed → persist */
+/** Full pipeline: receive → extract → store → chunk → embed → persist */
 const initialSteps: Record<string, UploadStepStatus> = {
   receive: "pending",
   extract: "pending",
   store: "pending",
+  chunk: "pending",
   embed: "pending",
   persist: "pending",
 };
@@ -50,6 +53,8 @@ export function useUploadSse() {
     error: null,
     logs: [],
     timing: null,
+    elapsedMs: 0,
+    startedAt: null,
     steps: { ...initialSteps },
     stepMs: {},
     indexPercent: null,
@@ -66,6 +71,8 @@ export function useUploadSse() {
       error: null,
       logs: [],
       timing: null,
+      elapsedMs: 0,
+      startedAt: null,
       steps: { ...initialSteps },
       stepMs: {},
       indexPercent: null,
@@ -86,10 +93,13 @@ export function useUploadSse() {
       error: null,
       logs: [`Uploading ${file.name}…`],
       timing: null,
+      elapsedMs: 0,
+      startedAt: Date.now(),
       steps: {
         receive: "running",
         extract: "pending",
         store: "pending",
+        chunk: "pending",
         embed: "pending",
         persist: "pending",
       },
@@ -138,10 +148,13 @@ export function useUploadSse() {
             `Stored ${data.title} (${data.charCount ?? 0} chars). Index scheduled in background.`,
           ],
           timing: data.timing || null,
+          elapsedMs: data.timing?.totalMs || 0,
+          startedAt: null,
           steps: {
             receive: "success",
             extract: "success",
             store: "success",
+            chunk: "pending",
             embed: "pending",
             persist: "pending",
           },
@@ -217,6 +230,18 @@ export function useUploadSse() {
     }
   }, []);
 
+  useEffect(() => {
+    if (state.status !== "running" || state.startedAt == null) return;
+    const timer = window.setInterval(() => {
+      setState((prev) =>
+        prev.status === "running" && prev.startedAt != null
+          ? { ...prev, elapsedMs: Date.now() - prev.startedAt }
+          : prev,
+      );
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [state.status, state.startedAt]);
+
   return { state, upload, reset };
 }
 
@@ -245,9 +270,27 @@ function applyUploadEvent(
     case "store_completed":
       logs.push(`Stored raw source ${event.sourceId} (${event.ms}ms)`);
       steps.store = "success";
-      steps.embed = "running";
+      steps.chunk = "running";
       stepMs.store = event.ms;
       return { ...prev, logs, steps, stepMs };
+    case "chunk_started":
+      logs.push(event.message);
+      steps.chunk = "running";
+      indexMessage = event.message;
+      return { ...prev, logs, steps, indexMessage };
+    case "chunk_completed":
+      logs.push(`${event.message} (${event.chunkMs}ms)`);
+      steps.chunk = "success";
+      steps.embed = "running";
+      stepMs.chunk = event.chunkMs;
+      indexMessage = event.message;
+      return { ...prev, logs, steps, stepMs, indexMessage };
+    case "embed_started":
+      logs.push(event.message);
+      steps.embed = "running";
+      indexPercent = 0;
+      indexMessage = event.message;
+      return { ...prev, logs, steps, indexPercent, indexMessage };
     case "index_started":
       logs.push(event.message);
       steps.embed = "running";
@@ -273,9 +316,23 @@ function applyUploadEvent(
       steps.embed = "success";
       steps.persist = "success";
       stepMs.embed = event.embedMs;
+      if (event.chunkMs != null) stepMs.chunk = event.chunkMs;
+      if (event.persistMs != null) stepMs.persist = event.persistMs;
       indexPercent = 100;
       indexMessage = event.message;
       return { ...prev, logs, steps, stepMs, indexPercent, indexMessage };
+    case "persist_started":
+      logs.push(event.message);
+      steps.embed = "success";
+      steps.persist = "running";
+      indexMessage = event.message;
+      return { ...prev, logs, steps, indexMessage };
+    case "persist_completed":
+      logs.push(`${event.message} (${event.persistMs}ms)`);
+      steps.persist = "success";
+      stepMs.persist = event.persistMs;
+      indexMessage = event.message;
+      return { ...prev, logs, steps, stepMs, indexMessage };
     case "index_failed":
       logs.push(`✗ Index failed: ${event.message}`);
       if (steps.persist === "running") steps.persist = "failed";
@@ -306,6 +363,7 @@ function applyUploadEvent(
       steps.receive = "success";
       steps.extract = "success";
       steps.store = "success";
+      steps.chunk = "success";
       if (event.metrics.mode === "index-failed") {
         // already marked
       } else if (event.metrics.mode === "index-skipped") {
@@ -328,9 +386,13 @@ function applyUploadEvent(
         stepMs: {
           extract: event.timing.extractMs ?? stepMs.extract,
           store: event.timing.storeMs ?? stepMs.store,
+          chunk: event.timing.chunkMs ?? stepMs.chunk,
           embed: event.timing.embedMs ?? stepMs.embed,
+          persist: event.timing.persistMs ?? stepMs.persist,
         },
         timing: event.timing,
+        elapsedMs: event.timing.totalMs ?? prev.elapsedMs,
+        startedAt: null,
         result: event.source,
         metrics: event.metrics,
         indexMessage: prev.indexMessage,

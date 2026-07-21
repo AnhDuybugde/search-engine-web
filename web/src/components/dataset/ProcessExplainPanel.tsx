@@ -58,9 +58,12 @@ export function ProcessExplainPanel({
     [rankedChunks],
   );
   const scoreSeries = useMemo(
-    () => buildDocumentScoreSeries(documents),
-    [documents],
+    () => buildDocumentScoreSeries(documents, metrics?.retrievalMode),
+    [documents, metrics?.retrievalMode],
   );
+  const isRrfMode =
+    metrics?.retrievalMode === "adaptive_rrf" ||
+    metrics?.retrievalMode === "legacy_rrf_ce";
   const candidates = useMemo(
     () => buildCandidateCompare(rankedChunks, packedChunks, 15),
     [rankedChunks, packedChunks],
@@ -213,7 +216,9 @@ export function ProcessExplainPanel({
       {/* Document score bars — clickable */}
       {scoreSeries.length > 0 && (
         <div>
-          <h3 className="section-title">Top documents — RRF & relative score</h3>
+          <h3 className="section-title">
+            Top documents — {isRrfMode ? "RRF strength" : "Rank score"} & relative score
+          </h3>
           <p className="mb-2 text-[11px] text-[var(--fg-muted)]">
             Click a document to open full source and ranking detail.
           </p>
@@ -260,7 +265,8 @@ export function ProcessExplainPanel({
           </ul>
           <div className="mt-1.5 flex gap-3 text-[10px] text-[var(--fg-subtle)]">
             <span className="inline-flex items-center gap-1">
-              <span className="h-1.5 w-3 rounded bg-[var(--primary)]" /> Score
+              <span className="h-1.5 w-3 rounded bg-[var(--primary)]" />
+              {isRrfMode ? "RRF strength" : "Rank score"}
             </span>
             <span className="inline-flex items-center gap-1">
               <span className="h-1.5 w-3 rounded bg-[var(--accent)]" /> Relative score

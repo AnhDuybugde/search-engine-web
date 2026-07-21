@@ -21,9 +21,20 @@ export const RETRIEVAL_MODES = [
     shortLabel: "SGAF",
     description: "Specialist-Generalist Adaptive Fusion with mode-switch + smoothing",
   },
+  {
+    id: "legacy_rrf_ce",
+    label: "SciNCL + RRF + CE",
+    shortLabel: "SciNCL + CE",
+    description: "Legacy BM25 + SciNCL classic RRF with optional Cross-Encoder reranking",
+  },
 ] as const;
 
 export type RetrievalModeId = (typeof RETRIEVAL_MODES)[number]["id"];
+
+/** Tuple form for API validation, derived from the UI registry. */
+export const RETRIEVAL_MODE_IDS = RETRIEVAL_MODES.map(
+  (mode) => mode.id,
+) as [RetrievalModeId, ...RetrievalModeId[]];
 
 export const DEFAULT_RETRIEVAL_MODE: RetrievalModeId = "adaptive_rrf";
 
