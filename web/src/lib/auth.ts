@@ -36,10 +36,13 @@ function safeEqual(a: string, b: string): boolean {
   return timingSafeEqual(ba, bb);
 }
 
-/** Multi-user auth is always on unless AUTH_DISABLED=1 (tests/local escape hatch). */
+/**
+ * Temporary guest mode: authentication stays disabled unless explicitly
+ * re-enabled with AUTH_DISABLED=0. The login/register implementation remains
+ * intact so the gate can be restored without rewriting the auth flow.
+ */
 export function isAuthRequired(): boolean {
-  if (process.env.AUTH_DISABLED === "1") return false;
-  return true;
+  return process.env.AUTH_DISABLED === "0";
 }
 
 /** @deprecated shared app password — kept only for health diagnostics / optional admin bearer */
