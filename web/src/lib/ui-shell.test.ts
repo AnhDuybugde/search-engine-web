@@ -361,9 +361,9 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(upload).toContain("store_completed");
     expect(upload).toContain("upload_completed");
     expect(upload).toContain("raw-sources-only");
-    // raw ingest: no chunk/embed index steps on the upload path
-    expect(upload).not.toContain("chunk_completed");
-    expect(upload).not.toContain("embed_completed");
+    // Upload keeps the existing indexing logic but now exposes additive stage events.
+    expect(upload).toContain("chunk_completed");
+    expect(upload).toContain("persist_completed");
     const sourceApi = readSrc(
       "app",
       "api",
@@ -379,14 +379,14 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
   it("upload UI exposes the full ingest and indexing pipeline", () => {
     const panel = readSrc("components", "dataset", "UploadPipelinePanel.tsx");
     expect(panel).toContain("Store source");
-    expect(panel).toContain("receive → extract → store → embed → persist");
-    expect(panel).not.toMatch(/id:\s*"chunk"/);
+    expect(panel).toContain("receive → extract → store → chunk → embed → persist");
+    expect(panel).toMatch(/id:\s*"chunk"/);
     expect(panel).toMatch(/id:\s*"embed"/);
     expect(panel).toContain("Persist index");
     const hook = readSrc("lib", "hooks", "use-upload-sse.ts");
     expect(hook).toContain('store: "pending"');
+    expect(hook).toContain('chunk: "pending"');
     expect(hook).toContain('embed: "pending"');
-    expect(hook).not.toContain('chunk: "pending"');
     const repo = readSrc("lib", "db", "notebooks-repo.ts");
     expect(repo).toContain("raw-sources-only");
     expect(repo).toMatch(/chunkCount:\s*0/);

@@ -274,6 +274,24 @@ describe("UI↔API contracts (shipped handlers, memory backend)", () => {
       emit({ type: "upload_started", filename: "a.txt", bytes: 10 });
       emit({ type: "extract_completed", chars: 8, ms: 1 });
       emit({ type: "store_completed", sourceId: "src-1", ms: 2 });
+      emit({ type: "chunk_started", message: "Preparing chunks…" });
+      emit({
+        type: "chunk_completed",
+        chunkCount: 2,
+        chunkMs: 3,
+        message: "Prepared 2 retrieval chunks",
+      });
+      emit({ type: "embed_started", total: 2, message: "Embedding 2 chunks…" });
+      emit({
+        type: "persist_started",
+        total: 2,
+        message: "Persisting 2 vectors…",
+      });
+      emit({
+        type: "persist_completed",
+        persistMs: 4,
+        message: "Persisted 2 vectors",
+      });
       emit({
         type: "upload_completed",
         source: {
@@ -297,6 +315,11 @@ describe("UI↔API contracts (shipped handlers, memory backend)", () => {
       "upload_started",
       "extract_completed",
       "store_completed",
+      "chunk_started",
+      "chunk_completed",
+      "embed_started",
+      "persist_started",
+      "persist_completed",
       "upload_completed",
     ]);
   });

@@ -13,6 +13,11 @@ const STEP_META: { id: string; label: string; hint: string }[] = [
     hint: "Full text saved to Supabase Postgres (sources)",
   },
   {
+    id: "chunk",
+    label: "Prepare chunks",
+    hint: "Split retrieval units before embedding",
+  },
+  {
     id: "embed",
     label: "Embed units",
     hint: "Dense vectors via embedding API (batched)",
@@ -36,7 +41,7 @@ export function UploadPipelinePanel({ state }: { state: UploadSseState }) {
       <p className="text-xs leading-relaxed text-[var(--fg-subtle)]">
         Upload runs{" "}
         <strong className="font-medium text-[var(--fg-muted)]">
-          receive → extract → store → embed → persist
+          receive → extract → store → chunk → embed → persist
         </strong>
         . Vectors are stored in{" "}
         <strong className="font-medium text-[var(--fg-muted)]">
@@ -54,12 +59,14 @@ export function UploadPipelinePanel({ state }: { state: UploadSseState }) {
         <h3 className="text-xs font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
           Ingest pipeline
         </h3>
-        {state.timing?.totalMs != null && (
+        {(state.timing?.totalMs != null || state.status === "running") && (
           <span className="font-mono text-[10px] text-[var(--fg-muted)]">
-            {fmtMs(state.timing.totalMs)} total
+            {fmtMs(state.timing?.totalMs ?? state.elapsedMs)} total
           </span>
         )}
       </div>
+
+      <PipelineOverview state={state} />
 
       {state.filename && (
         <p className="truncate text-xs font-medium text-[var(--fg)]">
@@ -154,6 +161,43 @@ export function UploadPipelinePanel({ state }: { state: UploadSseState }) {
           </ul>
         </details>
       )}
+    </div>
+  );
+}
+
+function PipelineOverview({ state }: { state: UploadSseState }) {
+  const total = STEP_META.length;
+  const completed = STEP_META.filter(
+    (step) => state.steps[step.id] === "success",
+  ).length;
+  const percent = Math.round((completed / total) * 100);
+  const active = STEP_META.find((step) => state.steps[step.id] === "running");
+
+  return (
+    <div
+      className="rounded-md border border-[var(--border)] bg-[var(--bg-panel)] px-2.5 py-2"
+      role="status"
+      aria-live="polite"
+      aria-label={`Upload progress ${percent} percent`}
+    >
+      <div className="flex items-center justify-between gap-2 text-[10px] text-[var(--fg-muted)]">
+        <span>
+          {active ? `Processing: ${active.label}` : state.status === "completed" ? "Processing complete" : "Waiting"}
+        </span>
+        <span className="font-mono">{percent}% · {fmtMs(state.elapsedMs) || "0ms"}</span>
+      </div>
+      <div
+        className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[var(--surface)] ring-1 ring-[var(--border)]"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+      >
+        <span
+          className="block h-full rounded-full bg-[var(--primary)] transition-[width] duration-200"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
     </div>
   );
 }
