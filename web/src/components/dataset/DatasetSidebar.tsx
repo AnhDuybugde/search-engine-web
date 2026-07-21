@@ -115,7 +115,7 @@ export function DatasetSidebar({
             type="button"
             onClick={onNew}
             className="btn-primary !min-h-9 !gap-1.5 !px-3 !text-sm !shadow-sm"
-            title="Create a new dataset workspace (separate from web-search chats)"
+            title="Create dataset with one starter file (add more later from that open dataset)"
             aria-label="New dataset"
           >
             <Plus className="h-4 w-4" />
@@ -156,7 +156,10 @@ export function DatasetSidebar({
                 selected for chat · click name to open · pencil to rename
               </>
             ) : (
-              <>Tick datasets to include in answers · open one to upload</>
+              <>
+                Tick datasets to chat · open one to Add document · New =
+                one starter file
+              </>
             )}
           </p>
         </div>
@@ -174,8 +177,8 @@ export function DatasetSidebar({
               No datasets yet
             </p>
             <p className="mt-1 text-ui-xs leading-relaxed text-[var(--fg-muted)]">
-              Create a workspace, store raw sources, then chat with retrieval
-              and process lab tools.
+              New dataset takes one starter document. Open it later to add more
+              sources, then chat with retrieval and process lab tools.
             </p>
             <button
               type="button"

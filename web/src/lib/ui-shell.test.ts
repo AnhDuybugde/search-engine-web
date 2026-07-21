@@ -162,6 +162,25 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(sidebar).toContain("onNew");
   });
 
+  it("New dataset requires one starter file; add more only on open dataset", () => {
+    const layout = readSrc("components", "dataset", "DatasetChatLayout.tsx");
+    expect(layout).toContain("NewDatasetDialog");
+    expect(layout).toContain("onCreateWithFile");
+    expect(layout).toContain("onAddToOpenDataset");
+    expect(layout).toContain("Add document to this dataset");
+    // Must not auto-create empty notebook without a file
+    expect(layout).not.toMatch(
+      /const onNew = async \(\) => \{[\s\S]*?Dataset \$\{new Date/,
+    );
+    const dialog = readSrc("components", "dataset", "NewDatasetDialog.tsx");
+    expect(dialog).toContain("exactly one");
+    expect(dialog).toContain("Create & upload");
+    expect(dialog).not.toMatch(/\bmultiple\s*=/);
+    expect(dialog).toContain("single file only");
+    const composer = readSrc("components", "dataset", "DatasetComposer.tsx");
+    expect(composer).toContain("Add one document to this open dataset");
+  });
+
   it("dataset sidebar supports checkbox multi-select and rename", () => {
     const sidebar = readSrc("components", "dataset", "DatasetSidebar.tsx");
     expect(sidebar).toContain('type="checkbox"');
@@ -359,17 +378,18 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
   it("dataset UI copy covers lock, index status, and session separation", () => {
     const layout = readSrc("components", "dataset", "DatasetChatLayout.tsx");
     expect(layout).toContain("raw source");
-    expect(layout).toContain("separate from Web Search");
+    expect(layout).toMatch(/[Ss]eparate from Web Search/);
     expect(layout).toContain("onToggleLock");
-    expect(layout).toContain("extract → store → embed");
+    expect(layout).toMatch(/extract\s*→\s*store\s*→\s*embed/);
     expect(layout).toContain("locked");
+    expect(layout).toContain("Add document to this dataset");
 
     const composer = readSrc("components", "dataset", "DatasetComposer.tsx");
-    expect(composer).toContain("stores raw sources");
+    expect(composer).toContain("open dataset");
     expect(composer).toContain("query time");
 
     const sidebar = readSrc("components", "dataset", "DatasetSidebar.tsx");
-    expect(sidebar).toContain("store raw sources");
+    expect(sidebar).toContain("one starter");
     expect(sidebar).toContain("onToggleLock");
     expect(sidebar).toContain("Locked");
 
