@@ -10,6 +10,11 @@ ui-ux-pro-max-skill/
 docs-document-management-analysis.md
 plan.md
 
+# Legacy upstream Open Notebook clone — not used by web/ runtime
+# (Docker + FastAPI + SurrealDB + Ollama). Keep locally if you want
+# reference; do not ship or deploy from this monorepo.
+open-notebook/
+
 # Local embedding/reranker model weights. Keep these on disk, but do not push
 # large model binaries to GitHub.
 bge-small-scifact-rrf/**/model.safetensors

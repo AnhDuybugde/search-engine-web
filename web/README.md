@@ -6,8 +6,9 @@ MVP **Web Search + Notebooks** chạy **100% serverless trên Vercel**.
 - Không SurrealDB / FastAPI / SearXNG cho production
 - Free-tier: **Tavily** (search) + **Groq** (LLM) + **Supabase Postgres** (DB + embeddings)
 
-Repo gốc: xem [README.md](../README.md) cho overview + luồng sản phẩm.  
-`open-notebook/` chỉ còn **reference** (stack Docker cũ).
+Repo gốc: xem [README.md](../README.md) cho overview + luồng sản phẩm.
+
+Sản phẩm runtime **chỉ** là thư mục `web/`. Thư mục `open-notebook/` (nếu còn trên máy) là clone legacy Docker/FastAPI, đã gitignore — **không** tham gia build/deploy và **không** ảnh hưởng Web Search / Notebooks.
 
 ---
 
