@@ -7,8 +7,9 @@ Serverless **Web Search + Dataset Notebooks** app — deploy on **Vercel**, stor
 | **Web Search** (`/search`) | Multi-turn chat: expand query → Tavily/Brave → retrieve → Groq answer + citations |
 | **Notebooks** (`/notebooks`) | Upload docs → embed & index → ask over **your corpus** with evidence |
 
-Active product lives in [`web/`](./web).  
-[`open-notebook/`](./open-notebook) is the **legacy** Docker + FastAPI + SurrealDB + Ollama stack (reference only).
+Active product lives in [`web/`](./web). That is the only runtime path (Next.js → Vercel + Supabase).
+
+The old Docker stack (upstream [Open Notebook](https://github.com/lfnovo/open-notebook) style) is **not part of the product**: it is gitignored as `open-notebook/` if you keep a local clone for reference. It is never imported by `web/`, never built on Vercel, and does not affect search or notebook flows.
 
 ---
 
@@ -124,12 +125,11 @@ search-engine-web/
 │   ├── drizzle/            SQL migrations 0000…0005
 │   ├── scripts/            db-init, seed BEIR, index embeddings
 │   └── README.md           Web-focused env / API detail
-├── open-notebook/          Legacy stack (do not deploy for prod)
 ├── README.md               ← you are here
 └── .gitignore
 ```
 
-Local-only / ignored (not in git): `venv/`, `ui-ux-pro-max-skill/`, scratch notes like `plan.md`.
+Local-only / ignored (not in git): `venv/`, `ui-ux-pro-max-skill/`, `open-notebook/` (legacy reference clone), scratch notes like `plan.md`.
 
 ---
 
@@ -317,7 +317,7 @@ More detail: [`web/README.md`](./web/README.md).
 ## License & credits
 
 - Product path: `web/` (Next.js serverless).
-- Legacy reference: `open-notebook/` (upstream Open Notebook–style stack).
+- Optional local reference: clone [lfnovo/open-notebook](https://github.com/lfnovo/open-notebook) into `open-notebook/` (gitignored; no runtime effect).
 - Free-tier oriented: Tavily/Brave + Groq + Supabase + optional HF embeddings.
 
 ---
