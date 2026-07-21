@@ -10,6 +10,7 @@ import {
   titleFromQuery,
   updateSession,
 } from "@/lib/db/sessions-repo";
+import { parseRetrievalMode } from "@/lib/ir/retrieval-modes";
 import { runWebSearchPipeline } from "@/lib/pipeline/web-search";
 import { createSseResponse } from "@/lib/sse";
 
@@ -141,7 +142,9 @@ export async function POST(
             contextTopK: input.contextTopK,
             generateAnswer: input.generateAnswer,
             enrichThinPages: input.enrichThinPages ?? false,
-            retrievalMode: input.retrievalMode,
+            retrievalMode: input.retrievalMode
+              ? parseRetrievalMode(input.retrievalMode)
+              : undefined,
             signal,
           },
           pipelineEmit,

@@ -7,7 +7,7 @@ import {
 import { packContext } from "@/lib/ir/packer";
 import {
   parseRetrievalMode,
-  type RetrievalModeId,
+  type RetrievalModeInput,
 } from "@/lib/ir/retrieval-modes";
 import type {
   ChunkWithEmbedding,
@@ -37,7 +37,7 @@ export async function runNotebookAskPipeline(
     documentTopK?: number;
     generateAnswer?: boolean;
     /** Per-request override; falls back to RETRIEVAL_MODE env. */
-    retrievalMode?: RetrievalModeId;
+    retrievalMode?: RetrievalModeInput;
     /** Client disconnect / cancel — checked between stages and passed to LLM */
     signal?: AbortSignal;
   },

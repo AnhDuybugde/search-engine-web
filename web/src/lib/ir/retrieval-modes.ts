@@ -26,6 +26,16 @@ export const RETRIEVAL_MODES = [
 
 export type RetrievalModeId = (typeof RETRIEVAL_MODES)[number]["id"];
 
+/**
+ * Modes accepted on wire / env (includes legacy Adaptive ids).
+ * Always normalize with parseRetrievalMode before branching on product modes.
+ */
+export type RetrievalModeInput =
+  | RetrievalModeId
+  | "adaptive_rrf"
+  | "rrf"
+  | "adaptive";
+
 export const DEFAULT_RETRIEVAL_MODE: RetrievalModeId = "paper";
 
 const MODE_IDS = new Set<string>(RETRIEVAL_MODES.map((m) => m.id));

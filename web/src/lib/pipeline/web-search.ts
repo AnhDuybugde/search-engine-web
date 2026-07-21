@@ -4,7 +4,7 @@ import { retrieveEvidence } from "@/lib/ir/adaptive-rrf";
 import { packContext } from "@/lib/ir/packer";
 import {
   parseRetrievalMode,
-  type RetrievalModeId,
+  type RetrievalModeInput,
 } from "@/lib/ir/retrieval-modes";
 import type { Metrics, RankedChunk, StreamEvent, Timing } from "@/lib/ir/types";
 import { streamAnswer } from "@/lib/llm/client";
@@ -20,7 +20,7 @@ export type WebSearchInput = {
   generateAnswer?: boolean;
   enrichThinPages?: boolean;
   /** Per-request override; falls back to RETRIEVAL_MODE env. */
-  retrievalMode?: RetrievalModeId;
+  retrievalMode?: RetrievalModeInput;
   signal?: AbortSignal;
 };
 

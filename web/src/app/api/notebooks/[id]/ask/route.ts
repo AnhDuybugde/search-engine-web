@@ -2,6 +2,7 @@ import { z } from "zod";
 import { requireUserId } from "@/lib/auth";
 import { getNotebook, loadChunks } from "@/lib/db/notebooks-repo";
 import { addNotebookMessage } from "@/lib/db/notebook-messages-repo";
+import { parseRetrievalMode } from "@/lib/ir/retrieval-modes";
 import { runNotebookAskPipeline } from "@/lib/pipeline/notebook-ask";
 import { createSseResponse } from "@/lib/sse";
 
@@ -130,7 +131,9 @@ export async function POST(
           retrieveTopK: parsed.data.retrieveTopK,
           documentTopK: parsed.data.documentTopK ?? 10,
           generateAnswer: parsed.data.generateAnswer,
-          retrievalMode: parsed.data.retrievalMode,
+          retrievalMode: parsed.data.retrievalMode
+            ? parseRetrievalMode(parsed.data.retrievalMode)
+            : undefined,
           signal,
         },
         emit,

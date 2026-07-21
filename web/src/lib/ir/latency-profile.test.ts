@@ -281,7 +281,8 @@ describe("retrieval latency profile (shipped path)", () => {
     expect(askBm25.documents.length).toBeGreaterThan(0);
     expect(
       rrfNoEmbed.diagnostics.mode === "bm25_fallback" ||
-        rrfNoEmbed.diagnostics.mode === "rrf",
+        rrfNoEmbed.diagnostics.mode === "paper" ||
+        rrfNoEmbed.diagnostics.mode === "bm25",
     ).toBe(true);
 
     // Hybrid live path only when embedding env is present (CI may skip)
