@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import {
   BookOpen,
   Check,
@@ -13,6 +14,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Logo } from "@/components/Logo";
 
 export type DatasetSummary = {
   id: string;
@@ -94,34 +96,34 @@ export function DatasetSidebar({
   return (
     <aside className={cn("chat-sidebar", className)} aria-label="Datasets">
       <div className="chat-sidebar-header">
-        <div className="min-w-0">
+        <Link href="/" className="chat-sidebar-brand" aria-label="SearchEngine home">
+          <Logo className="h-7 w-7" showWordmark />
+        </Link>
+        <div className="chat-sidebar-header-row">
           <div className="chat-sidebar-heading truncate">Datasets</div>
-          <div className="chat-sidebar-sub truncate">
-            Check to use · open to manage
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
+          <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
             onClick={onNew}
-            className="btn-primary !min-h-9 !gap-1.5 !px-3 !text-sm !shadow-sm"
+            className="btn-primary !min-h-8 !gap-1 !px-2.5 !text-xs !shadow-sm"
             title="Create a new dataset"
             aria-label="New dataset"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3.5 w-3.5" />
             New dataset
           </button>
           {onCollapse && (
             <button
               type="button"
               onClick={onCollapse}
-              className="hidden h-9 w-9 items-center justify-center rounded-lg text-[var(--fg-muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--fg)] xl:inline-flex"
+              className="hidden h-8 w-8 items-center justify-center rounded-lg text-[var(--fg-muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--fg)] xl:inline-flex"
               aria-label="Collapse datasets panel"
               title="Collapse"
             >
-              <PanelLeftClose className="h-4 w-4" />
+              <PanelLeftClose className="h-3.5 w-3.5" />
             </button>
           )}
+          </div>
         </div>
       </div>
 

@@ -28,10 +28,12 @@ import { ProcessExplainPanel } from "@/components/dataset/ProcessExplainPanel";
 import { RunMetricsStrip } from "@/components/dataset/RunMetricsStrip";
 import { UploadPipelinePanel } from "@/components/dataset/UploadPipelinePanel";
 import { LoadingOverlay } from "@/components/LoadingOverlay";
+import { ModeSwitcher } from "@/components/ModeSwitcher";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { ChatThread } from "@/components/search/ChatThread";
 import { PipelineInspector } from "@/components/pipeline/PipelineInspector";
 import { StepRail } from "@/components/StepRail";
+import { UserMenu } from "@/components/UserMenu";
 import type { ChatMessage } from "@/lib/hooks/use-search-chat";
 import { usePanelLayout } from "@/lib/hooks/use-panel-layout";
 import { useSsePipeline } from "@/lib/hooks/use-sse";
@@ -578,9 +580,6 @@ export function DatasetChatLayout({
             </button>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="mood-pill hidden sm:inline-flex">
-                  Dataset Search
-                </span>
                 <div
                   className="truncate text-sm font-semibold tracking-tight text-[var(--fg)]"
                   style={{ fontFamily: "var(--font-display)" }}
@@ -617,6 +616,7 @@ export function DatasetChatLayout({
                 <span className="hidden sm:inline">Inspector</span>
               </button>
             )}
+            <UserMenu />
           </div>
 
           {(uiError || loadError || state.error || uploadSse.state.error) && (
@@ -662,6 +662,9 @@ export function DatasetChatLayout({
                     <span className="workspace-status-dot" />
                     Retrieval system ready
                   </span>
+                </div>
+                <div className="workspace-mode-switcher">
+                  <ModeSwitcher current="dataset" />
                 </div>
                 <h2 className="chat-empty-title workspace-empty-title">
                   {notebookId
@@ -752,7 +755,7 @@ export function DatasetChatLayout({
           />
 
           <DatasetComposer
-            disabled={!notebookId}
+            disabled={!notebookId && checkedIds.length === 0}
             running={running}
             uploading={uploading}
             onSend={(q) => void onSend(q)}

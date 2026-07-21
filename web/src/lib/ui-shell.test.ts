@@ -97,18 +97,44 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(thread).toContain("thinking-dot");
   });
 
-  it("AppShell exposes primary nav to Dataset Search then Web Search", () => {
+  it("AppShell keeps the workspace mood without a duplicate rail", () => {
     const shell = readSrc("components", "AppShell.tsx");
-    expect(shell).toContain('href: "/notebooks"');
-    expect(shell).toContain('href: "/search"');
-    expect(shell).toContain("Dataset Search");
-    expect(shell).toContain("Web Search");
-    expect(shell).toContain('aria-label="Primary"');
+    expect(shell).toContain('data-mood={mood}');
+    expect(shell).not.toContain("app-rail-nav");
+    expect(shell).not.toContain("UserMenu");
     expect(shell).toMatch(/fill\s*[?=]/);
-    // Dataset Search is listed first in nav
-    expect(shell.indexOf('href: "/notebooks"')).toBeLessThan(
-      shell.indexOf('href: "/search"'),
-    );
+  });
+
+  it("keeps a visible switch between dataset and web research modes", () => {
+    const switcher = readSrc("components", "ModeSwitcher.tsx");
+    expect(switcher).toContain('href="/notebooks"');
+    expect(switcher).toContain('href="/search"');
+    expect(switcher).toContain('aria-label="Research mode"');
+
+    const dataset = readSrc("components", "dataset", "DatasetChatLayout.tsx");
+    const search = readSrc("components", "search", "SearchChatLayout.tsx");
+    expect(dataset).toContain('ModeSwitcher current="dataset"');
+    expect(search).toContain('ModeSwitcher current="web"');
+    expect(dataset).toContain("workspace-mode-switcher");
+    expect(search).toContain("workspace-mode-switcher");
+    expect(dataset).toContain('disabled={!notebookId && checkedIds.length === 0}');
+    expect(dataset).toContain("<UserMenu />");
+    expect(search).toContain("<UserMenu />");
+  });
+
+  it("keeps Home navigation available from both workspace sidebars", () => {
+    const searchSidebar = readSrc("components", "search", "SearchSidebar.tsx");
+    const datasetSidebar = readSrc("components", "dataset", "DatasetSidebar.tsx");
+    expect(searchSidebar).toContain('href="/"');
+    expect(datasetSidebar).toContain('href="/"');
+    expect(searchSidebar).toContain("chat-sidebar-brand");
+    expect(datasetSidebar).toContain("chat-sidebar-brand");
+    expect(searchSidebar).toContain("chat-sidebar-header-row");
+    expect(datasetSidebar).toContain("chat-sidebar-header-row");
+    expect(searchSidebar).toContain("showWordmark");
+    expect(datasetSidebar).toContain("showWordmark");
+    expect(searchSidebar).not.toContain("One active chat at a time");
+    expect(datasetSidebar).not.toContain("Check to use · open to manage");
   });
 
   it("uses readable DM Sans + Space Grotesk fonts at 16px body base", () => {
@@ -270,6 +296,7 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(search).toContain("chat-toolbar");
     expect(search).toContain("chat-empty");
     expect(search).toContain("StepRail");
+    expect(search).not.toContain('className="mood-pill');
     const dataset = readSrc("components", "dataset", "DatasetChatLayout.tsx");
     expect(dataset).toContain("fill");
     expect(dataset).toContain("ChatThread");
@@ -277,6 +304,7 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(dataset).toContain("chat-empty");
     expect(dataset).toContain("StepRail");
     expect(dataset).toContain("chat-panel");
+    expect(dataset).not.toContain('className="mood-pill');
   });
 
   it("shared chat chrome tokens exist for dual-page polish", () => {
@@ -441,9 +469,7 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(landing).toContain("Web Search");
     expect(landing).toContain("Document RAG");
     expect(landing).toContain("home-modules");
-    const shell = readSrc("components", "AppShell.tsx");
-    expect(shell).toContain('href="/"');
-    expect(shell).toContain('title="SearchEngine home"');
+    expect(landing).toContain('href="/"');
   });
 
   it("website UI chrome is English-only (no VN suggestion chips)", () => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   Check,
   Loader2,
@@ -11,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Logo } from "@/components/Logo";
 import type { SessionSummary } from "@/lib/hooks/use-search-chat";
 
 function relativeTime(iso: string): string {
@@ -70,20 +72,20 @@ export function SearchSidebar({
   return (
     <aside className={cn("chat-sidebar", className)} aria-label="Sessions">
       <div className="chat-sidebar-header">
-        <div className="min-w-0">
+        <Link href="/" className="chat-sidebar-brand" aria-label="SearchEngine home">
+          <Logo className="h-7 w-7" showWordmark />
+        </Link>
+        <div className="chat-sidebar-header-row">
           <div className="chat-sidebar-heading truncate">Sessions</div>
-          <div className="chat-sidebar-sub truncate">
-            One active chat at a time
-          </div>
+          <button
+            type="button"
+            onClick={onNew}
+            className="btn-primary !min-h-8 !gap-1 !px-2.5 !text-xs !shadow-sm"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onNew}
-          className="btn-primary !min-h-9 !gap-1.5 !px-3 !text-sm !shadow-sm"
-        >
-          <Plus className="h-4 w-4" />
-          New
-        </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">

@@ -19,7 +19,9 @@ import {
 import { AppShell } from "@/components/AppShell";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EvidenceList } from "@/components/EvidenceList";
+import { ModeSwitcher } from "@/components/ModeSwitcher";
 import { StepRail } from "@/components/StepRail";
+import { UserMenu } from "@/components/UserMenu";
 import { ChatComposer } from "@/components/search/ChatComposer";
 import { ChatThread } from "@/components/search/ChatThread";
 import { SearchSidebar } from "@/components/search/SearchSidebar";
@@ -227,9 +229,6 @@ export function SearchChatLayout({
             </button>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="mood-pill hidden sm:inline-flex">
-                  Web Search
-                </span>
                 <h1
                   className="truncate text-sm font-semibold tracking-tight"
                   style={{ fontFamily: "var(--font-display)" }}
@@ -261,6 +260,7 @@ export function SearchChatLayout({
               <PanelRight className="h-4 w-4" />
               <span className="hidden sm:inline">Evidence</span>
             </button>
+            <UserMenu />
           </div>
 
           {bannerError && (
@@ -308,6 +308,9 @@ export function SearchChatLayout({
                     <span className="workspace-status-dot" />
                     Web index online
                   </span>
+                </div>
+                <div className="workspace-mode-switcher">
+                  <ModeSwitcher current="web" />
                 </div>
                 <h2 className="chat-empty-title workspace-empty-title">Turn questions into evidence</h2>
                 <p className="chat-empty-copy workspace-empty-copy">
