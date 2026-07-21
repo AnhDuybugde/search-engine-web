@@ -165,7 +165,7 @@ export async function retrieveEvidence(
   query: string,
   chunks: ChunkWithEmbedding[],
   topK: number,
-  mode: "bm25" | "adaptive_rrf" = "bm25",
+  mode: "bm25" | "adaptive_rrf" | "sgaf" = "bm25",
 ): Promise<HybridRetrievalResult> {
   if (mode === "bm25") return bm25Fallback(query, chunks, topK);
   if (chunks.length === 0) {

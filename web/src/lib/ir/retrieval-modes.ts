@@ -15,6 +15,12 @@ export const RETRIEVAL_MODES = [
     shortLabel: "BM25",
     description: "Lexical bag-of-words only",
   },
+  {
+    id: "sgaf",
+    label: "SGAF B5+P3",
+    shortLabel: "SGAF",
+    description: "Specialist-Generalist Adaptive Fusion with mode-switch + smoothing",
+  },
 ] as const;
 
 export type RetrievalModeId = (typeof RETRIEVAL_MODES)[number]["id"];
