@@ -4,13 +4,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
+  ArrowUpRight,
+  CheckCircle2,
   Database,
   FileSearch,
   FileText,
+  Gauge,
   Menu,
   PanelLeft,
   PanelRight,
   Sparkles,
+  Workflow,
   Upload,
   X,
 } from "lucide-react";
@@ -20,11 +24,11 @@ import { DatasetComposer } from "@/components/dataset/DatasetComposer";
 import { DatasetSidebar, type DatasetSummary } from "@/components/dataset/DatasetSidebar";
 import { DocumentDetailDrawer } from "@/components/dataset/DocumentDetailDrawer";
 import { DocumentResultsList } from "@/components/dataset/DocumentResultsList";
-import { NewDatasetDialog } from "@/components/dataset/NewDatasetDialog";
 import { ProcessExplainPanel } from "@/components/dataset/ProcessExplainPanel";
 import { RunMetricsStrip } from "@/components/dataset/RunMetricsStrip";
 import { UploadPipelinePanel } from "@/components/dataset/UploadPipelinePanel";
 import { LoadingOverlay } from "@/components/LoadingOverlay";
+import { ModeSwitcher } from "@/components/ModeSwitcher";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { ChatThread } from "@/components/search/ChatThread";
 import { PipelineInspector } from "@/components/pipeline/PipelineInspector";
@@ -33,7 +37,6 @@ import type { ChatMessage } from "@/lib/hooks/use-search-chat";
 import { usePanelLayout } from "@/lib/hooks/use-panel-layout";
 import { useSsePipeline } from "@/lib/hooks/use-sse";
 import { useUploadSse } from "@/lib/hooks/use-upload-sse";
-import { readStoredRetrievalMode } from "@/lib/ir/retrieval-modes";
 import type { RankedDocument } from "@/lib/ir/types";
 import { cn } from "@/lib/utils";
 
@@ -76,9 +79,6 @@ export function DatasetChatLayout({
   const [selectedDoc, setSelectedDoc] = useState<RankedDocument | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [creating, setCreating] = useState(false);
-  /** New dataset dialog: exactly one starter document, then open workspace */
-  const [newDialogOpen, setNewDialogOpen] = useState(false);
-  const [newDialogError, setNewDialogError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<{
     id: string;
     title: string;
@@ -102,21 +102,11 @@ export function DatasetChatLayout({
           title: string;
           createdAt: string;
           updatedAt?: string;
-          locked?: boolean;
-          indexStatus?: string;
-          indexMessage?: string | null;
-          unitCount?: number;
-          embeddedCount?: number;
         }) => ({
           id: n.id,
           title: n.title,
           createdAt: n.createdAt,
           updatedAt: n.updatedAt || n.createdAt,
-          locked: Boolean(n.locked),
-          indexStatus: n.indexStatus || "none",
-          indexMessage: n.indexMessage ?? null,
-          unitCount: n.unitCount ?? 0,
-          embeddedCount: n.embeddedCount ?? 0,
         }),
       );
       setDatasets(items);
@@ -185,11 +175,14 @@ export function DatasetChatLayout({
     }
   }, []);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- API load owns async UI state. */
   useEffect(() => {
     void loadDatasets();
   }, [loadDatasets]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Keep checkbox selection in sync with known datasets; auto-check active open id
+  /* eslint-disable react-hooks/set-state-in-effect -- reconcile selection with API results. */
   useEffect(() => {
     setCheckedIds((prev) => {
       const valid = new Set(datasets.map((d) => d.id));
@@ -201,7 +194,9 @@ export function DatasetChatLayout({
       return next;
     });
   }, [datasets, notebookId]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
+  /* eslint-disable react-hooks/set-state-in-effect -- reset local workspace on route change. */
   useEffect(() => {
     reset();
     setMessages([]);
@@ -215,8 +210,10 @@ export function DatasetChatLayout({
       void loadChatHistory(notebookId);
     }
   }, [notebookId, loadNotebook, loadChatHistory, reset]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Sync streaming answer into chat messages
+  /* eslint-disable react-hooks/set-state-in-effect -- stream events update the visible transcript. */
   useEffect(() => {
     if (!activeAssistantId) return;
     if (state.status === "running" || state.status === "completed") {
@@ -243,6 +240,7 @@ export function DatasetChatLayout({
     state.results,
     activeAssistantId,
   ]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const goDataset = useCallback(
     (id: string | null) => {
@@ -253,60 +251,24 @@ export function DatasetChatLayout({
     [router],
   );
 
-  /** Opens create dialog — does not create an empty notebook. */
-  const onNew = () => {
+  const onNew = async () => {
     setUiError(null);
-    setNewDialogError(null);
-    setNewDialogOpen(true);
-  };
-
-  /**
-   * New dataset = one starter file only.
-   * Additional sources: open the dataset → Sources / paperclip “Add document”.
-   */
-  const onCreateWithFile = async (payload: { title: string; file: File }) => {
-    setUiError(null);
-    setNewDialogError(null);
     setCreating(true);
     try {
+      const name = `Dataset ${new Date().toLocaleString()}`;
       const res = await fetch("/api/notebooks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: payload.title }),
+        body: JSON.stringify({ title: name }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Create failed");
-      const id = data.id as string;
-      setRightTab("sources");
-      await uploadSse.upload(`/api/notebooks/${id}/upload`, payload.file);
-      setNewDialogOpen(false);
       await loadDatasets();
-      goDataset(id);
-      // Ensure corpus list after navigation targets this id
-      await loadNotebook(id);
+      goDataset(data.id as string);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Create failed";
-      setNewDialogError(msg);
-      setUiError(msg);
+      setUiError(err instanceof Error ? err.message : "Create failed");
     } finally {
       setCreating(false);
-    }
-  };
-
-  /** Add one more document to the currently open dataset (not create-new). */
-  const onAddToOpenDataset = async (file: File) => {
-    if (!notebookId) {
-      setUiError("Open a dataset first, then add a document to it.");
-      return;
-    }
-    setUiError(null);
-    setRightTab("sources");
-    try {
-      await uploadSse.upload(`/api/notebooks/${notebookId}/upload`, file);
-      await loadNotebook(notebookId);
-      await loadDatasets();
-    } catch (err) {
-      setUiError(err instanceof Error ? err.message : "Upload failed");
     }
   };
 
@@ -352,33 +314,6 @@ export function DatasetChatLayout({
     }
   };
 
-  const onToggleLock = async (id: string, locked: boolean) => {
-    setUiError(null);
-    const res = await fetch(`/api/notebooks/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ locked }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error(
-        (data as { error?: string }).error || "Could not update lock",
-      );
-    }
-    setDatasets((prev) =>
-      prev.map((d) =>
-        d.id === id
-          ? {
-              ...d,
-              locked: Boolean((data as { locked?: boolean }).locked ?? locked),
-              updatedAt:
-                (data as { updatedAt?: string }).updatedAt || d.updatedAt,
-            }
-          : d,
-      ),
-    );
-  };
-
   /**
    * Optimistic delete: remove from UI immediately, DELETE runs in background.
    * On failure, restore the row and surface an error (no long wait on confirm).
@@ -387,13 +322,6 @@ export function DatasetChatLayout({
     if (!pendingDelete) return;
     const { id, title: deletedTitle } = pendingDelete;
     const snapshot = datasets.find((d) => d.id === id);
-    if (snapshot?.locked) {
-      setPendingDelete(null);
-      setUiError(
-        `“${deletedTitle}” is locked. Unlock it first if you want to delete.`,
-      );
-      return;
-    }
 
     // 1) Instant UI feedback
     setPendingDelete(null);
@@ -438,10 +366,23 @@ export function DatasetChatLayout({
     })();
   };
 
-  const onSend = async (
-    query: string,
-    opts?: { retrievalMode?: "bm25" | "adaptive_rrf" | "sgaf" },
-  ) => {
+  const onUpload = async (file: File) => {
+    if (!notebookId) {
+      setUiError("Create or select a dataset first.");
+      return;
+    }
+    setUiError(null);
+    setRightTab("sources");
+    try {
+      await uploadSse.upload(`/api/notebooks/${notebookId}/upload`, file);
+      await loadNotebook(notebookId);
+      await loadDatasets();
+    } catch (err) {
+      setUiError(err instanceof Error ? err.message : "Upload failed");
+    }
+  };
+
+  const onSend = async (query: string) => {
     // Prefer checked datasets; fall back to the open workspace
     const corpus =
       checkedIds.length > 0
@@ -465,8 +406,8 @@ export function DatasetChatLayout({
     setUiError(null);
     setDrawerOpen(false);
 
-    const userId = `u-${Date.now()}`;
-    const asstId = `a-${Date.now()}`;
+    const userId = `u-${crypto.randomUUID()}`;
+    const asstId = `a-${crypto.randomUUID()}`;
     setMessages((prev) => [
       ...prev,
       { id: userId, role: "user", content: query },
@@ -487,7 +428,6 @@ export function DatasetChatLayout({
       contextTopK: 4,
       documentTopK: 10,
       retrieveTopK: 40,
-      ...(opts?.retrievalMode ? { retrievalMode: opts.retrievalMode } : {}),
       ...(extra.length ? { notebookIds: extra } : {}),
     });
   };
@@ -501,14 +441,48 @@ export function DatasetChatLayout({
 
   const notebookSteps = useMemo(
     () => ({
-      corpus: sources.length > 0 ? ("success" as const) : ("pending" as const),
+      corpus:
+        sources.length > 0 || checkedIds.length > 0
+          ? ("success" as const)
+          : ("pending" as const),
       query: state.steps.query || ("pending" as const),
       retrieve: state.steps.retrieve || ("pending" as const),
       embedding: state.steps.embedding || ("pending" as const),
       fusion: state.steps.fusion || ("pending" as const),
+      pack: state.steps.pack || ("pending" as const),
       generate: state.steps.generate || ("pending" as const),
     }),
-    [sources.length, state.steps],
+    [checkedIds.length, sources.length, state.steps],
+  );
+
+  // The root dataset workspace can query checked datasets without a single
+  // `notebookId`. Retrieval state is still fully available from the SSE run,
+  // so the inspector must follow pipeline activity rather than route shape.
+  const hasPipelineActivity =
+    messages.length > 0 ||
+    state.status !== "idle" ||
+    state.logs.length > 0 ||
+    Object.values(notebookSteps).some(
+      (step) => step === "success" || step === "failed" || step === "running",
+    );
+  const showWorkspaceInspector = Boolean(notebookId || hasPipelineActivity);
+  const selectedCorpusCount = notebookId ? sources.length : checkedIds.length;
+  const recommendationTitles = useMemo(() => {
+    const titles = notebookId
+      ? sources.map((source) => source.title)
+      : datasets
+          .filter((dataset) => checkedIds.includes(dataset.id))
+          .map((dataset) => dataset.title);
+    const uniqueTitles = [...new Set(titles.filter(Boolean))].slice(0, 6);
+    return uniqueTitles.flatMap((name) => [
+      `Summarize ${name}`,
+      `What are the key points in ${name}?`,
+      `Find relevant content in ${name}`,
+    ]);
+  }, [checkedIds, datasets, notebookId, sources]);
+  const recommendationIds = useMemo(
+    () => (notebookId ? [notebookId] : checkedIds),
+    [checkedIds, notebookId],
   );
 
   const uploading = uploadSse.state.status === "running";
@@ -533,9 +507,9 @@ export function DatasetChatLayout({
         show={creating || uploading || running}
         label={
           creating
-            ? "Creating dataset & indexing starter file…"
+            ? "Creating dataset…"
             : uploading
-              ? "Adding document & indexing…"
+              ? "Storing raw document…"
               : state.steps.generate === "running"
                 ? "Generating answer…"
                 : "Ranking documents…"
@@ -585,7 +559,7 @@ export function DatasetChatLayout({
             currentId={notebookId}
             checkedIds={checkedIds}
             loading={datasetsLoading}
-            onNew={onNew}
+            onNew={() => void onNew()}
             onSelect={(id) => {
               goDataset(id);
               setMobileSidebarOpen(false);
@@ -596,7 +570,6 @@ export function DatasetChatLayout({
             }}
             onToggleCheck={onToggleCheck}
             onRename={onRename}
-            onToggleLock={onToggleLock}
             onDelete={requestDelete}
             onCollapse={closeLeft}
             className="h-full border-0"
@@ -640,9 +613,6 @@ export function DatasetChatLayout({
             </button>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="mood-pill hidden sm:inline-flex">
-                  Dataset Search
-                </span>
                 <div
                   className="truncate text-sm font-semibold tracking-tight text-[var(--fg)]"
                   style={{ fontFamily: "var(--font-display)" }}
@@ -653,17 +623,16 @@ export function DatasetChatLayout({
               {notebookId ? (
                 <div className="truncate text-[11px] text-[var(--fg-subtle)]">
                   {sources.length} raw source
-                  {sources.length === 1 ? "" : "s"} · open session · Sources →
-                  Add document · full-text at query time
+                  {sources.length === 1 ? "" : "s"} · full-text at query time ·
+                  no pre-index
                 </div>
               ) : (
                 <div className="truncate text-[11px] text-[var(--fg-subtle)]">
-                  New dataset = 1 starter file · open a session to add more ·
-                  rank · cite
+                  Upload documents · rank · cited answers
                 </div>
               )}
             </div>
-            {notebookId && (
+            {showWorkspaceInspector && (
               <button
                 type="button"
                 className={cn(
@@ -701,11 +670,9 @@ export function DatasetChatLayout({
             </div>
           )}
 
-          {(running ||
-            Object.values(notebookSteps).some(
-              (s) => s === "success" || s === "failed" || s === "running",
-            )) &&
-            notebookId && <StepRail steps={notebookSteps} />}
+          {showWorkspaceInspector && (
+            <StepRail steps={notebookSteps} timing={state.timing} />
+          )}
 
           <ChatThread
             messages={messages}
@@ -715,55 +682,62 @@ export function DatasetChatLayout({
               setRightTab("evidence");
             }}
             empty={
-              <div className="chat-empty anim-enter">
-                <div className="chat-empty-badge">
-                  <Sparkles className="h-3 w-3 text-[var(--violet)]" />
-                  Dataset workspace
+              <div className="chat-empty workspace-empty workspace-empty--dataset anim-enter">
+                <div className="workspace-empty-head">
+                  <div className="chat-empty-badge">
+                    <Sparkles className="h-3 w-3 text-[var(--violet)]" />
+                    Dataset workspace
+                  </div>
+                  <span className="workspace-live-status">
+                    <span className="workspace-status-dot" />
+                    Retrieval system ready
+                  </span>
                 </div>
-                <h2 className="chat-empty-title">
+                <div className="workspace-mode-switcher">
+                  <ModeSwitcher current="dataset" />
+                </div>
+                <h2 className="chat-empty-title workspace-empty-title">
                   {notebookId
                     ? sources.length
                       ? "Ask your documents"
                       : "Store a source to begin"
-                    : "Select a dataset"}
+                    : "Build your research workspace"}
                 </h2>
-                <p className="chat-empty-copy">
+                <p className="chat-empty-copy workspace-empty-copy">
                   {notebookId
                     ? sources.length
-                      ? "Retrieval runs over full source text at query time. Use Sources → Add document to grow this corpus."
-                      : "This dataset has no sources yet. Use Sources → Add document (or the dropzone below) to attach one file at a time."
-                    : "Open a dataset on the left to chat. New dataset creates a workspace with exactly one starter file — add more later from that open session."}
+                      ? "Retrieval runs over full source text at query time. Upload only stores raw documents — no pre-chunk or embed index."
+                      : "Attach PDF, TXT, MD, CSV or JSON. Text is extracted and stored raw; ranking starts when you ask."
+                    : "Collect source material, inspect the ranking pipeline, and ask grounded questions from one focused canvas."}
                 </p>
-                {!notebookId && (
-                  <div className="bento-grid anim-stagger">
-                    <div className="bento-card bento-card--violet">
-                      <div className="bento-card-icon">
-                        <Database className="h-3.5 w-3.5" />
-                      </div>
-                      <h3>Raw corpus</h3>
-                      <p>
-                        Durable full-text sources per dataset — store once,
-                        rank on every question.
-                      </p>
-                    </div>
-                    <div className="bento-card bento-card--cyan">
-                      <div className="bento-card-icon">
-                        <FileSearch className="h-3.5 w-3.5" />
-                      </div>
-                      <h3>Query-time rank</h3>
-                      <p>BM25 / hybrid RRF when you ask.</p>
-                    </div>
-                    <div className="bento-card bento-card--amber">
-                      <div className="bento-card-icon">
-                        <Sparkles className="h-3.5 w-3.5" />
-                      </div>
-                      <h3>Process lab</h3>
-                      <p>Metrics, ranks, and pipeline inspector.</p>
-                    </div>
+                <div className="workspace-kpis anim-stagger" aria-label="Workspace overview">
+                  <div className="workspace-kpi workspace-kpi--violet">
+                    <span className="workspace-kpi-icon"><Database className="h-4 w-4" /></span>
+                    <span className="workspace-kpi-value">{notebookId ? sources.length : datasets.length}</span>
+                    <span className="workspace-kpi-label">{notebookId ? "Raw sources" : "Datasets ready"}</span>
                   </div>
-                )}
+                  <div className="workspace-kpi workspace-kpi--cyan">
+                    <span className="workspace-kpi-icon"><FileSearch className="h-4 w-4" /></span>
+                    <span className="workspace-kpi-value">BM25</span>
+                    <span className="workspace-kpi-label">Query-time ranking</span>
+                  </div>
+                  <div className="workspace-kpi workspace-kpi--amber">
+                    <span className="workspace-kpi-icon"><Gauge className="h-4 w-4" /></span>
+                    <span className="workspace-kpi-value">Live</span>
+                    <span className="workspace-kpi-label">Pipeline metrics</span>
+                  </div>
+                </div>
+                <div className="workspace-flow" aria-label="Dataset workflow">
+                  <div className="workspace-flow-label"><Workflow className="h-4 w-4" /> Research flow</div>
+                  <div className="workspace-flow-steps">
+                    <div className="workspace-flow-step workspace-flow-step--active"><span>01</span><strong>Collect</strong><small>Upload raw files</small></div>
+                    <ArrowUpRight className="workspace-flow-arrow" aria-hidden />
+                    <div className="workspace-flow-step"><span>02</span><strong>Retrieve</strong><small>Rank at query time</small></div>
+                    <ArrowUpRight className="workspace-flow-arrow" aria-hidden />
+                    <div className="workspace-flow-step"><span>03</span><strong>Ground</strong><small>Inspect evidence</small></div>
+                  </div>
+                </div>
                 <div className="chat-empty-actions anim-stagger">
-                  {/* New dataset CTA lives only in the left sidebar — center stays for browse/open */}
                   {notebookId &&
                     sources.length > 0 &&
                     SUGGESTIONS.map((s, i) => (
@@ -777,11 +751,7 @@ export function DatasetChatLayout({
                           i % 3 === 2 && "chip-tint-amber",
                         )}
                         disabled={running}
-                        onClick={() =>
-                          void onSend(s, {
-                            retrievalMode: readStoredRetrievalMode(),
-                          })
-                        }
+                        onClick={() => void onSend(s)}
                       >
                         {s}
                       </button>
@@ -790,10 +760,10 @@ export function DatasetChatLayout({
                     <label className="hover-lift inline-flex cursor-pointer flex-col items-center gap-2 rounded-2xl border border-dashed border-[var(--violet-border)] bg-[var(--violet-soft)] px-7 py-7 text-xs text-[var(--fg-muted)] shadow-sm transition hover:border-[var(--mood-border)] hover:bg-[var(--mood-soft)]">
                       <Upload className="h-6 w-6 text-[var(--violet)]" />
                       <span className="text-sm font-semibold text-[var(--fg)]">
-                        Add first document
+                        Store first raw source
                       </span>
                       <span className="text-[var(--fg-subtle)]">
-                        One file · PDF · TXT · MD · CSV · JSON
+                        PDF · TXT · MD · CSV · JSON
                       </span>
                       <input
                         type="file"
@@ -801,11 +771,13 @@ export function DatasetChatLayout({
                         accept=".pdf,.txt,.md,.markdown,.csv,.json,text/plain,text/csv,application/pdf,application/csv"
                         onChange={(e) => {
                           const f = e.target.files?.[0];
-                          if (f) void onAddToOpenDataset(f);
-                          e.target.value = "";
+                          if (f) void onUpload(f);
                         }}
                       />
                     </label>
+                  )}
+                  {!notebookId && (
+                    <div className="workspace-empty-hint"><CheckCircle2 className="h-4 w-4" /> Select a dataset from the left panel, or create a new one to start.</div>
                   )}
                 </div>
               </div>
@@ -813,19 +785,19 @@ export function DatasetChatLayout({
           />
 
           <DatasetComposer
-            disabled={!notebookId}
+            disabled={!notebookId && checkedIds.length === 0}
             running={running}
             uploading={uploading}
-            onSend={(q, opts) => void onSend(q, opts)}
+            onSend={(q) => void onSend(q)}
             onCancel={cancel}
-            onUpload={
-              notebookId ? (f) => void onAddToOpenDataset(f) : undefined
-            }
+            onUpload={notebookId ? (f) => void onUpload(f) : undefined}
+            suggestions={recommendationTitles}
+            recommendationIds={recommendationIds}
             placeholder={
               checkedIds.length === 0 && !notebookId
-                ? "Open or create a dataset on the left, then ask…"
+                ? "Tick datasets on the left, then ask…"
                 : notebookId && !sources.length && checkedIds.length <= 1
-                  ? "Add a document first (Sources or paperclip)…"
+                  ? "Store a raw source first (paperclip)…"
                   : checkedIds.length > 1
                     ? `Ask across ${checkedIds.length} selected datasets…`
                     : "Ask about your stored sources…"
@@ -834,7 +806,7 @@ export function DatasetChatLayout({
         </div>
 
         {/* Collapsed right rail — reopen Sources / Evidence / Process */}
-        {notebookId && !rightOpen && (
+        {showWorkspaceInspector && !rightOpen && (
           <div
             className="panel-rail panel-rail--right hidden xl:flex"
             aria-label="Side panel collapsed"
@@ -852,7 +824,7 @@ export function DatasetChatLayout({
         )}
 
         {/* Right panel — sources / evidence / process (resizable + collapsible) */}
-        {notebookId && (
+        {showWorkspaceInspector && (
           <aside
             className={cn(
               "chat-panel panel-shell relative hidden shrink-0 xl:flex",
@@ -903,11 +875,12 @@ export function DatasetChatLayout({
                 <div className="space-y-3">
                   <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-panel)] px-2.5 py-2">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
-                      Corpus · this open dataset
+                      {notebookId ? "Corpus" : "Selected corpus"}
                     </p>
                     <p className="mt-1 text-[12px] text-[var(--fg)]">
-                      <strong>{sources.length}</strong> raw source
-                      {sources.length === 1 ? "" : "s"}
+                      <strong>{selectedCorpusCount}</strong>{" "}
+                      {notebookId ? "raw source" : "dataset"}
+                      {selectedCorpusCount === 1 ? "" : "s"}
                       {totalChars > 0 && (
                         <>
                           {" · "}
@@ -918,58 +891,12 @@ export function DatasetChatLayout({
                       )}
                     </p>
                     <p className="mt-0.5 text-[10px] leading-relaxed text-[var(--fg-subtle)]">
-                      Separate from Web Search. New dataset starts with one
-                      file; use <strong>Add document</strong> here to grow the
-                      session you opened. Each add is one file · extract →
-                      store → embed → Postgres.
+                      {notebookId
+                        ? "Durable store is full document text only. Chunking and embedding are not written at upload; ranking builds units at query time."
+                        : "Retrieval runs across the checked datasets. Raw documents remain stored in each dataset and ranking builds units at query time."}
                     </p>
-                    {notebookId &&
-                      (() => {
-                        const meta = datasets.find((d) => d.id === notebookId);
-                        if (!meta) return null;
-                        return (
-                          <p className="mt-1.5 text-[10px] text-[var(--fg-muted)]">
-                            Index:{" "}
-                            <strong className="text-[var(--fg)]">
-                              {meta.indexStatus || "none"}
-                            </strong>
-                            {typeof meta.embeddedCount === "number"
-                              ? ` · ${meta.embeddedCount} vectors`
-                              : ""}
-                            {meta.locked ? " · locked" : ""}
-                          </p>
-                        );
-                      })()}
-                    <label
-                      className={cn(
-                        "mt-2.5 flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-[var(--accent-border)] bg-[var(--accent-soft)] px-3 py-2.5 text-[12px] font-semibold text-[var(--accent)] transition hover:bg-[var(--accent)] hover:text-white",
-                        uploading && "pointer-events-none opacity-50",
-                      )}
-                    >
-                      {uploading ? (
-                        <span className="inline-flex items-center gap-2">
-                          Adding…
-                        </span>
-                      ) : (
-                        <>
-                          <Upload className="h-3.5 w-3.5" />
-                          Add document to this dataset
-                        </>
-                      )}
-                      <input
-                        type="file"
-                        className="hidden"
-                        accept=".pdf,.txt,.md,.markdown,.csv,.json,text/plain,text/csv,application/pdf,application/csv"
-                        disabled={uploading || running}
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f) void onAddToOpenDataset(f);
-                          e.target.value = "";
-                        }}
-                      />
-                    </label>
                   </div>
-                  <UploadPipelinePanel state={uploadSse.state} />
+                  {notebookId && <UploadPipelinePanel state={uploadSse.state} />}
                   <ul className="space-y-1.5">
                     {sources.map((s) => (
                       <li
@@ -990,10 +917,17 @@ export function DatasetChatLayout({
                         </div>
                       </li>
                     ))}
-                    {!sources.length && (
+                    {!sources.length && notebookId && (
                       <li className="py-2 text-xs text-[var(--fg-muted)]">
-                        No sources yet — use <strong>Add document</strong> above
-                        (one file at a time).
+                        No sources yet — use the paperclip to store a raw
+                        document.
+                      </li>
+                    )}
+                    {!sources.length && !notebookId && (
+                      <li className="py-2 text-xs text-[var(--fg-muted)]">
+                        {selectedCorpusCount > 0
+                          ? "Checked datasets are active for this retrieval run. Open one dataset to inspect or upload its raw sources."
+                          : "No dataset is selected for retrieval yet."}
                       </li>
                     )}
                   </ul>
@@ -1041,7 +975,7 @@ export function DatasetChatLayout({
                     results={state.results}
                     logs={state.logs}
                     chunkCount={retrievalUnitCount}
-                    sourceCount={sources.length}
+                    sourceCount={selectedCorpusCount}
                   />
                   <ProcessExplainPanel
                     timing={state.timing}
@@ -1065,7 +999,7 @@ export function DatasetChatLayout({
         )}
       </div>
 
-      {notebookId && (
+      {selectedDoc && (
         <DocumentDetailDrawer
           notebookId={notebookId}
           document={selectedDoc}
@@ -1076,18 +1010,6 @@ export function DatasetChatLayout({
           onClose={() => setDrawerOpen(false)}
         />
       )}
-
-      <NewDatasetDialog
-        open={newDialogOpen}
-        busy={creating || uploading}
-        error={newDialogError}
-        onClose={() => {
-          if (creating || uploading) return;
-          setNewDialogOpen(false);
-          setNewDialogError(null);
-        }}
-        onSubmit={onCreateWithFile}
-      />
 
       <ConfirmDialog
         open={Boolean(pendingDelete)}

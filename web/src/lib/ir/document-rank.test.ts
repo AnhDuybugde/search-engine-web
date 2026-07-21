@@ -4,6 +4,8 @@ import {
   documentRunMetrics,
   normalizeConfidences,
   rankDocumentsFromChunks,
+  relativeRelevance,
+  rrfDualListCeiling,
 } from "./document-rank";
 import type { RankedChunk } from "./types";
 import { runNotebookAskPipeline } from "@/lib/pipeline/notebook-ask";
@@ -86,12 +88,12 @@ describe("rankDocumentsFromChunks", () => {
     expect(ranked[0].chunkHits).toBe(2);
     expect(ranked[0].finalRank).toBe(1);
     expect(ranked[1].documentId).toBe("d2");
-    expect(ranked[0].confidence).toBeGreaterThan(ranked[1].confidence);
-    expect(ranked[0].confidence).toBeGreaterThan(0);
-    expect(ranked[0].confidence).toBeLessThanOrEqual(1);
+    // Relative: top = 1.0, second = 0.7/0.9
+    expect(ranked[0].relativeScore).toBeCloseTo(1, 5);
+    expect(ranked[1].relativeScore).toBeCloseTo(0.7 / 0.9, 5);
   });
 
-  it("stronger finalScore yields higher confidence in multi-doc ranking", () => {
+  it("stronger finalScore yields higher relative strength in multi-doc ranking", () => {
     const ranked = rankDocumentsFromChunks(
       [
         chunk({
@@ -112,12 +114,11 @@ describe("rankDocumentsFromChunks", () => {
       10,
     );
     expect(ranked[0].documentId).toBe("strong-doc");
-    expect(ranked[0].confidence).toBeGreaterThan(ranked[1].confidence);
-    expect(ranked[0].confidence).toBeGreaterThan(0.4);
-    expect(ranked[1].confidence).toBeLessThan(ranked[0].confidence);
+    expect(ranked[0].relativeScore).toBeCloseTo(1, 5);
+    expect(ranked[1].relativeScore).toBeCloseTo(0.01 / 0.08, 5);
   });
 
-  it("equal scores do not hardcode 0.85; depend on absolute strength", () => {
+  it("equal scores all get relative 1.0 (tied for best)", () => {
     const weakEqual = normalizeConfidences([0.001, 0.001, 0.001]);
     const strongEqual = rankDocumentsFromChunks(
       [
@@ -136,50 +137,68 @@ describe("rankDocumentsFromChunks", () => {
       ],
       10,
     );
-    // Old bug: always 0.85 for equal scores
-    expect(weakEqual.every((c) => Math.abs(c - 0.85) > 0.05)).toBe(true);
-    expect(weakEqual[0]).toBeLessThan(0.5);
-    expect(strongEqual[0].confidence).toBeGreaterThan(weakEqual[0]);
-    expect(strongEqual[0].confidence).toBeCloseTo(strongEqual[1].confidence, 5);
+    // Multi equal → all relative 1.0
+    expect(weakEqual.every((c) => c === 1)).toBe(true);
+    expect(strongEqual[0].relativeScore).toBeCloseTo(1, 5);
+    expect(strongEqual[1].relativeScore).toBeCloseTo(1, 5);
   });
 
-  it("single weak document is not shown as ~85% confidence", () => {
+  it("single weak RRF hit is tempered by dual-list ceiling (not 100%)", () => {
     const weak = rankDocumentsFromChunks(
       [
         chunk({
           chunkId: "only",
           documentId: "solo",
-          finalScore: 0.021,
+          finalScore: 0.008,
           bm25Score: 0.3,
           denseScore: 0.1,
         }),
       ],
       10,
     );
+    const ceil = rrfDualListCeiling();
     expect(weak).toHaveLength(1);
-    expect(weak[0].confidence).toBeLessThan(0.45);
-    expect(weak[0].confidence).toBeGreaterThan(0.04);
-    // Explicitly reject the old constant
-    expect(Math.abs(weak[0].confidence - 0.85)).toBeGreaterThan(0.2);
+    expect(weak[0].relativeScore).toBeCloseTo(0.008 / ceil, 5);
+    expect(weak[0].relativeScore).toBeLessThan(0.5);
+    expect(Math.abs(weak[0].relativeScore - 0.85)).toBeGreaterThan(0.2);
   });
 
-  it("single strong document gets high confidence without needing competitors", () => {
+  it("single strong near-ceiling RRF hit gets high relative strength", () => {
+    const ceil = rrfDualListCeiling();
     const strong = rankDocumentsFromChunks(
       [
         chunk({
           chunkId: "only",
           documentId: "solo",
-          finalScore: 0.09,
+          finalScore: ceil * 0.95,
           bm25Score: 12,
           denseScore: 0.85,
         }),
       ],
       10,
     );
-    expect(strong[0].confidence).toBeGreaterThan(0.55);
+    expect(strong[0].relativeScore).toBeCloseTo(0.95, 5);
+    expect(strong[0].relativeScore).toBeGreaterThan(0.9);
   });
 
-  it("documentRunMetrics uses score margin from finalScore", () => {
+  it("omits non-positive BM25 for dense-only hits", () => {
+    const ranked = rankDocumentsFromChunks(
+      [
+        chunk({
+          chunkId: "d",
+          documentId: "dense-only",
+          finalScore: 0.016,
+          bm25Score: 0,
+          denseScore: 0.72,
+        }),
+      ],
+      10,
+    );
+    expect(ranked[0].bm25Best).toBeUndefined();
+    expect(ranked[0].denseBest).toBeCloseTo(0.72, 5);
+  });
+
+  it("documentRunMetrics uses score margin and absolute top strength", () => {
     const docs = rankDocumentsFromChunks(
       [
         chunk({ chunkId: "a", documentId: "1", finalScore: 10, bm25Score: 10 }),
@@ -190,33 +209,68 @@ describe("rankDocumentsFromChunks", () => {
     const m = documentRunMetrics(docs);
     expect(m.documentsRanked).toBe(2);
     expect(m.scoreMargin).toBeCloseTo(0.5, 5);
-    expect(m.confidenceMax).toBe(docs[0].confidence);
-    expect(m.confidenceMean).toBeCloseTo(
-      (docs[0].confidence + docs[1].confidence) / 2,
+    // multi-list relative max is always 1; absolute top strength is separate
+    expect(m.relativeScoreMax).toBeCloseTo(1, 5);
+    expect(m.topScoreStrength).toBe(1); // BM25-scale raw
+    expect(m.relativeScoreMean).toBeCloseTo(
+      (docs[0].relativeScore + docs[1].relativeScore) / 2,
       5,
     );
+
+    const hybrid = rankDocumentsFromChunks(
+      [
+        chunk({
+          chunkId: "h1",
+          documentId: "t",
+          finalScore: rrfDualListCeiling() * 0.5,
+          bm25Score: 3,
+          denseScore: 0.4,
+        }),
+        chunk({
+          chunkId: "h2",
+          documentId: "u",
+          finalScore: rrfDualListCeiling() * 0.25,
+          bm25Score: 1,
+          denseScore: 0.2,
+        }),
+      ],
+      10,
+    );
+    const hm = documentRunMetrics(hybrid);
+    expect(hm.relativeScoreMax).toBeCloseTo(1, 5);
+    expect(hm.topScoreStrength).toBeCloseTo(0.5, 5);
+    expect(hm.confidenceMax).toBeCloseTo(0.5, 5);
   });
 
-  it("documentConfidence is in (0,1] and increases with BM25 strength", () => {
-    const low = documentConfidence({
-      finalScore: 0.01,
-      bm25Best: 0.2,
-      rankIndex: 0,
-      scores: [0.01],
+  it("relativeRelevance is score/max for multi and ceiling for sole RRF", () => {
+    const multi = relativeRelevance({
+      finalScore: 0.02,
+      scores: [0.04, 0.02],
     });
-    const high = documentConfidence({
-      finalScore: 0.08,
-      bm25Best: 8,
-      rankIndex: 0,
-      scores: [0.08],
+    expect(multi).toBeCloseTo(0.5, 5);
+
+    const sole = relativeRelevance({
+      finalScore: 0.016393, // ≈ 1/61
+      scores: [0.016393],
+      rrfK: 60,
     });
-    expect(low).toBeGreaterThan(0);
-    expect(low).toBeLessThanOrEqual(1);
-    expect(high).toBeGreaterThan(low);
+    expect(sole).toBeCloseTo(0.016393 / rrfDualListCeiling(60), 4);
+  });
+
+  it("documentConfidence alias matches relativeRelevance", () => {
+    const a = documentConfidence({
+      finalScore: 0.03,
+      scores: [0.06, 0.03],
+    });
+    const b = relativeRelevance({
+      finalScore: 0.03,
+      scores: [0.06, 0.03],
+    });
+    expect(a).toBe(b);
   });
 });
 
-describe("confidence via shipped ask pipeline", () => {
+describe("relative score via shipped ask pipeline", () => {
   it("derives confidenceMax from ranked scores for a discriminative query", async () => {
     mkdirSync(SCRATCH, { recursive: true });
     process.env.RETRIEVAL_MODE = "bm25";
@@ -262,32 +316,36 @@ describe("confidence via shipped ask pipeline", () => {
 
     expect(result.documents.length).toBeGreaterThan(0);
     expect(result.documents[0].documentId).toBe("doc-bm25-paper");
-    expect(result.documents[0].confidence).toBeTypeOf("number");
-    expect(result.documents[0].confidence).toBeGreaterThan(0);
-    expect(result.documents[0].confidence).toBeLessThanOrEqual(1);
-    expect(result.metrics.confidenceMax).toBe(result.documents[0].confidence);
-    expect(result.metrics.confidenceMean).toBeTypeOf("number");
-
-    // Strong lexical match should not look like the old fixed 0.85 single-hit case
-    // (multi-doc ranking with a clear winner → real derived value)
-    if (result.documents.length === 1) {
-      expect(Math.abs(result.documents[0].confidence - 0.85)).toBeGreaterThan(
-        0.01,
-      );
+    expect(result.documents[0].relativeScore).toBeTypeOf("number");
+    expect(result.documents[0].relativeScore).toBeGreaterThan(0);
+    expect(result.documents[0].relativeScore).toBeLessThanOrEqual(1);
+    // Top of multi-list always relative 1.0 under score/max
+    if (result.documents.length > 1) {
+      expect(result.documents[0].relativeScore).toBeCloseTo(1, 5);
+      const top = result.documents[0].finalScore;
+      for (const d of result.documents) {
+        expect(d.relativeScore).toBeCloseTo(
+          top > 0 ? d.finalScore / top : 0,
+          5,
+        );
+      }
     }
+    expect(result.metrics.relativeScoreMax).toBeCloseTo(1, 5);
+    expect(result.metrics.topScoreStrength).toBeTypeOf("number");
+    expect(result.metrics.relativeScoreMean).toBeTypeOf("number");
 
     const summary = {
       topDocumentId: result.documents[0].documentId,
       topTitle: result.documents[0].title,
       topFinalScore: result.documents[0].finalScore,
-      topConfidence: result.documents[0].confidence,
-      confidenceMax: result.metrics.confidenceMax,
-      confidenceMean: result.metrics.confidenceMean,
+      topConfidence: result.documents[0].relativeScore,
+      confidenceMax: result.metrics.relativeScoreMax,
+      confidenceMean: result.metrics.relativeScoreMean,
       scoreMargin: result.metrics.scoreMargin,
       documents: result.documents.map((d) => ({
         id: d.documentId,
         score: d.finalScore,
-        conf: d.confidence,
+        conf: d.relativeScore,
         bm25: d.bm25Best,
       })),
     };

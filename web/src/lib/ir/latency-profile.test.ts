@@ -281,7 +281,7 @@ describe("retrieval latency profile (shipped path)", () => {
     expect(askBm25.documents.length).toBeGreaterThan(0);
     expect(
       rrfNoEmbed.diagnostics.mode === "bm25_fallback" ||
-        rrfNoEmbed.diagnostics.mode === "adaptive_rrf",
+        rrfNoEmbed.diagnostics.mode === "rrf",
     ).toBe(true);
 
     // Gating: hybrid profile must actually attempt with configured env

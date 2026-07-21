@@ -117,7 +117,7 @@ export function extractCsvText(
   buffer: Buffer,
   mime?: string | null,
 ): string {
-  let raw = stripBom(buffer.toString("utf-8")).replace(/\u0000/g, "");
+  const raw = stripBom(buffer.toString("utf-8")).replace(/\u0000/g, "");
   if (!raw.trim()) {
     throw new Error("CSV file is empty");
   }

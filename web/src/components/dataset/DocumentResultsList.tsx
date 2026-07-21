@@ -4,7 +4,8 @@ import { ChevronRight, FileText } from "lucide-react";
 import type { RankedDocument } from "@/lib/ir/types";
 import { cn } from "@/lib/utils";
 
-function confPct(c: number) {
+function relativePct(doc: { relativeScore?: number; confidence?: number }) {
+  const c = doc.relativeScore ?? doc.confidence ?? 0;
   return Math.round(Math.max(0, Math.min(1, c)) * 100);
 }
 
@@ -24,7 +25,7 @@ export function DocumentResultsList({
           No ranked documents yet
         </p>
         <p className="mt-1 text-xs leading-relaxed text-[var(--fg-subtle)]">
-          Run a query — top matches appear here with score and match strength.
+          Run a query — top matches appear here with RRF score and relative strength.
         </p>
       </div>
     );
@@ -34,7 +35,7 @@ export function DocumentResultsList({
     <ol className="space-y-2">
       {documents.map((doc) => {
         const active = activeId === doc.documentId;
-        const pct = confPct(doc.confidence);
+        const pct = relativePct(doc);
         return (
           <li key={doc.documentId}>
             <button
@@ -81,14 +82,14 @@ export function DocumentResultsList({
                   </span>
                 </span>
 
-                {/* Confidence (score proxy for this query — not calibrated %) */}
+                {/* Relative score vs best hit this query (standard within-list normalization) */}
                 <span className="mt-2.5 block">
                   <span className="mb-1 flex items-center justify-between text-[11px]">
                     <span
                       className="font-medium text-[var(--fg-muted)]"
-                      title="Display proxy from this query's retrieval scores (BM25/dense/final + margin). Not a calibrated ML probability."
+                      title="score / best score in this ranking. Not a calibrated relevance probability."
                     >
-                      Match strength
+                      Relative score
                     </span>
                     <span className="font-semibold tabular-nums text-[var(--fg)]">
                       {pct}%
@@ -112,23 +113,28 @@ export function DocumentResultsList({
                   </span>
                 </span>
 
-                {/* Score grid */}
+                {/* Score grid — different units on purpose (standard IR channels) */}
                 <span className="mt-2.5 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
                   <MetricCell
-                    label="Final"
-                    value={doc.finalScore.toFixed(3)}
+                    label="RRF"
+                    value={formatMetric(doc.finalScore, 4)}
                     emphasis
+                    title="Reciprocal Rank Fusion rank-fusion score (k=60), typically ~0–0.033. Not comparable to BM25 raw."
                   />
-                  {doc.bm25Best != null && Number.isFinite(doc.bm25Best) && (
-                    <MetricCell label="BM25" value={doc.bm25Best.toFixed(2)} />
-                  )}
-                  {doc.denseBest != null && Number.isFinite(doc.denseBest) && (
-                    <MetricCell label="Dense" value={doc.denseBest.toFixed(2)} />
-                  )}
+                  <MetricCell
+                    label="BM25"
+                    value={formatMetric(doc.bm25Best, 2)}
+                    title="Okapi BM25 raw score (typically 0–15+). Not the same unit as RRF or dense. Missing values are shown as 0."
+                  />
+                  <MetricCell
+                    label="Dense"
+                    value={formatMetric(doc.denseBest, 2)}
+                    title="Cosine similarity in [0, 1]. Not the same unit as BM25 or RRF. Missing values are shown as 0."
+                  />
                   <MetricCell
                     label="Hits"
-                    value={String(doc.chunkHits)}
-                    title="Retrieval units that contributed to this document rank"
+                    value={formatMetric(doc.chunkHits, 0)}
+                    title="Units of this doc in the fused top-K"
                   />
                 </span>
               </span>
@@ -147,6 +153,12 @@ export function DocumentResultsList({
       })}
     </ol>
   );
+}
+
+function formatMetric(value: number | null | undefined, digits: number) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value.toFixed(digits)
+    : (0).toFixed(digits);
 }
 
 function MetricCell({

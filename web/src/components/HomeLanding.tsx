@@ -51,22 +51,27 @@ export function HomeLanding() {
   return (
     <AppShell bare>
       <div className="home-landing anim-enter">
-        {/* Floating glass brand strip — inspired by marketing landing layout */}
         <header className="home-topbar">
           <div className="home-topbar-inner">
-            <Link href="/" className="inline-flex items-center gap-2.5">
-              <Logo className="h-8 w-8" showWordmark />
+            <Link href="/" className="home-topbar-brand" aria-label="SearchEngine home">
+              <Logo className="h-9 w-9" showWordmark />
+              <span className="home-topbar-brand-status"><span /> Research workspace</span>
             </Link>
             <nav className="home-topbar-nav" aria-label="Modules">
               <Link href="/search" className="home-topbar-link">
+                <Globe2 className="h-3.5 w-3.5" aria-hidden />
                 Web Search
               </Link>
               <Link href="/notebooks" className="home-topbar-link">
+                <BookOpen className="h-3.5 w-3.5" aria-hidden />
                 Document RAG
               </Link>
             </nav>
-            <Link href="/search" className="btn-primary !min-h-9 !rounded-full !px-4 !text-sm">
-              Get started
+            <Link
+              href="/search"
+              className="home-topbar-cta"
+            >
+              Start researching
               <ArrowRight className="h-3.5 w-3.5" aria-hidden />
             </Link>
           </div>
@@ -75,24 +80,19 @@ export function HomeLanding() {
         <section className="home-hero">
           <div className="home-hero-glow home-hero-glow--violet" aria-hidden />
           <div className="home-hero-glow home-hero-glow--cyan" aria-hidden />
-
           <p className="home-kicker">
             <Sparkles className="h-3.5 w-3.5" aria-hidden />
             AI research workspace
           </p>
-
           <h1 className="home-title">
-            Search{" "}
-            <span className="home-title-grad">Engine</span>
+            Search <span className="home-title-grad">Engine</span>
             <br />
             <span className="home-title-sub">two ways to find answers</span>
           </h1>
-
           <p className="home-lead">
             Choose live web research or document RAG over your own corpus.
             Hybrid retrieval, streaming answers, and evidence you can inspect.
           </p>
-
           <div className="home-hero-actions">
             <Link
               href="/search"
@@ -112,11 +112,7 @@ export function HomeLanding() {
           </div>
         </section>
 
-        {/* Exactly two primary product modules */}
-        <section
-          className="home-modules anim-stagger"
-          aria-label="Product modules"
-        >
+        <section className="home-modules anim-stagger" aria-label="Product modules">
           {MODULES.map((mod) => {
             const Icon = mod.icon;
             return (
@@ -140,9 +136,7 @@ export function HomeLanding() {
                 <h2>{mod.title}</h2>
                 <p>{mod.description}</p>
                 <ul className="home-module-points">
-                  {mod.points.map((p) => (
-                    <li key={p}>{p}</li>
-                  ))}
+                  {mod.points.map((point) => <li key={point}>{point}</li>)}
                 </ul>
                 <span className="home-module-cta">
                   {mod.cta}
@@ -170,11 +164,28 @@ export function HomeLanding() {
           })}
         </section>
 
+        <section className="home-bottom-cta" aria-label="Choose a research mode">
+          <div>
+            <p className="home-section-eyebrow">Ready when you are</p>
+            <h2>Choose your starting point.</h2>
+            <p>Search the open web or bring your own corpus into the same evidence-first workspace.</p>
+          </div>
+          <div className="home-bottom-actions">
+            <Link href="/search" className="home-bottom-link home-bottom-link--web">
+              <Globe2 className="h-4 w-4" aria-hidden />
+              Start web research
+              <ArrowRight className="h-4 w-4" aria-hidden />
+            </Link>
+            <Link href="/notebooks" className="home-bottom-link home-bottom-link--dataset">
+              <BookOpen className="h-4 w-4" aria-hidden />
+              Open your corpus
+              <ArrowRight className="h-4 w-4" aria-hidden />
+            </Link>
+          </div>
+        </section>
+
         <footer className="home-foot">
-          <p>
-            Serverless on Vercel · Postgres on Supabase · free-tier search & LLM
-            keys
-          </p>
+          <p>Serverless on Vercel · Postgres on Supabase · free-tier search & LLM keys</p>
         </footer>
       </div>
     </AppShell>

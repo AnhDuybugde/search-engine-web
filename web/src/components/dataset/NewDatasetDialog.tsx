@@ -36,6 +36,8 @@ export function NewDatasetDialog({
   const [file, setFile] = useState<File | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
 
+  // Reset the native file input and local draft whenever the dialog opens.
+  /* eslint-disable react-hooks/set-state-in-effect -- dialog-open reset is intentional. */
   useEffect(() => {
     if (!open) return;
     setTitle("");
@@ -43,6 +45,7 @@ export function NewDatasetDialog({
     setLocalError(null);
     if (fileRef.current) fileRef.current.value = "";
   }, [open]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   if (!open) return null;
 

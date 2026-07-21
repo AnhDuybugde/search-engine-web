@@ -143,7 +143,7 @@ export async function ensureUsersTable(): Promise<boolean> {
     sqlUsersAvailable = true;
     console.info("[users] ensured public.users on DATABASE_URL");
     return true;
-  } catch (err) {
+  } catch {
     // Fallback: open raw postgres for multi-statement DDL
     try {
       const postgres = (await import("postgres")).default;
@@ -376,6 +376,81 @@ export async function findUserById(id: string): Promise<UserRecord | null> {
   }
 
   return memFindById(id);
+}
+
+export async function updateUserDisplayName(
+  id: string,
+  displayName: string,
+): Promise<PublicUser | null> {
+  const name = displayName.trim();
+  if (!id || !name) return null;
+
+  try {
+    if (await ensureUsersTable()) {
+      const db = getDb();
+      const rows = await db
+        .update(users)
+        .set({ displayName: name, updatedAt: new Date() })
+        .where(eq(users.id, id))
+        .returning();
+      const row = rows[0];
+      if (row) {
+        return {
+          id: row.id,
+          email: row.email,
+          displayName: row.displayName,
+          createdAt: toIso(row.createdAt),
+        };
+      }
+      if (sqlUsersAvailable) return null;
+    }
+  } catch (err) {
+    if (!isMissingUsersTableError(err)) console.warn("[users] SQL update:", err);
+    sqlUsersAvailable = false;
+  }
+
+  try {
+    const sb = getSupabaseAdmin();
+    if (sb && supabaseUsersAvailable !== false) {
+      const { data, error } = await sb
+        .from("users")
+        .update({ display_name: name, updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .select("id,email,display_name,created_at")
+        .maybeSingle();
+      if (error) {
+        if (isMissingUsersTableError(error) || isMissingUsersTableError(sbError(error))) {
+          supabaseUsersAvailable = false;
+        } else {
+          throw new Error(`Update user failed: ${sbError(error)}`);
+        }
+      } else if (data) {
+        supabaseUsersAvailable = true;
+        return {
+          id: data.id as string,
+          email: data.email as string,
+          displayName: data.display_name as string,
+          createdAt: toIso(data.created_at),
+        };
+      } else if (supabaseUsersAvailable) {
+        return null;
+      }
+    }
+  } catch (err) {
+    console.warn("[users] Supabase update:", err);
+  }
+
+  const memoryUser = memUsers.get(id);
+  if (!memoryUser) return null;
+  memoryUser.displayName = name;
+  memoryUser.updatedAt = new Date().toISOString();
+  return toPublic({
+    id: memoryUser.id,
+    email: memoryUser.email,
+    displayName: memoryUser.displayName,
+    passwordHash: memoryUser.passwordHash,
+    createdAt: memoryUser.createdAt,
+  });
 }
 
 export async function createUser(input: {

@@ -1,22 +1,29 @@
 "use client";
 
-import { retrievalModeLabel } from "@/lib/ir/retrieval-modes";
 import type { Metrics, Timing } from "@/lib/ir/types";
 
 function fmtMs(ms?: number | null) {
-  if (ms == null || !Number.isFinite(ms)) return "—";
+  if (ms == null || !Number.isFinite(ms)) return "0ms";
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(2)}s`;
 }
 
 function modeLabel(mode?: string) {
-  if (mode === "adaptive_rrf") return "Hybrid RRF";
-  if (mode === "bm25") return "BM25 only";
-  return retrievalModeLabel(mode);
+  switch (mode) {
+    case "rrf":
+    case "adaptive_rrf":
+      return "Hybrid RRF (classic)";
+    case "bm25_fallback":
+      return "BM25 fallback";
+    case "bm25":
+      return "BM25 only";
+    default:
+      return mode || "0";
+  }
 }
 
 function pct(n?: number | null) {
-  if (n == null || !Number.isFinite(n)) return null;
+  if (n == null || !Number.isFinite(n)) return "0%";
   return `${Math.round(n * 100)}%`;
 }
 
@@ -27,19 +34,6 @@ export function RunMetricsStrip({
   timing: Timing | null;
   metrics: Metrics | null;
 }) {
-  if (!timing && !metrics) {
-    return (
-      <div className="rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--bg-panel)] px-3 py-4 text-center">
-        <p className="text-xs font-medium text-[var(--fg-muted)]">
-          Run metrics appear after a search
-        </p>
-        <p className="mt-0.5 text-[11px] text-[var(--fg-subtle)]">
-          Latency, retrieval mode, and match strength in one place.
-        </p>
-      </div>
-    );
-  }
-
   const latency: { label: string; value: string; hint?: string }[] = [
     { label: "Total", value: fmtMs(timing?.totalMs), hint: "End-to-end wall time" },
     { label: "Query", value: fmtMs(timing?.queryProcessMs) },
@@ -57,74 +51,62 @@ export function RunMetricsStrip({
     { label: "Pack", value: fmtMs(timing?.packMs) },
     { label: "Answer", value: fmtMs(timing?.generateMs) },
   ];
-  if (timing?.ttftMs != null) {
-    latency.push({
-      label: "TTFT",
-      value: fmtMs(timing.ttftMs),
-      hint: "Time to first token",
-    });
-  }
+  latency.push({
+    label: "TTFT",
+    value: fmtMs(timing?.ttftMs),
+    hint: "Time to first token",
+  });
 
-  const confMax = pct(metrics?.confidenceMax);
-  const confMean = pct(metrics?.confidenceMean);
+  const topStrength = pct(
+    metrics?.topScoreStrength ?? metrics?.confidenceMax,
+  );
+  const relMean = pct(
+    metrics?.relativeScoreMean ?? metrics?.confidenceMean,
+  );
   const margin = pct(metrics?.scoreMargin);
 
   return (
     <div className="space-y-3">
-      {/* Mode + quality — human labels */}
+      {/* Mode + quality — standard IR labels */}
       <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-3">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
           Retrieval quality
         </p>
         <p className="mt-0.5 text-[10px] leading-relaxed text-[var(--fg-subtle)]">
-          Match strength is a score-derived proxy for this query (not calibrated
-          probability).
+          Standard stack: Okapi BM25 (raw) · dense cosine [0,1] · classic RRF
+          k=60 (rank fusion, ~0–0.033). Channels use different units — do not
+          compare raw numbers across channels. Relative = score/best this query
+          (not P(relevant)).
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center rounded-lg bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--primary)] ring-1 ring-[var(--primary-border)]">
+          <span className="inline-flex min-h-12 items-center rounded-lg bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--primary)] ring-1 ring-[var(--primary-border)]">
             {modeLabel(metrics?.retrievalMode)}
           </span>
-          {confMax != null && (
-            <QualityPill
-              label="Top match"
-              value={confMax}
-              strong
-              title="Best document match strength for this query"
-            />
-          )}
-          {confMean != null && (
-            <QualityPill
-              label="Mean match"
-              value={confMean}
-              title="Average match strength across ranked documents"
-            />
-          )}
-          {margin != null && (
-            <QualityPill
-              label="Score margin"
-              value={margin}
-              title="Relative gap between #1 and #2 final scores"
-            />
-          )}
-          {metrics?.documentsRanked != null && (
-            <QualityPill
-              label="Documents"
-              value={String(metrics.documentsRanked)}
-            />
-          )}
-          {metrics?.chunkCount != null && (
-            <QualityPill
-              label="Units ranked"
-              value={String(metrics.chunkCount)}
-              title="Ephemeral retrieval units this run — not stored chunk rows"
-            />
-          )}
-          {metrics?.bm25Weight != null && (
-            <QualityPill
-              label="BM25 weight"
-              value={metrics.bm25Weight.toFixed(2)}
-            />
-          )}
+          <QualityPill
+            label="Top strength"
+            value={topStrength}
+            strong
+            title="Top hit rank score / dual-list RRF ceiling 2/(k+1). Absolute hybrid quality of #1 — not relative-to-list (which is always 100% for #1). Missing values are shown as 0%."
+          />
+          <QualityPill
+            label="Mean relative"
+            value={relMean}
+            title="Average of (score_i / best score) across ranked documents. Missing values are shown as 0%."
+          />
+          <QualityPill
+            label="Score margin"
+            value={margin}
+            title="(top1 − top2) / top1 on rank score. Missing values are shown as 0%."
+          />
+          <QualityPill
+            label="Documents"
+            value={String(metrics?.documentsRanked ?? 0)}
+          />
+          <QualityPill
+            label="Units ranked"
+            value={String(metrics?.chunkCount ?? 0)}
+            title="Ephemeral retrieval units this run — not stored chunk rows"
+          />
         </div>
       </div>
 
@@ -170,8 +152,8 @@ function QualityPill({
       title={title}
       className={
         strong
-          ? "inline-flex flex-col rounded-lg border border-[var(--primary-border)] bg-[var(--primary-soft)] px-2 py-1"
-          : "inline-flex flex-col rounded-lg border border-[var(--border)] bg-[var(--bg-panel)] px-2 py-1"
+          ? "inline-flex min-h-12 min-w-[4.75rem] flex-col items-center justify-center rounded-lg border border-[var(--primary-border)] bg-[var(--primary-soft)] px-2 py-1"
+          : "inline-flex min-h-12 min-w-[4.75rem] flex-col items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--bg-panel)] px-2 py-1"
       }
     >
       <span className="text-[9px] font-medium text-[var(--fg-subtle)]">

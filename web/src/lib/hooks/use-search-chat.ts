@@ -187,7 +187,9 @@ export function useSearchChat(sessionId: string | null) {
   const prevSessionIdRef = useRef<string | null | undefined>(undefined);
   /** Mirror of status for async load() without stale closures */
   const statusRef = useRef(status);
-  statusRef.current = status;
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   const flushTokens = useCallback(() => {
     if (!tokenBuf.current || !streamAssistantId.current) return;
@@ -280,6 +282,7 @@ export function useSearchChat(sessionId: string | null) {
     }
   }, []);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- route changes reset chat state before hydration. */
   useEffect(() => {
     const prev = prevSessionIdRef.current;
     prevSessionIdRef.current = sessionId;
@@ -318,6 +321,7 @@ export function useSearchChat(sessionId: string | null) {
 
     void load(sessionId);
   }, [sessionId, load]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const cancel = useCallback(() => {
     abortRef.current?.abort();

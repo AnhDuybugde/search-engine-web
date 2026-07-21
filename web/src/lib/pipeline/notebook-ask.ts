@@ -170,8 +170,11 @@ export async function runNotebookAskPipeline(
   metrics.bm25Weight = retrieval.diagnostics.bm25Weight;
   metrics.documentsRanked = docMetrics.documentsRanked;
   metrics.topKDocuments = docMetrics.topKDocuments;
-  metrics.confidenceMean = docMetrics.confidenceMean;
-  metrics.confidenceMax = docMetrics.confidenceMax;
+  metrics.topScoreStrength = docMetrics.topScoreStrength;
+  metrics.relativeScoreMean = docMetrics.relativeScoreMean;
+  metrics.relativeScoreMax = docMetrics.relativeScoreMax;
+  metrics.confidenceMean = docMetrics.relativeScoreMean;
+  metrics.confidenceMax = docMetrics.topScoreStrength;
   metrics.scoreMargin = docMetrics.scoreMargin;
 
   let answer = "";
