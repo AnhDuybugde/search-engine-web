@@ -17,7 +17,7 @@ const bodySchema = z.object({
   enrichThinPages: z.boolean().optional(),
   saveHistory: z.boolean().optional().default(true),
   /** Per-request retrieval method; defaults to RETRIEVAL_MODE env. */
-  retrievalMode: z.enum(["bm25", "adaptive_rrf"]).optional(),
+  retrievalMode: z.enum(["bm25", "adaptive_rrf", "sgaf"]).optional(),
 });
 
 export async function POST(req: Request) {

@@ -440,7 +440,7 @@ export function DatasetChatLayout({
 
   const onSend = async (
     query: string,
-    opts?: { retrievalMode?: "bm25" | "adaptive_rrf" },
+    opts?: { retrievalMode?: "bm25" | "adaptive_rrf" | "sgaf" },
   ) => {
     // Prefer checked datasets; fall back to the open workspace
     const corpus =

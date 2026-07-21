@@ -4,7 +4,7 @@ import { cosineSimilarity, embedTexts } from "./embedding";
 import type { Chunk, ChunkWithEmbedding, RankedChunk } from "./types";
 
 export type HybridRetrievalDiagnostics = {
-  mode: "bm25" | "adaptive_rrf" | "bm25_fallback";
+  mode: "bm25" | "adaptive_rrf" | "sgaf" | "bm25_fallback";
   denseUsed: boolean;
   denseSkippedReason?: string;
   embeddingProvider?: string;
