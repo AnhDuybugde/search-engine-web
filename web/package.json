@@ -13,7 +13,9 @@
     "db:studio": "drizzle-kit studio",
     "seed:beir": "node scripts/seed-beir-raw.mjs --all --max-docs 400 --replace",
     "seed:scifact": "node scripts/seed-beir-raw.mjs --dataset scifact --max-docs 400 --replace",
-    "seed:scidocs": "node scripts/seed-beir-raw.mjs --dataset scidocs --max-docs 250 --replace"
+    "seed:scidocs": "node scripts/seed-beir-raw.mjs --dataset scidocs --max-docs 250 --replace",
+    "index:embeddings": "npx tsx scripts/index-embeddings.ts --all-raw-demos",
+    "bench:retrieval": "npx tsx scripts/bench-retrieval.ts --title \"SCIFACT (raw)\" --queries 3"
   },
   "dependencies": {
     "@ai-sdk/openai": "^4.0.15",

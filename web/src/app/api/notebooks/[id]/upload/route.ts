@@ -3,6 +3,7 @@ import { IR_DEFAULTS } from "@/lib/config";
 import { addSource, getNotebook } from "@/lib/db/notebooks-repo";
 import { extractPdfText } from "@/lib/extract/pdf";
 import { extractPlainText } from "@/lib/extract/text";
+import { scheduleNotebookIndex } from "@/lib/ir/index-embeddings";
 import { createUploadSseResponse } from "@/lib/sse";
 import { elapsed, nowMs } from "@/lib/utils";
 
@@ -68,6 +69,8 @@ export async function POST(
         mime,
         text,
       });
+      // Background: pre-embed corpus units so next query only embeds the question
+      scheduleNotebookIndex(id);
       return Response.json(
         {
           ...source,
@@ -161,6 +164,9 @@ export async function POST(
           mode: "raw-sources-only",
         },
       });
+
+      // Non-blocking dense index — retrieval will use stored vectors once ready
+      scheduleNotebookIndex(id);
     } catch (err) {
       emit({
         type: "error",

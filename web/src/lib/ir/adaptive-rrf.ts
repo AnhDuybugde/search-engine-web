@@ -191,22 +191,35 @@ export async function retrieveEvidence(
 
   const start = performance.now();
   try {
-    const missing = denseInputChunks.filter((chunk) => !chunk.embedding);
+    const missing = denseInputChunks.filter(
+      (chunk) => !chunk.embedding || chunk.embedding.length === 0,
+    );
     let embeddingProvider = "";
     let embeddingModel = "";
     let embeddedChunks: ChunkWithEmbedding[] = denseInputChunks;
 
+    // Hot path: pre-indexed corpus → embed query only
+    // Cold path: embed query + only missing corpus units (not re-embed all)
     if (missing.length > 0) {
       const response = await embedTexts([
         formatQueryForEmbedding(query),
-        ...denseInputChunks.map((chunk) => chunk.text),
+        ...missing.map((chunk) => chunk.text),
       ]);
-      const [queryEmbedding, ...chunkEmbeddings] = response.embeddings;
-      embeddedChunks = denseInputChunks.map((chunk, i) => ({
-        ...chunk,
-        embedding: chunkEmbeddings[i],
-        embeddingModel: response.model,
-      }));
+      const [queryEmbedding, ...missingVectors] = response.embeddings;
+      const byMissing = new Map(
+        missing.map((chunk, i) => [chunk.chunkId, missingVectors[i]] as const),
+      );
+      embeddedChunks = denseInputChunks.map((chunk) => {
+        const filled = byMissing.get(chunk.chunkId);
+        if (filled) {
+          return {
+            ...chunk,
+            embedding: filled,
+            embeddingModel: response.model,
+          };
+        }
+        return chunk;
+      });
       embeddingProvider = response.provider;
       embeddingModel = response.model;
 
