@@ -32,7 +32,7 @@ describe("durable DB fail-closed (D2)", () => {
     // Isolate durable-db gate from real project env (Supabase keys in .env.local).
     for (const k of keys) delete process.env[k];
     // vitest runs with NODE_ENV=test, but .env.local may shadow this
-    process.env.NODE_ENV = "test";
+    setEnv("NODE_ENV", "test");
   });
 
   afterEach(() => {

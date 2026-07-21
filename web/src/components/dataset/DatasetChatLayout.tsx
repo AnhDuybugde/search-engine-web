@@ -27,6 +27,11 @@ import { DocumentResultsList } from "@/components/dataset/DocumentResultsList";
 import { ProcessExplainPanel } from "@/components/dataset/ProcessExplainPanel";
 import { RunMetricsStrip } from "@/components/dataset/RunMetricsStrip";
 import { UploadPipelinePanel } from "@/components/dataset/UploadPipelinePanel";
+import {
+  readStoredRetrievalMode,
+  storeRetrievalMode,
+  type RetrievalModeId,
+} from "@/lib/ir/retrieval-modes";
 import { LoadingOverlay } from "@/components/LoadingOverlay";
 import { ModeSwitcher } from "@/components/ModeSwitcher";
 import { ResizeHandle } from "@/components/ResizeHandle";
@@ -86,9 +91,17 @@ export function DatasetChatLayout({
   const [deleting, setDeleting] = useState(false);
   /** Checked datasets included in retrieval (multi-select from DB list) */
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
+  const [retrievalMode, setRetrievalMode] = useState<RetrievalModeId>(
+    () => readStoredRetrievalMode(),
+  );
 
   const { state, run, cancel, reset } = useSsePipeline();
   const uploadSse = useUploadSse();
+
+  const onRetrievalModeChange = useCallback((mode: RetrievalModeId) => {
+    setRetrievalMode(mode);
+    storeRetrievalMode(mode);
+  }, []);
 
   const loadDatasets = useCallback(async () => {
     setDatasetsLoading(true);
@@ -382,7 +395,10 @@ export function DatasetChatLayout({
     }
   };
 
-  const onSend = async (query: string) => {
+  const onSend = async (
+    query: string,
+    opts: { retrievalMode: RetrievalModeId },
+  ) => {
     // Prefer checked datasets; fall back to the open workspace
     const corpus =
       checkedIds.length > 0
@@ -428,6 +444,7 @@ export function DatasetChatLayout({
       contextTopK: 4,
       documentTopK: 10,
       retrieveTopK: 40,
+      retrievalMode: opts.retrievalMode,
       ...(extra.length ? { notebookIds: extra } : {}),
     });
   };
@@ -751,7 +768,9 @@ export function DatasetChatLayout({
                           i % 3 === 2 && "chip-tint-amber",
                         )}
                         disabled={running}
-                        onClick={() => void onSend(s)}
+                        onClick={() =>
+                          void onSend(s, { retrievalMode })
+                        }
                       >
                         {s}
                       </button>
@@ -788,11 +807,13 @@ export function DatasetChatLayout({
             disabled={!notebookId && checkedIds.length === 0}
             running={running}
             uploading={uploading}
-            onSend={(q) => void onSend(q)}
+            onSend={(q, opts) => void onSend(q, opts)}
             onCancel={cancel}
             onUpload={notebookId ? (f) => void onUpload(f) : undefined}
             suggestions={recommendationTitles}
             recommendationIds={recommendationIds}
+            retrievalMode={retrievalMode}
+            onRetrievalModeChange={onRetrievalModeChange}
             placeholder={
               checkedIds.length === 0 && !notebookId
                 ? "Tick datasets on the left, then ask…"

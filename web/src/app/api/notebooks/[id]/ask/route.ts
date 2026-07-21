@@ -4,6 +4,7 @@ import { getNotebook, loadChunks } from "@/lib/db/notebooks-repo";
 import { addNotebookMessage } from "@/lib/db/notebook-messages-repo";
 import { runNotebookAskPipeline } from "@/lib/pipeline/notebook-ask";
 import { createSseResponse } from "@/lib/sse";
+import { RETRIEVAL_MODE_IDS } from "@/lib/ir/retrieval-modes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,9 +20,7 @@ const bodySchema = z.object({
   documentTopK: z.number().int().min(1).max(20).optional(),
   generateAnswer: z.boolean().optional(),
   /** Per-request retrieval method; defaults to RETRIEVAL_MODE env. */
-  retrievalMode: z
-    .enum(["bm25", "adaptive_rrf", "sgaf", "legacy_rrf_ce"])
-    .optional(),
+  retrievalMode: z.enum(RETRIEVAL_MODE_IDS).optional(),
 });
 
 /** Persist history without blocking the answer stream (log failures). */

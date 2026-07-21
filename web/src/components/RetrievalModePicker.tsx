@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, ChevronDown } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import {
   RETRIEVAL_MODES,
@@ -24,6 +24,8 @@ export function RetrievalModePicker({
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const pickerId = useId().replace(/:/g, "");
+  const optionsId = `retrieval-model-options-${pickerId}`;
   const selected = RETRIEVAL_MODES.find((mode) => mode.id === value) || RETRIEVAL_MODES[0];
 
   useEffect(() => {
@@ -49,7 +51,7 @@ export function RetrievalModePicker({
         role="combobox"
         aria-label="Retrieval model"
         aria-expanded={open}
-        aria-controls="retrieval-model-options"
+        aria-controls={optionsId}
         aria-haspopup="listbox"
         onClick={() => setOpen((current) => !current)}
         className={cn(
@@ -66,7 +68,7 @@ export function RetrievalModePicker({
       {open && !disabled ? (
         <div
           role="listbox"
-          id="retrieval-model-options"
+          id={optionsId}
           aria-label="Retrieval models"
           className="absolute bottom-[calc(100%+0.5rem)] right-0 z-50 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)] p-1.5 shadow-[0_18px_50px_rgba(31,24,88,0.18)]"
         >

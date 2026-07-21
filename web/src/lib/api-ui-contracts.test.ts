@@ -90,7 +90,7 @@ describe("UI↔API contracts (shipped handlers, memory backend)", () => {
     for (const k of DB_KEYS) prev[k] = process.env[k];
     for (const k of DB_KEYS) delete process.env[k];
     process.env.ALLOW_MEMORY_DB = "1";
-    process.env.NODE_ENV = "test";
+    setEnv("NODE_ENV", "test");
     process.env.AUTH_DISABLED = "1";
     setSearchSessionsUserIdColumnForTests(null);
     resetChatHistorySchemaCache();
