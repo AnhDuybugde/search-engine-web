@@ -9,8 +9,10 @@ import { getConfig, IR_DEFAULTS } from "@/lib/config";
 import { bm25Retrieve, tokenize } from "./bm25";
 import { embedTexts } from "./embedding";
 import type {
-  ChunkWithEmbedding,
   HybridRetrievalDiagnostics,
+} from "./adaptive-rrf";
+import type {
+  ChunkWithEmbedding,
   RankedChunk,
 } from "./types";
 
