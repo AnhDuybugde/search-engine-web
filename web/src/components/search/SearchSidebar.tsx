@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/Logo";
+import { UserMenu } from "@/components/UserMenu";
 import type { SessionSummary } from "@/lib/hooks/use-search-chat";
 
 function relativeTime(iso: string): string {
@@ -209,6 +210,9 @@ export function SearchSidebar({
             })}
           </ul>
         )}
+      </div>
+      <div className="chat-sidebar-account">
+        <UserMenu variant="sidebar" />
       </div>
     </aside>
   );

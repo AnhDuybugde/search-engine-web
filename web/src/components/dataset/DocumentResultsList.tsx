@@ -117,29 +117,23 @@ export function DocumentResultsList({
                 <span className="mt-2.5 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
                   <MetricCell
                     label="RRF"
-                    value={doc.finalScore.toFixed(4)}
+                    value={formatMetric(doc.finalScore, 4)}
                     emphasis
                     title="Reciprocal Rank Fusion rank-fusion score (k=60), typically ~0–0.033. Not comparable to BM25 raw."
                   />
-                  {doc.bm25Best != null &&
-                    Number.isFinite(doc.bm25Best) &&
-                    doc.bm25Best > 0 && (
-                    <MetricCell
-                      label="BM25"
-                      value={doc.bm25Best.toFixed(2)}
-                      title="Okapi BM25 raw score (typically 0–15+). Not the same unit as RRF or dense."
-                    />
-                  )}
-                  {doc.denseBest != null && Number.isFinite(doc.denseBest) && (
-                    <MetricCell
-                      label="Dense"
-                      value={doc.denseBest.toFixed(2)}
-                      title="Cosine similarity in [0, 1]. Not the same unit as BM25 or RRF."
-                    />
-                  )}
+                  <MetricCell
+                    label="BM25"
+                    value={formatMetric(doc.bm25Best, 2)}
+                    title="Okapi BM25 raw score (typically 0–15+). Not the same unit as RRF or dense. Missing values are shown as 0."
+                  />
+                  <MetricCell
+                    label="Dense"
+                    value={formatMetric(doc.denseBest, 2)}
+                    title="Cosine similarity in [0, 1]. Not the same unit as BM25 or RRF. Missing values are shown as 0."
+                  />
                   <MetricCell
                     label="Hits"
-                    value={String(doc.chunkHits)}
+                    value={formatMetric(doc.chunkHits, 0)}
                     title="Units of this doc in the fused top-K"
                   />
                 </span>
@@ -159,6 +153,12 @@ export function DocumentResultsList({
       })}
     </ol>
   );
+}
+
+function formatMetric(value: number | null | undefined, digits: number) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value.toFixed(digits)
+    : (0).toFixed(digits);
 }
 
 function MetricCell({

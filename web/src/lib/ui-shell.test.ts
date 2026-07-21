@@ -118,8 +118,6 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(dataset).toContain("workspace-mode-switcher");
     expect(search).toContain("workspace-mode-switcher");
     expect(dataset).toContain('disabled={!notebookId && checkedIds.length === 0}');
-    expect(dataset).toContain("<UserMenu />");
-    expect(search).toContain("<UserMenu />");
   });
 
   it("keeps Home navigation available from both workspace sidebars", () => {
@@ -307,6 +305,18 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(dataset).not.toContain('className="mood-pill');
   });
 
+  it("keeps the dataset retrieval inspector available for checked-dataset root queries", () => {
+    const dataset = readSrc("components", "dataset", "DatasetChatLayout.tsx");
+    expect(dataset).toContain("const hasPipelineActivity");
+    expect(dataset).toContain("const showWorkspaceInspector = Boolean(notebookId || hasPipelineActivity)");
+    expect(dataset).toContain("showWorkspaceInspector && (");
+    expect(dataset).toContain("selectedCorpusCount");
+    expect(dataset).toContain('state.steps.pack || ("pending" as const)');
+    expect(dataset).toContain("Retrieval runs across the checked datasets");
+    expect(dataset).toContain("<PipelineInspector");
+    expect(dataset).toContain("<ProcessExplainPanel");
+  });
+
   it("shared chat chrome tokens exist for dual-page polish", () => {
     const css = readSrc("app", "globals.css");
     for (const util of [
@@ -418,6 +428,9 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(docs).toContain("Relative score");
     expect(docs).toContain("MetricCell");
     expect(docs).toContain("Hits");
+    expect(docs).toContain("formatMetric(doc.bm25Best, 2)");
+    expect(docs).toContain("formatMetric(doc.denseBest, 2)");
+    expect(docs).toContain("Missing values are shown as 0");
     expect(docs).not.toMatch(/\bchunks\b/);
 
     const metrics = readSrc("components", "dataset", "RunMetricsStrip.tsx");
@@ -429,6 +442,8 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(metrics).toContain("Mean relative");
     expect(metrics).toContain("P(relevant)");
     expect(metrics).toContain("classic RRF");
+    expect(metrics).toContain('return "0ms"');
+    expect(metrics).toContain('return "0%"');
 
     const inspector = readSrc("components", "pipeline", "PipelineInspector.tsx");
     expect(inspector).toContain("Sources ready");
@@ -481,8 +496,8 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(dataset).not.toContain("trong tài liệu");
 
     const search = readSrc("components", "search", "SearchChatLayout.tsx");
-    expect(search).toContain("Who is Lionel Messi?");
-    expect(search).toContain("Compare BM25 and dense retrieval");
+    expect(search).toContain("What are the latest advances in GLP-1 medications");
+    expect(search).toContain("MEDICAL_SUGGESTION_FALLBACKS");
     expect(search).toContain("Turn questions into evidence");
     expect(search).not.toContain("Messi là ai");
     expect(search).not.toContain("So sánh");

@@ -21,7 +21,6 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EvidenceList } from "@/components/EvidenceList";
 import { ModeSwitcher } from "@/components/ModeSwitcher";
 import { StepRail } from "@/components/StepRail";
-import { UserMenu } from "@/components/UserMenu";
 import { ChatComposer } from "@/components/search/ChatComposer";
 import { ChatThread } from "@/components/search/ChatThread";
 import { SearchSidebar } from "@/components/search/SearchSidebar";
@@ -31,12 +30,34 @@ import {
 } from "@/lib/hooks/use-search-chat";
 import { cn } from "@/lib/utils";
 
-const SUGGESTIONS = [
-  "Who is Lionel Messi?",
-  "What is TypeScript and why use it?",
-  "Compare BM25 and dense retrieval",
-  "How does Supabase Auth work?",
+const MEDICAL_SUGGESTION_FALLBACKS = [
+  "What are the latest advances in GLP-1 medications for obesity and type 2 diabetes?",
+  "What is the current evidence for long COVID treatment and recovery?",
+  "How is artificial intelligence being used in medical diagnosis?",
+  "What are the latest findings on antimicrobial resistance in hospitals?",
+  "How effective are mRNA vaccines against emerging respiratory viruses?",
+  "What are the current clinical approaches to Alzheimer’s disease prevention?",
+  "What does recent research show about gut microbiota and human health?",
+  "How is liquid biopsy being used for early cancer detection?",
+  "What are the latest treatments for treatment-resistant depression?",
+  "How does sleep affect cardiovascular and metabolic health?",
+  "What is the current evidence for personalized cancer immunotherapy?",
+  "How are wearable devices being used for remote patient monitoring?",
+  "What are the latest advances in gene therapy for rare diseases?",
+  "What does current research show about precision medicine in oncology?",
+  "How can clinical research improve the early diagnosis of sepsis?",
+  "What are the latest evidence-based treatments for chronic pain?",
+  "How does air pollution affect respiratory and cardiovascular disease?",
+  "What are the current trends in regenerative medicine and tissue engineering?",
+  "How is genomic sequencing changing infectious disease surveillance?",
+  "What does recent medical research say about the health effects of climate change?",
 ];
+
+function pickRandomSuggestions(items: string[], count = 4) {
+  return [...items]
+    .sort(() => Math.random() - 0.5)
+    .slice(0, count);
+}
 
 export function SearchChatLayout({
   sessionId,
@@ -65,6 +86,33 @@ export function SearchChatLayout({
   const [activeCitation, setActiveCitation] = useState<number | null>(null);
   const [uiError, setUiError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [suggestions, setSuggestions] = useState(() =>
+    pickRandomSuggestions(MEDICAL_SUGGESTION_FALLBACKS),
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/medical-trends", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Medical trends unavailable");
+        const payload = (await response.json()) as { suggestions?: unknown };
+        const items = Array.isArray(payload.suggestions)
+          ? payload.suggestions.filter(
+              (item): item is string =>
+                typeof item === "string" && item.trim().length > 20,
+            )
+          : [];
+        if (!cancelled && items.length >= 4) {
+          setSuggestions(pickRandomSuggestions(items));
+        }
+      })
+      .catch(() => {
+        // Keep the curated medical fallback when the upstream index is unavailable.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (chat.status === "idle") void refresh();
@@ -260,7 +308,6 @@ export function SearchChatLayout({
               <PanelRight className="h-4 w-4" />
               <span className="hidden sm:inline">Evidence</span>
             </button>
-            <UserMenu />
           </div>
 
           {bannerError && (
@@ -291,7 +338,15 @@ export function SearchChatLayout({
           {(chat.status === "running" ||
             Object.values(chat.steps || {}).some(
               (s) => s === "success" || s === "failed" || s === "running",
-            )) && <StepRail steps={chat.steps} />}
+            )) && (
+              <StepRail
+                steps={chat.steps}
+                timing={
+                  chat.messages.find((m) => m.id === chat.activeAssistantId)
+                    ?.timing
+                }
+              />
+            )}
 
           <ChatThread
             messages={chat.messages}
@@ -336,7 +391,7 @@ export function SearchChatLayout({
                 <div className="workspace-query-panel">
                   <div className="workspace-query-panel-head"><span><Zap className="h-4 w-4 text-[var(--cyan)]" /> Start with a focused question</span><small>Suggestions are ready to run</small></div>
                   <div className="workspace-query-grid anim-stagger">
-                    {SUGGESTIONS.map((s, i) => (
+                    {suggestions.map((s, i) => (
                       <button
                         key={s}
                         type="button"

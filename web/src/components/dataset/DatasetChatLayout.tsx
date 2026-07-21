@@ -33,7 +33,6 @@ import { ResizeHandle } from "@/components/ResizeHandle";
 import { ChatThread } from "@/components/search/ChatThread";
 import { PipelineInspector } from "@/components/pipeline/PipelineInspector";
 import { StepRail } from "@/components/StepRail";
-import { UserMenu } from "@/components/UserMenu";
 import type { ChatMessage } from "@/lib/hooks/use-search-chat";
 import { usePanelLayout } from "@/lib/hooks/use-panel-layout";
 import { useSsePipeline } from "@/lib/hooks/use-sse";
@@ -442,14 +441,48 @@ export function DatasetChatLayout({
 
   const notebookSteps = useMemo(
     () => ({
-      corpus: sources.length > 0 ? ("success" as const) : ("pending" as const),
+      corpus:
+        sources.length > 0 || checkedIds.length > 0
+          ? ("success" as const)
+          : ("pending" as const),
       query: state.steps.query || ("pending" as const),
       retrieve: state.steps.retrieve || ("pending" as const),
       embedding: state.steps.embedding || ("pending" as const),
       fusion: state.steps.fusion || ("pending" as const),
+      pack: state.steps.pack || ("pending" as const),
       generate: state.steps.generate || ("pending" as const),
     }),
-    [sources.length, state.steps],
+    [checkedIds.length, sources.length, state.steps],
+  );
+
+  // The root dataset workspace can query checked datasets without a single
+  // `notebookId`. Retrieval state is still fully available from the SSE run,
+  // so the inspector must follow pipeline activity rather than route shape.
+  const hasPipelineActivity =
+    messages.length > 0 ||
+    state.status !== "idle" ||
+    state.logs.length > 0 ||
+    Object.values(notebookSteps).some(
+      (step) => step === "success" || step === "failed" || step === "running",
+    );
+  const showWorkspaceInspector = Boolean(notebookId || hasPipelineActivity);
+  const selectedCorpusCount = notebookId ? sources.length : checkedIds.length;
+  const recommendationTitles = useMemo(() => {
+    const titles = notebookId
+      ? sources.map((source) => source.title)
+      : datasets
+          .filter((dataset) => checkedIds.includes(dataset.id))
+          .map((dataset) => dataset.title);
+    const uniqueTitles = [...new Set(titles.filter(Boolean))].slice(0, 6);
+    return uniqueTitles.flatMap((name) => [
+      `Summarize ${name}`,
+      `What are the key points in ${name}?`,
+      `Find relevant content in ${name}`,
+    ]);
+  }, [checkedIds, datasets, notebookId, sources]);
+  const recommendationIds = useMemo(
+    () => (notebookId ? [notebookId] : checkedIds),
+    [checkedIds, notebookId],
   );
 
   const uploading = uploadSse.state.status === "running";
@@ -599,7 +632,7 @@ export function DatasetChatLayout({
                 </div>
               )}
             </div>
-            {notebookId && (
+            {showWorkspaceInspector && (
               <button
                 type="button"
                 className={cn(
@@ -616,7 +649,6 @@ export function DatasetChatLayout({
                 <span className="hidden sm:inline">Inspector</span>
               </button>
             )}
-            <UserMenu />
           </div>
 
           {(uiError || loadError || state.error || uploadSse.state.error) && (
@@ -638,11 +670,9 @@ export function DatasetChatLayout({
             </div>
           )}
 
-          {(running ||
-            Object.values(notebookSteps).some(
-              (s) => s === "success" || s === "failed" || s === "running",
-            )) &&
-            notebookId && <StepRail steps={notebookSteps} />}
+          {showWorkspaceInspector && (
+            <StepRail steps={notebookSteps} timing={state.timing} />
+          )}
 
           <ChatThread
             messages={messages}
@@ -761,6 +791,8 @@ export function DatasetChatLayout({
             onSend={(q) => void onSend(q)}
             onCancel={cancel}
             onUpload={notebookId ? (f) => void onUpload(f) : undefined}
+            suggestions={recommendationTitles}
+            recommendationIds={recommendationIds}
             placeholder={
               checkedIds.length === 0 && !notebookId
                 ? "Tick datasets on the left, then ask…"
@@ -774,7 +806,7 @@ export function DatasetChatLayout({
         </div>
 
         {/* Collapsed right rail — reopen Sources / Evidence / Process */}
-        {notebookId && !rightOpen && (
+        {showWorkspaceInspector && !rightOpen && (
           <div
             className="panel-rail panel-rail--right hidden xl:flex"
             aria-label="Side panel collapsed"
@@ -792,7 +824,7 @@ export function DatasetChatLayout({
         )}
 
         {/* Right panel — sources / evidence / process (resizable + collapsible) */}
-        {notebookId && (
+        {showWorkspaceInspector && (
           <aside
             className={cn(
               "chat-panel panel-shell relative hidden shrink-0 xl:flex",
@@ -843,11 +875,12 @@ export function DatasetChatLayout({
                 <div className="space-y-3">
                   <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-panel)] px-2.5 py-2">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
-                      Corpus
+                      {notebookId ? "Corpus" : "Selected corpus"}
                     </p>
                     <p className="mt-1 text-[12px] text-[var(--fg)]">
-                      <strong>{sources.length}</strong> raw source
-                      {sources.length === 1 ? "" : "s"}
+                      <strong>{selectedCorpusCount}</strong>{" "}
+                      {notebookId ? "raw source" : "dataset"}
+                      {selectedCorpusCount === 1 ? "" : "s"}
                       {totalChars > 0 && (
                         <>
                           {" · "}
@@ -858,12 +891,12 @@ export function DatasetChatLayout({
                       )}
                     </p>
                     <p className="mt-0.5 text-[10px] leading-relaxed text-[var(--fg-subtle)]">
-                      Durable store is full document text only. Chunking and
-                      embedding are not written at upload; ranking builds
-                      units at query time.
+                      {notebookId
+                        ? "Durable store is full document text only. Chunking and embedding are not written at upload; ranking builds units at query time."
+                        : "Retrieval runs across the checked datasets. Raw documents remain stored in each dataset and ranking builds units at query time."}
                     </p>
                   </div>
-                  <UploadPipelinePanel state={uploadSse.state} />
+                  {notebookId && <UploadPipelinePanel state={uploadSse.state} />}
                   <ul className="space-y-1.5">
                     {sources.map((s) => (
                       <li
@@ -884,10 +917,17 @@ export function DatasetChatLayout({
                         </div>
                       </li>
                     ))}
-                    {!sources.length && (
+                    {!sources.length && notebookId && (
                       <li className="py-2 text-xs text-[var(--fg-muted)]">
                         No sources yet — use the paperclip to store a raw
                         document.
+                      </li>
+                    )}
+                    {!sources.length && !notebookId && (
+                      <li className="py-2 text-xs text-[var(--fg-muted)]">
+                        {selectedCorpusCount > 0
+                          ? "Checked datasets are active for this retrieval run. Open one dataset to inspect or upload its raw sources."
+                          : "No dataset is selected for retrieval yet."}
                       </li>
                     )}
                   </ul>
@@ -935,7 +975,7 @@ export function DatasetChatLayout({
                     results={state.results}
                     logs={state.logs}
                     chunkCount={retrievalUnitCount}
-                    sourceCount={sources.length}
+                    sourceCount={selectedCorpusCount}
                   />
                   <ProcessExplainPanel
                     timing={state.timing}
@@ -959,7 +999,7 @@ export function DatasetChatLayout({
         )}
       </div>
 
-      {notebookId && (
+      {selectedDoc && (
         <DocumentDetailDrawer
           notebookId={notebookId}
           document={selectedDoc}

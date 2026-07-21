@@ -53,22 +53,25 @@ export function HomeLanding() {
       <div className="home-landing anim-enter">
         <header className="home-topbar">
           <div className="home-topbar-inner">
-            <Link href="/" className="inline-flex items-center gap-2.5">
-              <Logo className="h-8 w-8" showWordmark />
+            <Link href="/" className="home-topbar-brand" aria-label="SearchEngine home">
+              <Logo className="h-9 w-9" showWordmark />
+              <span className="home-topbar-brand-status"><span /> Research workspace</span>
             </Link>
             <nav className="home-topbar-nav" aria-label="Modules">
               <Link href="/search" className="home-topbar-link">
+                <Globe2 className="h-3.5 w-3.5" aria-hidden />
                 Web Search
               </Link>
               <Link href="/notebooks" className="home-topbar-link">
+                <BookOpen className="h-3.5 w-3.5" aria-hidden />
                 Document RAG
               </Link>
             </nav>
             <Link
               href="/search"
-              className="btn-primary !min-h-9 !rounded-full !px-4 !text-sm"
+              className="home-topbar-cta"
             >
-              Get started
+              Start researching
               <ArrowRight className="h-3.5 w-3.5" aria-hidden />
             </Link>
           </div>
@@ -159,6 +162,26 @@ export function HomeLanding() {
               </div>
             );
           })}
+        </section>
+
+        <section className="home-bottom-cta" aria-label="Choose a research mode">
+          <div>
+            <p className="home-section-eyebrow">Ready when you are</p>
+            <h2>Choose your starting point.</h2>
+            <p>Search the open web or bring your own corpus into the same evidence-first workspace.</p>
+          </div>
+          <div className="home-bottom-actions">
+            <Link href="/search" className="home-bottom-link home-bottom-link--web">
+              <Globe2 className="h-4 w-4" aria-hidden />
+              Start web research
+              <ArrowRight className="h-4 w-4" aria-hidden />
+            </Link>
+            <Link href="/notebooks" className="home-bottom-link home-bottom-link--dataset">
+              <BookOpen className="h-4 w-4" aria-hidden />
+              Open your corpus
+              <ArrowRight className="h-4 w-4" aria-hidden />
+            </Link>
+          </div>
         </section>
 
         <footer className="home-foot">

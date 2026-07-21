@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/Logo";
+import { UserMenu } from "@/components/UserMenu";
 
 export type DatasetSummary = {
   id: string;
@@ -315,6 +316,9 @@ export function DatasetSidebar({
             })}
           </ul>
         )}
+      </div>
+      <div className="chat-sidebar-account">
+        <UserMenu variant="sidebar" />
       </div>
     </aside>
   );

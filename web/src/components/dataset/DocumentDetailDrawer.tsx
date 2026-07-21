@@ -46,7 +46,7 @@ export function DocumentDetailDrawer({
   open,
   onClose,
 }: {
-  notebookId: string;
+  notebookId?: string | null;
   document: RankedDocument | null;
   rankedChunks: RankedChunk[];
   open: boolean;
@@ -61,6 +61,17 @@ export function DocumentDetailDrawer({
     if (!open || !document) {
       setSource(null);
       setError(null);
+      return;
+    }
+
+    // Root /notebooks queries can aggregate checked datasets. Their ranked
+    // chunks already contain the matched evidence, while the source-detail
+    // endpoint needs one concrete notebook id. Keep the drawer useful in
+    // aggregate mode by showing that evidence without a cross-dataset fetch.
+    if (!notebookId) {
+      setSource(null);
+      setError(null);
+      setLoading(false);
       return;
     }
 
@@ -175,29 +186,22 @@ export function DocumentDetailDrawer({
             />
             <ScoreCard
               label="RRF (rank fusion)"
-              value={document.finalScore.toFixed(4)}
+              value={formatScore(document.finalScore, 4)}
               hint="Classic RRF Σ 1/(k+rank), k=60 — typically ~0–0.033. Different unit from BM25/dense."
             />
-            {document.bm25Best != null &&
-              Number.isFinite(document.bm25Best) &&
-              document.bm25Best > 0 && (
-              <ScoreCard
-                label="BM25 (raw)"
-                value={document.bm25Best.toFixed(3)}
-                hint="Okapi BM25 raw lexical score (≈0–15+). Not comparable to RRF or cosine."
-              />
-            )}
-            {document.denseBest != null &&
-              Number.isFinite(document.denseBest) && (
-              <ScoreCard
-                label="Dense (cosine)"
-                value={document.denseBest.toFixed(3)}
-                hint="Embedding cosine similarity in [0, 1]. Not comparable to BM25 or RRF."
-              />
-            )}
+            <ScoreCard
+              label="BM25 (raw)"
+              value={formatScore(document.bm25Best, 3)}
+              hint="Okapi BM25 raw lexical score (≈0–15+). Not comparable to RRF or cosine. Missing values are shown as 0."
+            />
+            <ScoreCard
+              label="Dense (cosine)"
+              value={formatScore(document.denseBest, 3)}
+              hint="Embedding cosine similarity in [0, 1]. Not comparable to BM25 or RRF. Missing values are shown as 0."
+            />
             <ScoreCard
               label="Retrieval hits"
-              value={String(document.chunkHits)}
+              value={formatScore(document.chunkHits, 0)}
               hint="Units of this doc in the fused top-K (not full corpus)"
             />
           </div>
@@ -215,7 +219,7 @@ export function DocumentDetailDrawer({
             </p>
           )}
 
-          {source && (
+          {(source || unitText) && (
             <div className="space-y-6">
               {/* Full content */}
               <section>
@@ -227,11 +231,13 @@ export function DocumentDetailDrawer({
                     <p className="mt-0.5 text-[11px] text-[var(--fg-subtle)]">
                       {showingUnit
                         ? `${body.length.toLocaleString()} characters · split at query time from raw source`
-                        : `${source.charCount.toLocaleString()} characters · ${
+                      : source
+                        ? `${source.charCount.toLocaleString()} characters · ${
                             isRaw
                               ? "Stored as raw full text (no pre-indexed chunks)"
                               : `${source.chunks.length} stored chunk row${source.chunks.length === 1 ? "" : "s"}`
-                          }`}
+                          }`
+                        : "Matched evidence returned by the aggregate retrieval run"}
                     </p>
                   </div>
                   {isRaw && (
@@ -358,4 +364,10 @@ function ScoreCard({
       )}
     </div>
   );
+}
+
+function formatScore(value: number | null | undefined, digits: number) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value.toFixed(digits)
+    : (0).toFixed(digits);
 }

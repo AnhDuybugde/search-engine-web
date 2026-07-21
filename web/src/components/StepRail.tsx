@@ -1,5 +1,6 @@
 import { Check, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { Timing } from "@/lib/ir/types";
 
 const labels: Record<string, string> = {
   expand: "Context",
@@ -17,9 +18,11 @@ const labels: Record<string, string> = {
 
 export function StepRail({
   steps,
+  timing,
   className,
 }: {
   steps: Record<string, "pending" | "running" | "success" | "failed">;
+  timing?: Timing | null;
   className?: string;
 }) {
   const keys = Object.keys(labels).filter((key) => key in steps);
@@ -38,6 +41,7 @@ export function StepRail({
         const label = labels[key] || key;
         const status = steps[key] || "pending";
         const isLast = i === keys.length - 1;
+        const duration = stepDuration(key, timing);
         return (
           <div key={key} className="flex min-w-0 items-center" role="listitem">
             <div
@@ -60,6 +64,9 @@ export function StepRail({
                 )}
               </span>
               <span className="truncate">{label}</span>
+              <span className="chat-step-time" title={`${label} duration`}>
+                {formatDuration(duration)}
+              </span>
             </div>
             {!isLast && (
               <span
@@ -76,4 +83,36 @@ export function StepRail({
       })}
     </div>
   );
+}
+
+function stepDuration(step: string, timing?: Timing | null) {
+  if (!timing) return undefined;
+  switch (step) {
+    case "search":
+      return timing.searchMs;
+    case "fetch":
+      return timing.fetchMs;
+    case "chunk":
+      return timing.chunkMs;
+    case "query":
+      return timing.queryProcessMs;
+    case "retrieve":
+      return timing.rankMs ?? timing.retrieveMs;
+    case "embedding":
+      return timing.embeddingMs;
+    case "fusion":
+      return timing.fusionMs;
+    case "pack":
+      return timing.packMs;
+    case "generate":
+      return timing.generateMs;
+    default:
+      return 0;
+  }
+}
+
+function formatDuration(ms?: number | null) {
+  if (ms == null || !Number.isFinite(ms)) return "0ms";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
 }
