@@ -180,14 +180,16 @@ export function buildStageTimeline(
       explanation: STAGE_COPY.fusion.explanation,
       ms: timing?.fusionMs ?? null,
       outcome:
-        mode === "adaptive_rrf"
+        mode === "adaptive_rrf" || mode === "legacy_rrf_ce"
           ? "ran"
           : mode === "bm25" || mode === "bm25_fallback"
             ? "skipped"
             : "idle",
       detail:
-        mode === "adaptive_rrf"
-          ? "Classic RRF · equal weights · k=60"
+        mode === "adaptive_rrf" || mode === "legacy_rrf_ce"
+          ? mode === "legacy_rrf_ce"
+            ? "SciNCL · classic RRF · k=60 · optional Cross-Encoder"
+            : "Classic RRF · equal weights · k=60"
           : mode
             ? `No RRF (${mode})`
             : undefined,
@@ -273,7 +275,8 @@ export function buildTimingWaterfall(
       ms: timing.fusionMs ?? 0,
       color: "primary",
       include:
-        metrics?.retrievalMode === "adaptive_rrf" ||
+        (metrics?.retrievalMode === "adaptive_rrf" ||
+          metrics?.retrievalMode === "legacy_rrf_ce") ||
           (timing.fusionMs ?? 0) > 0,
     },
     {

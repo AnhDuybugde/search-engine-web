@@ -143,6 +143,8 @@ function modeLabel(mode?: string) {
     case "rrf":
     case "adaptive_rrf":
       return "Hybrid (classic RRF)";
+    case "legacy_rrf_ce":
+      return "SciNCL + RRF + CE";
     case "bm25_fallback":
       return "BM25 fallback";
     case "bm25":
@@ -227,7 +229,8 @@ function deriveStepStatus(
     case "fusion": {
       if (legacySteps.retrieve === "running" && !metrics) return "running";
       if (
-        metrics?.retrievalMode === "adaptive_rrf"
+        metrics?.retrievalMode === "adaptive_rrf" ||
+        metrics?.retrievalMode === "legacy_rrf_ce"
       )
         return "success";
       if (metrics?.retrievalMode === "bm25" || metrics?.retrievalMode === "bm25_fallback")
@@ -625,7 +628,8 @@ function stepShortHint(
       return metrics.denseSkippedReason || "Dense not used";
     case "fusion":
       if (
-        metrics?.retrievalMode === "adaptive_rrf"
+        metrics?.retrievalMode === "adaptive_rrf" ||
+        metrics?.retrievalMode === "legacy_rrf_ce"
       )
         return "Classic RRF · equal weights · k=60";
       if (metrics?.retrievalMode === "bm25") return "No fusion (lexical only)";
@@ -726,21 +730,33 @@ function StepDetail({
       rows.push({
         k: "Method",
         v:
-          metrics?.retrievalMode === "adaptive_rrf"
-            ? "Classic RRF (Cormack et al.)"
+          metrics?.retrievalMode === "adaptive_rrf" ||
+          metrics?.retrievalMode === "legacy_rrf_ce"
+            ? metrics.retrievalMode === "legacy_rrf_ce"
+              ? "SciNCL + classic RRF + optional Cross-Encoder"
+              : "Classic RRF (Cormack et al.)"
             : metrics?.retrievalMode === "bm25_fallback"
               ? "BM25 only (dense failed)"
               : "BM25 only",
       });
       if (
-        metrics?.retrievalMode === "adaptive_rrf"
+        metrics?.retrievalMode === "adaptive_rrf" ||
+        metrics?.retrievalMode === "legacy_rrf_ce"
       ) {
-        rows.push({ k: "List weights", v: "1.0 (BM25) + 1.0 (dense)" });
+        rows.push({
+          k: "List weights",
+          v: metrics.retrievalMode === "legacy_rrf_ce"
+            ? "1.0 (BM25) + 1.0 (SciNCL)"
+            : "1.0 (BM25) + 1.0 (dense)",
+        });
         rows.push({ k: "RRF k", v: "60" });
       }
       rows.push({
         k: "Note",
-        v: "Not a cross-encoder reranker — ranks are fused by reciprocal rank.",
+        v:
+          metrics?.retrievalMode === "legacy_rrf_ce"
+            ? "Cross-Encoder reranking is optional and reported in the retrieval status when unavailable."
+            : "Not a cross-encoder reranker — ranks are fused by reciprocal rank.",
       });
       break;
     case "pack":

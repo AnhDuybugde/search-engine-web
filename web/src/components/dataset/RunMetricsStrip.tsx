@@ -13,6 +13,8 @@ function modeLabel(mode?: string) {
     case "rrf":
     case "adaptive_rrf":
       return "Hybrid RRF (classic)";
+    case "legacy_rrf_ce":
+      return "SciNCL + RRF + CE";
     case "bm25_fallback":
       return "BM25 fallback";
     case "bm25":

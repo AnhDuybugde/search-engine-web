@@ -61,7 +61,7 @@ const envSchema = z.object({
   LLM_API_KEY: z.string().optional(),
   LLM_MODEL: z.string().default("llama-3.1-8b-instant"),
   RETRIEVAL_MODE: z
-    .enum(["bm25", "adaptive_rrf", "sgaf"])
+    .enum(["bm25", "adaptive_rrf", "sgaf", "legacy_rrf_ce"])
     .default("bm25"),
   EMBEDDING_PROVIDER: z
     .enum(["openai", "huggingface", "tei"])
@@ -69,6 +69,12 @@ const envSchema = z.object({
   EMBEDDING_API_URL: z.string().url().optional(),
   EMBEDDING_API_KEY: z.string().optional(),
   EMBEDDING_MODEL: z.string().default("BAAI/bge-base-en-v1.5"),
+  LEGACY_DENSE_MODEL: z.string().default("malteos/scincl"),
+  LEGACY_RRF_K: z.string().default("60"),
+  LEGACY_RERANKER_URL: z.string().url().optional(),
+  LEGACY_RERANKER_MODEL: z
+    .string()
+    .default("cross-encoder/ms-marco-MiniLM-L-6-v2"),
   SPECIALIST_EMBEDDING_MODEL: z.string().optional(),
   SPECIALIST_EMBEDDING_API_URL: z.string().url().optional(),
   SGAF_SHIFT_THRESHOLD: z.string().default("2.0"),
@@ -106,6 +112,10 @@ function readRawEnv() {
     EMBEDDING_API_URL: process.env.EMBEDDING_API_URL,
     EMBEDDING_API_KEY: process.env.EMBEDDING_API_KEY,
     EMBEDDING_MODEL: process.env.EMBEDDING_MODEL,
+    LEGACY_DENSE_MODEL: process.env.LEGACY_DENSE_MODEL,
+    LEGACY_RRF_K: process.env.LEGACY_RRF_K,
+    LEGACY_RERANKER_URL: process.env.LEGACY_RERANKER_URL,
+    LEGACY_RERANKER_MODEL: process.env.LEGACY_RERANKER_MODEL,
     TAVILY_API_KEY: process.env.TAVILY_API_KEY,
     BRAVE_API_KEY: process.env.BRAVE_API_KEY,
     SPECIALIST_EMBEDDING_MODEL: process.env.SPECIALIST_EMBEDDING_MODEL,
@@ -133,8 +143,10 @@ export function getConfig(): AppConfig {
         LLM_API_KEY: raw.LLM_API_KEY,
         LLM_MODEL: raw.LLM_MODEL || "llama-3.1-8b-instant",
         RETRIEVAL_MODE:
-          raw.RETRIEVAL_MODE === "adaptive_rrf" || raw.RETRIEVAL_MODE === "sgaf"
-            ? (raw.RETRIEVAL_MODE as "adaptive_rrf" | "sgaf")
+          raw.RETRIEVAL_MODE === "adaptive_rrf" ||
+          raw.RETRIEVAL_MODE === "sgaf" ||
+          raw.RETRIEVAL_MODE === "legacy_rrf_ce"
+            ? (raw.RETRIEVAL_MODE as "adaptive_rrf" | "sgaf" | "legacy_rrf_ce")
             : "bm25",
         EMBEDDING_PROVIDER:
           raw.EMBEDDING_PROVIDER === "openai" ||
@@ -145,6 +157,11 @@ export function getConfig(): AppConfig {
         EMBEDDING_API_URL: raw.EMBEDDING_API_URL,
         EMBEDDING_API_KEY: raw.EMBEDDING_API_KEY,
         EMBEDDING_MODEL: raw.EMBEDDING_MODEL || "BAAI/bge-base-en-v1.5",
+        LEGACY_DENSE_MODEL: raw.LEGACY_DENSE_MODEL || "malteos/scincl",
+        LEGACY_RRF_K: raw.LEGACY_RRF_K || "60",
+        LEGACY_RERANKER_URL: raw.LEGACY_RERANKER_URL,
+        LEGACY_RERANKER_MODEL:
+          raw.LEGACY_RERANKER_MODEL || "cross-encoder/ms-marco-MiniLM-L-6-v2",
         TAVILY_API_KEY: raw.TAVILY_API_KEY,
         BRAVE_API_KEY: raw.BRAVE_API_KEY,
         SPECIALIST_EMBEDDING_MODEL: raw.SPECIALIST_EMBEDDING_MODEL,
