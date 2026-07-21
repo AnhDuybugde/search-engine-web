@@ -20,8 +20,11 @@ export type RankedChunk = Chunk & {
   finalScore?: number;
   finalRank: number;
   citationId: number;
-  retrievalMode?: "bm25" | "adaptive_rrf" | "bm25_fallback";
+  retrievalMode?: "bm25" | "adaptive_rrf" | "bm25_fallback" | "sgaf";
   bm25Weight?: number;
+  /** SGAF-specific fields */
+  b5Mode?: "specialist_safe" | "generalist_fallback";
+  b5ShiftScore?: number;
 };
 
 /** Document-level hit for Top-10 title list + drawer */
@@ -64,6 +67,10 @@ export type Timing = {
   embedMs?: number;
   indexEmbedMs?: number;
   storeMs?: number;
+  /** SGAF stages */
+  b5RoutingMs?: number;
+  p3SmoothingMs?: number;
+  specialistEmbeddingMs?: number;
 };
 
 export type Metrics = {
@@ -72,12 +79,14 @@ export type Metrics = {
   chunkCount?: number;
   contextCount?: number;
   sourcesUsed?: number;
-  retrievalMode?: "bm25" | "adaptive_rrf" | "bm25_fallback";
+  retrievalMode?: "bm25" | "adaptive_rrf" | "bm25_fallback" | "sgaf";
   denseUsed?: boolean;
   denseSkippedReason?: string;
   embeddingProvider?: string;
   embeddingModel?: string;
   bm25Weight?: number;
+  /** SGAF runtime mode */
+  b5Mode?: "specialist_safe" | "generalist_fallback";
   llmUsed?: boolean;
   llmSkippedReason?: string;
   documentsRanked?: number;
