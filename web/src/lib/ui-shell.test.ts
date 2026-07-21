@@ -236,14 +236,18 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
 
   it("Notebooks list uses chat layout shell", () => {
     const page = readSrc("app", "notebooks", "page.tsx");
-    expect(page).toContain("DatasetChatLayout");
-    expect(page).toContain("notebookId={null}");
+    expect(page).toContain("return null");
+    const routeLayout = readSrc("app", "notebooks", "layout.tsx");
+    expect(routeLayout).toContain("DatasetChatLayout");
+    expect(routeLayout).toContain("segment || null");
   });
 
   it("Notebook detail uses DatasetChatLayout with chat frame wiring", () => {
     const page = readSrc("app", "notebooks", "[id]", "page.tsx");
-    expect(page).toContain("DatasetChatLayout");
-    expect(page).toContain("params.id");
+    expect(page).toContain("return null");
+    const routeLayout = readSrc("app", "notebooks", "layout.tsx");
+    expect(routeLayout).toContain("useSelectedLayoutSegment");
+    expect(routeLayout).toContain("DatasetChatLayout");
     const layout = readSrc("components", "dataset", "DatasetChatLayout.tsx");
     expect(layout).toContain("AppShell");
     expect(layout).toContain("fill");
@@ -420,7 +424,7 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     const drawer = readSrc("components", "dataset", "DocumentDetailDrawer.tsx");
     expect(drawer).toContain("Stored as raw full text");
     expect(drawer).toContain("Retrieval hits");
-    expect(drawer).toContain("Why it ranked");
+    expect(drawer).not.toContain("Why it ranked");
     expect(drawer).not.toContain("chunks indexed");
     expect(drawer).not.toContain("hit chunks");
 
@@ -532,11 +536,8 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(readSrc("app", "search", "[sessionId]", "page.tsx")).toContain(
       "SearchChatLayout",
     );
-    expect(readSrc("app", "notebooks", "page.tsx")).toContain(
-      "DatasetChatLayout",
-    );
-    expect(readSrc("app", "notebooks", "[id]", "page.tsx")).toContain(
-      "DatasetChatLayout",
-    );
+    const notebooksLayout = readSrc("app", "notebooks", "layout.tsx");
+    expect(notebooksLayout).toContain("DatasetChatLayout");
+    expect(notebooksLayout).toContain("useSelectedLayoutSegment");
   });
 });

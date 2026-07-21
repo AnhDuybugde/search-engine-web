@@ -68,6 +68,19 @@ function fold(text: string) {
     .trim();
 }
 
+/** Detect requests that ask for source discovery rather than factual QA. */
+export function isSourceDiscoveryQuery(query: string): boolean {
+  const folded = fold(query);
+  const findAction = /\b(tim|find|list|show|search|locate|tim kiem)\b/.test(
+    folded,
+  );
+  const relevanceAction = /\b(lien quan|related|relevant)\b/.test(folded);
+  const mentionsSources = /\b(tai lieu|bai bao|document|documents|source|sources|paper|papers|article|articles|dataset)\b/.test(
+    folded,
+  );
+  return mentionsSources && (findAction || relevanceAction);
+}
+
 export function expandQueryForRetrieval(query: string) {
   const folded = fold(query);
   const expansions = INTENT_BRIDGES.filter(({ terms }) =>

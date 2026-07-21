@@ -7,6 +7,7 @@ import {
   Check,
   FolderPlus,
   Loader2,
+  Lock,
   PanelLeftClose,
   Pencil,
   Plus,
@@ -14,6 +15,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isProtectedDatasetTitle } from "@/lib/protected-datasets";
 import { Logo } from "@/components/Logo";
 import { UserMenu } from "@/components/UserMenu";
 
@@ -22,6 +24,7 @@ export type DatasetSummary = {
   title: string;
   createdAt: string;
   updatedAt?: string;
+  locked?: boolean;
 };
 
 function relativeTime(iso: string): string {
@@ -188,6 +191,7 @@ export function DatasetSidebar({
             {filtered.map((n) => {
               const active = n.id === currentId;
               const checked = checkedIds.includes(n.id);
+              const protectedDataset = Boolean(n.locked) || isProtectedDatasetTitle(n.title);
               const editing = editingId === n.id;
               return (
                 <li key={n.id}>
@@ -278,6 +282,15 @@ export function DatasetSidebar({
                                   In use
                                 </span>
                               ) : null}
+                              {protectedDataset ? (
+                                <span
+                                  className="mr-1.5 inline-flex items-center gap-1 rounded-md bg-[var(--surface)] px-1.5 py-px text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)] ring-1 ring-[var(--border)]"
+                                  title="Protected dataset — cannot be deleted"
+                                >
+                                  <Lock className="h-3 w-3" aria-hidden="true" />
+                                  Protected
+                                </span>
+                              ) : null}
                               {relativeTime(n.updatedAt || n.createdAt)}
                             </span>
                           </span>
@@ -295,18 +308,30 @@ export function DatasetSidebar({
                           >
                             <Pencil className="h-4 w-4" />
                           </button>
-                          <button
-                            type="button"
-                            aria-label={`Delete ${n.title}`}
-                            title="Delete dataset"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onDelete(n.id, n.title);
-                            }}
-                            className="rounded-lg p-2 text-[var(--fg-subtle)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          {protectedDataset ? (
+                            <button
+                              type="button"
+                              disabled
+                              aria-label={`${n.title} is protected and cannot be deleted`}
+                              title="Protected dataset — cannot be deleted"
+                              className="cursor-not-allowed rounded-lg p-2 text-[var(--fg-subtle)] opacity-70"
+                            >
+                              <Lock className="h-4 w-4" aria-hidden="true" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              aria-label={`Delete ${n.title}`}
+                              title="Delete dataset"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDelete(n.id, n.title);
+                              }}
+                              className="rounded-lg p-2 text-[var(--fg-subtle)] hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
                         </div>
                       </>
                     )}
