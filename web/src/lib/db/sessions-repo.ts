@@ -493,7 +493,12 @@ export async function deleteSession(id: string): Promise<boolean> {
 
   const sb = getSupabaseAdmin();
   if (sb) {
-    await sb.from("search_messages").delete().eq("session_id", id);
+    // Messages can be large — delete in parallel with session when no FK block;
+    // if FK requires children first, messages then session is still one RTT pair.
+    const msgRes = await sb.from("search_messages").delete().eq("session_id", id);
+    if (msgRes.error) {
+      throw new Error(`Delete messages failed: ${sbError(msgRes.error)}`);
+    }
     const { error } = await sb.from("search_sessions").delete().eq("id", id);
     if (error) throw new Error(`Delete session failed: ${sbError(error)}`);
     return true;

@@ -124,8 +124,16 @@ export function useSearchSessions() {
     [refresh],
   );
 
-  const remove = useCallback(
-    async (id: string) => {
+  /**
+   * Optimistic remove: drop from sidebar immediately, DELETE in background.
+   * Rejects only if the server fails — caller may restore UI via refresh.
+   */
+  const remove = useCallback(async (id: string) => {
+    const snapshot = sessions.find((s) => s.id === id);
+    // Instant UI
+    setSessions((prev) => prev.filter((s) => s.id !== id));
+
+    try {
       const res = await fetch(`/api/search/sessions/${id}`, {
         method: "DELETE",
       });
@@ -133,29 +141,23 @@ export function useSearchSessions() {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(j.error || `Delete failed (HTTP ${res.status})`);
       }
-
-      // Verify gone: detail 404 and list no longer contains id
-      const detail = await fetch(`/api/search/sessions/${id}`, {
-        cache: "no-store",
-      });
-      if (detail.ok) {
-        throw new Error(
-          "Delete reported success but session is still reachable.",
-        );
+      // Quiet background reconcile
+      void refresh({ quiet: true });
+    } catch (err) {
+      // Restore on failure
+      if (snapshot) {
+        setSessions((prev) => {
+          if (prev.some((s) => s.id === id)) return prev;
+          return [snapshot, ...prev].sort((a, b) =>
+            b.updatedAt.localeCompare(a.updatedAt),
+          );
+        });
+      } else {
+        void refresh({ quiet: true });
       }
-      const listRes = await fetch("/api/search/sessions", {
-        cache: "no-store",
-      });
-      const listData = await listRes.json().catch(() => ({}));
-      const items = Array.isArray(listData.items) ? listData.items : [];
-      if (items.some((s: { id?: string }) => s.id === id)) {
-        throw new Error("Session still appears in the list after delete.");
-      }
-
-      setSessions(items);
-    },
-    [],
-  );
+      throw err;
+    }
+  }, [sessions, refresh]);
 
   return { sessions, loading, error, refresh, create, rename, remove };
 }

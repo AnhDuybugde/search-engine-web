@@ -145,6 +145,15 @@ describe("UI↔API contracts (shipped handlers, memory backend)", () => {
     expect(hit.title).toBe("Contract Dataset");
   });
 
+  it("updateNotebook renames for sidebar pencil edit", async () => {
+    const { updateNotebook } = await import("./db/notebooks-repo");
+    const created = await createNotebook("Old name");
+    const updated = await updateNotebook(created.id, { title: "New name" });
+    expect(updated?.title).toBe("New name");
+    const again = await listNotebooks();
+    expect(again.find((n) => n.id === created.id)?.title).toBe("New name");
+  });
+
   it("search sessions list/create return { items } / { id } for useSearchSessions", async () => {
     const owner = "owner-a";
     const session = await createSession("Probe Chat", owner);

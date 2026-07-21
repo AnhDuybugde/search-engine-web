@@ -437,24 +437,19 @@ export function SearchChatLayout({
         busy={deleting}
         onConfirm={() => {
           if (!pendingDelete) return;
-          const { id } = pendingDelete;
-          setDeleting(true);
-          void (async () => {
-            try {
-              await remove(id);
-              setPendingDelete(null);
-              if (id === sessionId) goSession(null);
-              void refresh({ quiet: true });
-            } catch (err) {
-              setUiError(
-                err instanceof Error ? err.message : "Delete session failed",
-              );
-              setPendingDelete(null);
-              void refresh({ quiet: true });
-            } finally {
-              setDeleting(false);
-            }
-          })();
+          const { id, title: deletedTitle } = pendingDelete;
+          // Instant close + navigate — remove() is already optimistic
+          setPendingDelete(null);
+          setDeleting(false);
+          setUiError(null);
+          if (id === sessionId) goSession(null);
+          void remove(id).catch((err) => {
+            setUiError(
+              err instanceof Error
+                ? `Could not delete “${deletedTitle}”: ${err.message}`
+                : `Could not delete “${deletedTitle}”`,
+            );
+          });
         }}
         onCancel={() => {
           if (!deleting) setPendingDelete(null);

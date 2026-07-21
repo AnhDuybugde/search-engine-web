@@ -12,6 +12,8 @@ export const maxDuration = 60;
 const bodySchema = z.object({
   query: z.string().min(1).max(2000),
   sourceIds: z.array(z.string()).optional(),
+  /** Extra notebook IDs (checked datasets) merged into this ask corpus */
+  notebookIds: z.array(z.string().min(1)).max(20).optional(),
   contextTopK: z.number().int().min(1).max(12).optional(),
   retrieveTopK: z.number().int().min(1).max(80).optional(),
   documentTopK: z.number().int().min(1).max(20).optional(),
@@ -54,17 +56,49 @@ export async function POST(
     return Response.json({ error: "Invalid body" }, { status: 400 });
   }
 
-  // Parallel DB reads: existence check + retrieval units
-  const [notebook, chunks] = await Promise.all([
+  // Primary notebook + optional checked corpora for multi-dataset ask
+  const extraIds = [
+    ...new Set(
+      (parsed.data.notebookIds || []).filter((nid) => nid && nid !== id),
+    ),
+  ].slice(0, 19);
+  const corpusIds = [id, ...extraIds];
+
+  const [notebook, ...chunkLists] = await Promise.all([
     getNotebook(id),
-    loadChunks(id, parsed.data.sourceIds),
+    ...corpusIds.map((nid) =>
+      loadChunks(
+        nid,
+        // source filter only applies to the primary notebook workspace
+        nid === id ? parsed.data.sourceIds : undefined,
+      ),
+    ),
   ]);
   if (!notebook) {
     return Response.json({ error: "Notebook not found" }, { status: 404 });
   }
+
+  // Merge retrieval units; prefix chunk ids when multi-corpus to avoid collisions
+  const multi = corpusIds.length > 1;
+  const chunks = chunkLists.flatMap((list, i) => {
+    const nid = corpusIds[i];
+    if (!multi) return list;
+    return list.map((c) => ({
+      ...c,
+      chunkId: `${nid}:${c.chunkId}`,
+      // Keep documentId stable for source drawer within its notebook —
+      // rank UI uses document title; multi-corpus titles already differ.
+    }));
+  });
+
   if (chunks.length === 0) {
     return Response.json(
-      { error: "Notebook has no sources. Store a raw document first." },
+      {
+        error:
+          corpusIds.length > 1
+            ? "Selected datasets have no sources. Upload documents or uncheck empty datasets."
+            : "Notebook has no sources. Store a raw document first.",
+      },
       { status: 400 },
     );
   }

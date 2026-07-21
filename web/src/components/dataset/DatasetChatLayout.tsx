@@ -79,6 +79,8 @@ export function DatasetChatLayout({
     title: string;
   } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  /** Checked datasets included in retrieval (multi-select from DB list) */
+  const [checkedIds, setCheckedIds] = useState<string[]>([]);
 
   const { state, run, cancel, reset } = useSsePipeline();
   const uploadSse = useUploadSse();
@@ -172,6 +174,19 @@ export function DatasetChatLayout({
     void loadDatasets();
   }, [loadDatasets]);
 
+  // Keep checkbox selection in sync with known datasets; auto-check active open id
+  useEffect(() => {
+    setCheckedIds((prev) => {
+      const valid = new Set(datasets.map((d) => d.id));
+      let next = prev.filter((id) => valid.has(id));
+      if (notebookId && valid.has(notebookId) && !next.includes(notebookId)) {
+        next = [...next, notebookId];
+      }
+      // First load: if nothing checked and we have list but no open notebook, leave empty
+      return next;
+    });
+  }, [datasets, notebookId]);
+
   useEffect(() => {
     reset();
     setMessages([]);
@@ -249,64 +264,93 @@ export function DatasetChatLayout({
     setPendingDelete({ id, title: name });
   };
 
-  /**
-   * Delete via shipped API, then re-list + GET to prove the record is gone
-   * (no silent UI-only removal).
-   */
-  const confirmDelete = async () => {
-    if (!pendingDelete) return;
-    const { id } = pendingDelete;
-    setDeleting(true);
+  const onToggleCheck = (id: string, checked: boolean) => {
+    setCheckedIds((prev) => {
+      if (checked) return prev.includes(id) ? prev : [...prev, id];
+      return prev.filter((x) => x !== id);
+    });
+  };
+
+  const onRename = async (id: string, newTitle: string) => {
     setUiError(null);
-    try {
-      const res = await fetch(`/api/notebooks/${id}`, { method: "DELETE" });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error((data as { error?: string }).error || "Delete failed");
-      }
-
-      // Verify 1: detail endpoint should 404
-      const check = await fetch(`/api/notebooks/${id}`, { cache: "no-store" });
-      if (check.ok) {
-        throw new Error(
-          "Delete reported success but dataset is still reachable. Refresh and retry.",
-        );
-      }
-
-      // Verify 2: list must not include the id
-      const listRes = await fetch("/api/notebooks", { cache: "no-store" });
-      const listData = await listRes.json().catch(() => ({}));
-      const items = Array.isArray(listData.items) ? listData.items : [];
-      if (items.some((n: { id?: string }) => n.id === id)) {
-        throw new Error(
-          "Dataset still appears in the list after delete. Refresh and retry.",
-        );
-      }
-
-      setDatasets(
-        items.map(
-          (n: {
-            id: string;
-            title: string;
-            createdAt: string;
-            updatedAt?: string;
-          }) => ({
-            id: n.id,
-            title: n.title,
-            createdAt: n.createdAt,
-            updatedAt: n.updatedAt || n.createdAt,
-          }),
-        ),
+    const res = await fetch(`/api/notebooks/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: newTitle }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(
+        (data as { error?: string }).error || "Rename failed",
       );
-      setPendingDelete(null);
-      if (notebookId === id) goDataset(null);
-    } catch (err) {
-      setUiError(err instanceof Error ? err.message : "Delete failed");
-      setPendingDelete(null);
-      void loadDatasets();
-    } finally {
-      setDeleting(false);
     }
+    setDatasets((prev) =>
+      prev.map((d) =>
+        d.id === id
+          ? {
+              ...d,
+              title: (data as { title?: string }).title || newTitle,
+              updatedAt:
+                (data as { updatedAt?: string }).updatedAt || d.updatedAt,
+            }
+          : d,
+      ),
+    );
+    if (notebookId === id) {
+      setTitle((data as { title?: string }).title || newTitle);
+    }
+  };
+
+  /**
+   * Optimistic delete: remove from UI immediately, DELETE runs in background.
+   * On failure, restore the row and surface an error (no long wait on confirm).
+   */
+  const confirmDelete = () => {
+    if (!pendingDelete) return;
+    const { id, title: deletedTitle } = pendingDelete;
+    const snapshot = datasets.find((d) => d.id === id);
+
+    // 1) Instant UI feedback
+    setPendingDelete(null);
+    setDeleting(false);
+    setUiError(null);
+    setDatasets((prev) => prev.filter((d) => d.id !== id));
+    setCheckedIds((prev) => prev.filter((x) => x !== id));
+    if (notebookId === id) goDataset(null);
+
+    // 2) Background persistence — user is not blocked
+    void (async () => {
+      try {
+        const res = await fetch(`/api/notebooks/${id}`, { method: "DELETE" });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(
+            (data as { error?: string }).error || "Delete failed",
+          );
+        }
+        // Soft reconcile list later (quiet) without blocking UI
+        void loadDatasets();
+      } catch (err) {
+        // Roll back optimistic removal
+        if (snapshot) {
+          setDatasets((prev) => {
+            if (prev.some((d) => d.id === id)) return prev;
+            return [snapshot, ...prev].sort((a, b) =>
+              (b.updatedAt || b.createdAt).localeCompare(
+                a.updatedAt || a.createdAt,
+              ),
+            );
+          });
+        } else {
+          void loadDatasets();
+        }
+        setUiError(
+          err instanceof Error
+            ? `Could not delete “${deletedTitle}”: ${err.message}`
+            : `Could not delete “${deletedTitle}”`,
+        );
+      }
+    })();
   };
 
   const onUpload = async (file: File) => {
@@ -326,11 +370,22 @@ export function DatasetChatLayout({
   };
 
   const onSend = async (query: string) => {
-    if (!notebookId) {
-      setUiError("Select a dataset first.");
+    // Prefer checked datasets; fall back to the open workspace
+    const corpus =
+      checkedIds.length > 0
+        ? checkedIds
+        : notebookId
+          ? [notebookId]
+          : [];
+    if (!corpus.length) {
+      setUiError("Tick at least one dataset in the left sidebar to chat.");
       return;
     }
-    if (!sources.length) {
+    // History / stream host: open notebook if checked, else first checked id.
+    // Do NOT navigate here — changing notebookId remounts chat and aborts the stream.
+    const hostId =
+      notebookId && corpus.includes(notebookId) ? notebookId : corpus[0];
+    if (notebookId === hostId && !sources.length && corpus.length === 1) {
       setUiError("Upload at least one document before chatting.");
       setRightTab("sources");
       return;
@@ -353,12 +408,14 @@ export function DatasetChatLayout({
     setActiveAssistantId(asstId);
     setRightTab("evidence");
 
-    await run(`/api/notebooks/${notebookId}/ask`, {
+    const extra = corpus.filter((id) => id !== hostId);
+    await run(`/api/notebooks/${hostId}/ask`, {
       query,
       generateAnswer: true,
       contextTopK: 4,
       documentTopK: 10,
       retrieveTopK: 40,
+      ...(extra.length ? { notebookIds: extra } : {}),
     });
   };
 
@@ -453,12 +510,19 @@ export function DatasetChatLayout({
           <DatasetSidebar
             items={datasets}
             currentId={notebookId}
+            checkedIds={checkedIds}
             loading={datasetsLoading}
             onNew={() => void onNew()}
             onSelect={(id) => {
               goDataset(id);
               setMobileSidebarOpen(false);
+              // Opening a dataset also includes it in retrieval
+              setCheckedIds((prev) =>
+                prev.includes(id) ? prev : [...prev, id],
+              );
             }}
+            onToggleCheck={onToggleCheck}
+            onRename={onRename}
             onDelete={requestDelete}
             onCollapse={closeLeft}
             className="h-full border-0"
@@ -655,7 +719,7 @@ export function DatasetChatLayout({
                       <input
                         type="file"
                         className="hidden"
-                        accept=".pdf,.txt,.md,.markdown,.csv,.json,text/plain,application/pdf"
+                        accept=".pdf,.txt,.md,.markdown,.csv,.json,text/plain,text/csv,application/pdf,application/csv"
                         onChange={(e) => {
                           const f = e.target.files?.[0];
                           if (f) void onUpload(f);
@@ -676,11 +740,13 @@ export function DatasetChatLayout({
             onCancel={cancel}
             onUpload={notebookId ? (f) => void onUpload(f) : undefined}
             placeholder={
-              !notebookId
-                ? "Select or create a dataset to chat…"
-                : !sources.length
+              checkedIds.length === 0 && !notebookId
+                ? "Tick datasets on the left, then ask…"
+                : notebookId && !sources.length && checkedIds.length <= 1
                   ? "Store a raw source first (paperclip)…"
-                  : "Ask about your stored sources…"
+                  : checkedIds.length > 1
+                    ? `Ask across ${checkedIds.length} selected datasets…`
+                    : "Ask about your stored sources…"
             }
           />
         </div>

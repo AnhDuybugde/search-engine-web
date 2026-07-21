@@ -1,6 +1,7 @@
 import { desc, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import type { ChunkWithEmbedding } from "@/lib/ir/types";
+import { expandRawSourcesToUnits } from "@/lib/ir/raw-units";
 import { IR_DEFAULTS } from "@/lib/config";
 import { assertDurableDb, dbBackend, enrichDbError, getDb, hasDb } from "./client";
 import { chunks, notebooks, sources } from "./schema";
@@ -187,6 +188,69 @@ export async function getNotebook(id: string) {
   };
 }
 
+export async function updateNotebook(
+  id: string,
+  patch: { title: string },
+): Promise<{
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+} | null> {
+  assertDurableDb("Update notebook");
+  const clean = patch.title.trim();
+  if (!clean) throw new Error("Title is required");
+  if (clean.length > 200) throw new Error("Title is too long (max 200)");
+
+  const existing = await getNotebook(id);
+  if (!existing) return null;
+  const now = new Date().toISOString();
+
+  if (!hasDb()) {
+    const row = memNotebooks.get(id);
+    if (!row) return null;
+    row.title = clean;
+    row.updatedAt = now;
+    memNotebooks.set(id, row);
+    return { ...row };
+  }
+
+  const sb = getSupabaseAdmin();
+  if (sb) {
+    const { data, error } = await sb
+      .from("notebooks")
+      .update({ title: clean, updated_at: now })
+      .eq("id", id)
+      .select("id,title,created_at,updated_at")
+      .maybeSingle();
+    if (error) throw new Error(`Update notebook failed: ${sbError(error)}`);
+    if (!data) return null;
+    return {
+      id: data.id as string,
+      title: data.title as string,
+      createdAt: toIso(data.created_at),
+      updatedAt: toIso(data.updated_at, now),
+    };
+  }
+
+  try {
+    const db = getDb();
+    await db
+      .update(notebooks)
+      .set({ title: clean, updatedAt: new Date(now) })
+      .where(eq(notebooks.id, id));
+  } catch (err) {
+    throw enrichDbError(err, "Update notebook");
+  }
+
+  return {
+    id,
+    title: clean,
+    createdAt: existing.createdAt,
+    updatedAt: now,
+  };
+}
+
 export async function deleteNotebook(id: string) {
   assertDurableDb('Delete notebook');
   if (!hasDb()) {
@@ -202,16 +266,30 @@ export async function deleteNotebook(id: string) {
 
   const sb = getSupabaseAdmin();
   if (sb) {
-    await sb.from("chunks").delete().eq("notebook_id", id);
-    await sb.from("sources").delete().eq("notebook_id", id);
+    // Parallel child deletes, then parent — lower wall-clock for large corpora
+    const [chunksRes, sourcesRes, messagesRes] = await Promise.all([
+      sb.from("chunks").delete().eq("notebook_id", id),
+      sb.from("sources").delete().eq("notebook_id", id),
+      // Best-effort: table may be missing on older projects
+      sb.from("notebook_messages").delete().eq("notebook_id", id),
+    ]);
+    if (chunksRes.error) {
+      throw new Error(`Delete chunks failed: ${sbError(chunksRes.error)}`);
+    }
+    if (sourcesRes.error) {
+      throw new Error(`Delete sources failed: ${sbError(sourcesRes.error)}`);
+    }
+    void messagesRes; // ignore missing notebook_messages
     const { error } = await sb.from("notebooks").delete().eq("id", id);
     if (error) throw new Error(`Delete notebook failed: ${sbError(error)}`);
     return;
   }
 
   const db = getDb();
-  await db.delete(chunks).where(eq(chunks.notebookId, id));
-  await db.delete(sources).where(eq(sources.notebookId, id));
+  await Promise.all([
+    db.delete(chunks).where(eq(chunks.notebookId, id)),
+    db.delete(sources).where(eq(sources.notebookId, id)),
+  ]);
   await db.delete(notebooks).where(eq(notebooks.id, id));
 }
 
@@ -499,7 +577,8 @@ export async function countChunks(notebookId: string) {
 /**
  * Load retrieval units for a notebook.
  * Prefer stored chunks when present; if the notebook is raw-only (sources with
- * no chunks), expose each source as one unprocessed unit (no embedding).
+ * no chunks), expand each source at query time into record/paragraph units
+ * (still no embedding stored — pure on-the-fly split for ranking).
  */
 export async function loadChunks(
   notebookId: string,
@@ -526,7 +605,7 @@ export async function loadChunks(
         embeddingModel: c.embeddingModel,
       }));
     }
-    // raw sources only
+    // raw sources only — query-time unit expansion
     let srcs = Array.from(memSources.values()).filter(
       (s) => s.notebookId === notebookId,
     );
@@ -534,15 +613,14 @@ export async function loadChunks(
       const set = new Set(sourceIds);
       srcs = srcs.filter((s) => set.has(s.id));
     }
-    return srcs.map((s, i) => ({
-      chunkId: `raw-${s.id}`,
-      documentId: s.id,
-      title: s.title,
-      text: s.text,
-      chunkIndex: i,
-      embedding: null,
-      embeddingModel: null,
-    }));
+    return expandRawSourcesToUnits(
+      srcs.map((s) => ({
+        id: s.id,
+        title: s.title,
+        text: s.text,
+        mime: s.mime,
+      })),
+    );
   }
 
   const sb = getSupabaseAdmin();
@@ -597,23 +675,22 @@ export async function loadChunks(
       }));
     }
 
-    // RAW corpus: sources only — no chunk rows, no embeddings
+    // RAW corpus: sources only — expand multi-record CSV / long prose at query time
     let srcQuery = sb
       .from("sources")
-      .select("id,title,text")
+      .select("id,title,text,mime")
       .eq("notebook_id", notebookId);
     if (sourceIds?.length) srcQuery = srcQuery.in("id", sourceIds);
     const { data: rawSources, error: sErr } = await srcQuery;
     if (sErr) throw new Error(`Load sources failed: ${sbError(sErr)}`);
-    return (rawSources || []).map((s, i) => ({
-      chunkId: `raw-${s.id as string}`,
-      documentId: s.id as string,
-      title: (s.title as string) || "Source",
-      text: (s.text as string) || "",
-      chunkIndex: i,
-      embedding: null,
-      embeddingModel: null,
-    }));
+    return expandRawSourcesToUnits(
+      (rawSources || []).map((s) => ({
+        id: s.id as string,
+        title: (s.title as string) || "Source",
+        text: (s.text as string) || "",
+        mime: (s.mime as string | null) ?? null,
+      })),
+    );
   }
 
   const db = getDb();
@@ -650,7 +727,7 @@ export async function loadChunks(
     }));
   }
 
-  // RAW: full sources as retrieval units
+  // RAW: expand multi-record / long sources at query time
   let sourceRows = await db
     .select()
     .from(sources)
@@ -659,13 +736,12 @@ export async function loadChunks(
     const set = new Set(sourceIds);
     sourceRows = sourceRows.filter((s) => set.has(s.id));
   }
-  return sourceRows.map((s, i) => ({
-    chunkId: `raw-${s.id}`,
-    documentId: s.id,
-    title: s.title,
-    text: s.text,
-    chunkIndex: i,
-    embedding: null,
-    embeddingModel: null,
-  }));
+  return expandRawSourcesToUnits(
+    sourceRows.map((s) => ({
+      id: s.id,
+      title: s.title,
+      text: s.text,
+      mime: s.mime,
+    })),
+  );
 }

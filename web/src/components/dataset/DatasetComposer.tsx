@@ -58,7 +58,7 @@ export function DatasetComposer({
               <span className="sr-only">Upload document</span>
               <input
                 type="file"
-                accept=".pdf,.txt,.md,.markdown,.csv,.json,text/plain,application/pdf"
+                accept=".pdf,.txt,.md,.markdown,.csv,.json,text/plain,text/csv,application/pdf,application/csv"
                 className="hidden"
                 disabled={uploading || running}
                 onChange={(e) => {

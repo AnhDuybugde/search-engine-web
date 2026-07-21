@@ -69,8 +69,10 @@ export function DocumentDetailDrawer({
 
     void (async () => {
       try {
+        // Query-time units use `${sourceId}#r12` / `#p3` — fetch parent source
+        const sourceId = document.documentId.split("#")[0];
         const res = await fetch(
-          `/api/notebooks/${notebookId}/sources/${document.documentId}`,
+          `/api/notebooks/${notebookId}/sources/${sourceId}`,
           { cache: "no-store" },
         );
         const data = await res.json();
@@ -92,23 +94,38 @@ export function DocumentDetailDrawer({
 
   const contributing = useMemo(() => {
     if (!document) return [];
+    const baseId = document.documentId.split("#")[0];
     return rankedChunks.filter(
       (c) =>
         c.documentId === document.documentId ||
+        c.documentId === baseId ||
+        c.documentId.startsWith(`${baseId}#`) ||
         document.topChunkIds.includes(c.chunkId),
     );
   }, [document, rankedChunks]);
 
+  /** Prefer the ranked claim/paragraph unit over the whole raw file. */
+  const unitText = useMemo(() => {
+    if (!document) return null;
+    const hit =
+      rankedChunks.find((c) => c.documentId === document.documentId) ||
+      rankedChunks.find((c) => document.topChunkIds.includes(c.chunkId));
+    const t = hit?.text?.trim();
+    return t && t.length >= 24 ? t : null;
+  }, [document, rankedChunks]);
+
   const body = useMemo(() => {
+    if (unitText) return unitText;
     if (!source) return "";
     return formatSourceBody(source.text, source.title, source.mime);
-  }, [source]);
+  }, [source, unitText]);
 
   if (!open || !document) return null;
 
   const pct = confPct(document.confidence);
   const isRaw =
     source != null && (source.chunks?.length ?? 0) === 0;
+  const showingUnit = Boolean(unitText);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal>
@@ -196,19 +213,21 @@ export function DocumentDetailDrawer({
                 <div className="mb-2 flex flex-wrap items-end justify-between gap-2">
                   <div>
                     <h3 className="text-sm font-semibold text-[var(--fg)]">
-                      Full source text
+                      {showingUnit ? "Matched unit (claim / record)" : "Full source text"}
                     </h3>
                     <p className="mt-0.5 text-[11px] text-[var(--fg-subtle)]">
-                      {source.charCount.toLocaleString()} characters
-                      {" · "}
-                      {isRaw
-                        ? "Stored as raw full text (no pre-indexed chunks)"
-                        : `${source.chunks.length} stored chunk row${source.chunks.length === 1 ? "" : "s"}`}
+                      {showingUnit
+                        ? `${body.length.toLocaleString()} characters · split at query time from raw source`
+                        : `${source.charCount.toLocaleString()} characters · ${
+                            isRaw
+                              ? "Stored as raw full text (no pre-indexed chunks)"
+                              : `${source.chunks.length} stored chunk row${source.chunks.length === 1 ? "" : "s"}`
+                          }`}
                     </p>
                   </div>
                   {isRaw && (
                     <span className="rounded-md border border-[var(--border)] bg-[var(--bg-panel)] px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wide text-[var(--fg-muted)]">
-                      raw
+                      {showingUnit ? "unit" : "raw"}
                     </span>
                   )}
                 </div>

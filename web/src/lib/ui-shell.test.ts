@@ -127,13 +127,26 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(layout).toContain("ConfirmDialog");
     expect(layout).toContain("confirmDelete");
     expect(layout).not.toMatch(/\bconfirm\s*\(/);
+    // Optimistic: UI removes immediately; DELETE is fire-and-forget
+    expect(layout).toContain("Optimistic delete");
+    expect(layout).toContain('method: "DELETE"');
     const dialog = readSrc("components", "ConfirmDialog.tsx");
     expect(dialog).toContain('role="alertdialog"');
     expect(dialog).toContain("aria-modal");
     const sidebar = readSrc("components", "dataset", "DatasetSidebar.tsx");
-    expect(sidebar).toContain('role="listbox"');
-    expect(sidebar).toContain("aria-selected");
-    expect(sidebar).toContain("Active");
+    expect(sidebar).toContain('type="checkbox"');
+    expect(sidebar).toContain("In use");
+    expect(sidebar).toContain("Open");
+  });
+
+  it("session remove is optimistic (instant sidebar update)", () => {
+    const hook = readSrc("lib", "hooks", "use-search-chat.ts");
+    expect(hook).toContain("Optimistic remove");
+    expect(hook).toContain('method: "DELETE"');
+    // Must not block on multi-roundtrip verification before UI update
+    expect(hook).toMatch(
+      /setSessions\(\(prev\) => prev\.filter[\s\S]*?fetch\(`\/api\/search\/sessions\/\$\{id\}`/,
+    );
   });
 
   it("New dataset CTA is only in the left sidebar, not center empty state", () => {
@@ -149,13 +162,30 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(sidebar).toContain("onNew");
   });
 
-  it("search session delete uses ConfirmDialog and verified remove", () => {
+  it("dataset sidebar supports checkbox multi-select and rename", () => {
+    const sidebar = readSrc("components", "dataset", "DatasetSidebar.tsx");
+    expect(sidebar).toContain('type="checkbox"');
+    expect(sidebar).toContain("onToggleCheck");
+    expect(sidebar).toContain("onRename");
+    expect(sidebar).toContain("Pencil");
+    const layout = readSrc("components", "dataset", "DatasetChatLayout.tsx");
+    expect(layout).toContain("checkedIds");
+    expect(layout).toContain("notebookIds");
+    expect(layout).toContain('method: "PATCH"');
+    const ask = readSrc("app", "api", "notebooks", "[id]", "ask", "route.ts");
+    expect(ask).toContain("notebookIds");
+    const patch = readSrc("app", "api", "notebooks", "[id]", "route.ts");
+    expect(patch).toContain("export async function PATCH");
+    expect(patch).toContain("updateNotebook");
+  });
+
+  it("search session delete uses ConfirmDialog and optimistic remove", () => {
     const layout = readSrc("components", "search", "SearchChatLayout.tsx");
     expect(layout).toContain("ConfirmDialog");
     expect(layout).toContain("onRequestDelete");
     expect(layout).not.toMatch(/\bconfirm\s*\(/);
     const hook = readSrc("lib", "hooks", "use-search-chat.ts");
-    expect(hook).toContain("still appears in the list after delete");
+    expect(hook).toContain("Optimistic remove");
   });
 
   it("SearchChatLayout is a multi-panel workspace wired to chat hooks", () => {

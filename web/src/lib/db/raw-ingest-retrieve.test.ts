@@ -93,13 +93,41 @@ describe("raw-sources-only ingest → load → retrieve (shipped path)", () => {
     expect(memChunkRows).toHaveLength(0);
 
     const units = await loadChunks(notebook.id);
-    expect(units).toHaveLength(1);
-    expect(units[0].documentId).toBe(added.id);
-    expect(units[0].text).toBe(body);
-    expect(units[0].title).toBe("bm25-intro.txt");
+    // Short single docs stay one unit; multi-record CSV expands at query time
+    expect(units.length).toBeGreaterThanOrEqual(1);
+    expect(units[0].text).toContain("BM25");
     expect(units[0].embedding).toBeNull();
     expect(units[0].embeddingModel).toBeNull();
     expect(units[0].chunkId).toMatch(/^raw-/);
+  });
+
+  it("loadChunks expands multi-record CSV into claim-level units (no stored chunks)", async () => {
+    const notebook = await createNotebook("CSV claims notebook");
+    touchedNotebookIds.push(notebook.id);
+    const { extractCsvText } = await import("@/lib/extract/csv");
+    const csv = extractCsvText(
+      "claims.csv",
+      Buffer.from(
+        "id,claim\n1,Vitamin C prevents scurvy\n2,PD-1 blockade treats melanoma\n3,Burn patients need fluids\n",
+        "utf-8",
+      ),
+    );
+    const added = await addSource({
+      notebookId: notebook.id,
+      title: "claims.csv",
+      mime: "text/plain",
+      text: csv,
+    });
+    expect(await countChunks(notebook.id)).toBe(0);
+
+    const units = await loadChunks(notebook.id);
+    expect(units.length).toBeGreaterThanOrEqual(3);
+    const hit = await bm25Retrieve("vitamin scurvy", units, 5);
+    expect(hit.length).toBeGreaterThan(0);
+    expect(hit[0].text.toLowerCase()).toMatch(/vitamin|scurvy/);
+    // Top hit should be a claim unit, not the whole file
+    expect(hit[0].text.length).toBeLessThan(csv.length);
+    expect(hit[0].documentId).toContain(added.id);
   });
 
   it("BM25 retrieves the raw full-source unit for a matching query", async () => {

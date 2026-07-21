@@ -16,3 +16,6 @@ web/.env.*
 !web/.env.example
 
 env
+
+# BEIR raw corpora (large) — seed from scripts/seed-beir-raw.mjs
+web/data/
