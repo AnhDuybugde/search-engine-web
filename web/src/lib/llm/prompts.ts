@@ -9,6 +9,7 @@ const MAX_TOTAL_CONTEXT_CHARS = 3500;
  * (Query language detection for bilingual answers was removed.)
  */
 export function buildCitationSystemPrompt(_query?: string): string {
+  void _query;
   return [
     "You are a careful research assistant for a document search product.",
     "Answer ONLY using the provided context snippets from the user's uploaded sources.",

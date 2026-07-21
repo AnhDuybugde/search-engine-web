@@ -56,6 +56,7 @@ export function DocumentDetailDrawer({
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<SourceDetail | null>(null);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- reset/fetch state follows drawer selection. */
   useEffect(() => {
     if (!open || !document) {
       setSource(null);
@@ -92,6 +93,7 @@ export function DocumentDetailDrawer({
       cancelled = true;
     };
   }, [open, document, notebookId]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const contributing = useMemo(() => {
     if (!document) return [];

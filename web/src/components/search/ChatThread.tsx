@@ -26,7 +26,7 @@ export function ChatThread({
 
   if (messages.length === 0) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-6">
+      <div className="chat-thread-empty flex min-h-0 flex-1 flex-col items-center justify-center px-4 py-6">
         {empty}
       </div>
     );

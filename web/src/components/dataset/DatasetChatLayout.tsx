@@ -4,13 +4,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
+  ArrowUpRight,
+  CheckCircle2,
   Database,
   FileSearch,
   FileText,
+  Gauge,
   Menu,
   PanelLeft,
   PanelRight,
   Sparkles,
+  Workflow,
   Upload,
   X,
 } from "lucide-react";
@@ -170,11 +174,14 @@ export function DatasetChatLayout({
     }
   }, []);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- API load owns async UI state. */
   useEffect(() => {
     void loadDatasets();
   }, [loadDatasets]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Keep checkbox selection in sync with known datasets; auto-check active open id
+  /* eslint-disable react-hooks/set-state-in-effect -- reconcile selection with API results. */
   useEffect(() => {
     setCheckedIds((prev) => {
       const valid = new Set(datasets.map((d) => d.id));
@@ -186,7 +193,9 @@ export function DatasetChatLayout({
       return next;
     });
   }, [datasets, notebookId]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
+  /* eslint-disable react-hooks/set-state-in-effect -- reset local workspace on route change. */
   useEffect(() => {
     reset();
     setMessages([]);
@@ -200,8 +209,10 @@ export function DatasetChatLayout({
       void loadChatHistory(notebookId);
     }
   }, [notebookId, loadNotebook, loadChatHistory, reset]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // Sync streaming answer into chat messages
+  /* eslint-disable react-hooks/set-state-in-effect -- stream events update the visible transcript. */
   useEffect(() => {
     if (!activeAssistantId) return;
     if (state.status === "running" || state.status === "completed") {
@@ -228,6 +239,7 @@ export function DatasetChatLayout({
     state.results,
     activeAssistantId,
   ]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const goDataset = useCallback(
     (id: string | null) => {
@@ -393,8 +405,8 @@ export function DatasetChatLayout({
     setUiError(null);
     setDrawerOpen(false);
 
-    const userId = `u-${Date.now()}`;
-    const asstId = `a-${Date.now()}`;
+    const userId = `u-${crypto.randomUUID()}`;
+    const asstId = `a-${crypto.randomUUID()}`;
     setMessages((prev) => [
       ...prev,
       { id: userId, role: "user", content: query },
@@ -640,55 +652,59 @@ export function DatasetChatLayout({
               setRightTab("evidence");
             }}
             empty={
-              <div className="chat-empty anim-enter">
-                <div className="chat-empty-badge">
-                  <Sparkles className="h-3 w-3 text-[var(--violet)]" />
-                  Dataset workspace
+              <div className="chat-empty workspace-empty workspace-empty--dataset anim-enter">
+                <div className="workspace-empty-head">
+                  <div className="chat-empty-badge">
+                    <Sparkles className="h-3 w-3 text-[var(--violet)]" />
+                    Dataset workspace
+                  </div>
+                  <span className="workspace-live-status">
+                    <span className="workspace-status-dot" />
+                    Retrieval system ready
+                  </span>
                 </div>
-                <h2 className="chat-empty-title">
+                <h2 className="chat-empty-title workspace-empty-title">
                   {notebookId
                     ? sources.length
                       ? "Ask your documents"
                       : "Store a source to begin"
-                    : "Select a dataset"}
+                    : "Build your research workspace"}
                 </h2>
-                <p className="chat-empty-copy">
+                <p className="chat-empty-copy workspace-empty-copy">
                   {notebookId
                     ? sources.length
                       ? "Retrieval runs over full source text at query time. Upload only stores raw documents — no pre-chunk or embed index."
                       : "Attach PDF, TXT, MD, CSV or JSON. Text is extracted and stored raw; ranking starts when you ask."
-                    : "Pick an existing workspace in the left sidebar — or use New there if you need another dataset."}
+                    : "Collect source material, inspect the ranking pipeline, and ask grounded questions from one focused canvas."}
                 </p>
-                {!notebookId && (
-                  <div className="bento-grid anim-stagger">
-                    <div className="bento-card bento-card--violet">
-                      <div className="bento-card-icon">
-                        <Database className="h-3.5 w-3.5" />
-                      </div>
-                      <h3>Raw corpus</h3>
-                      <p>
-                        Durable full-text sources per dataset — store once,
-                        rank on every question.
-                      </p>
-                    </div>
-                    <div className="bento-card bento-card--cyan">
-                      <div className="bento-card-icon">
-                        <FileSearch className="h-3.5 w-3.5" />
-                      </div>
-                      <h3>Query-time rank</h3>
-                      <p>BM25 / hybrid RRF when you ask.</p>
-                    </div>
-                    <div className="bento-card bento-card--amber">
-                      <div className="bento-card-icon">
-                        <Sparkles className="h-3.5 w-3.5" />
-                      </div>
-                      <h3>Process lab</h3>
-                      <p>Metrics, ranks, and pipeline inspector.</p>
-                    </div>
+                <div className="workspace-kpis anim-stagger" aria-label="Workspace overview">
+                  <div className="workspace-kpi workspace-kpi--violet">
+                    <span className="workspace-kpi-icon"><Database className="h-4 w-4" /></span>
+                    <span className="workspace-kpi-value">{notebookId ? sources.length : datasets.length}</span>
+                    <span className="workspace-kpi-label">{notebookId ? "Raw sources" : "Datasets ready"}</span>
                   </div>
-                )}
+                  <div className="workspace-kpi workspace-kpi--cyan">
+                    <span className="workspace-kpi-icon"><FileSearch className="h-4 w-4" /></span>
+                    <span className="workspace-kpi-value">BM25</span>
+                    <span className="workspace-kpi-label">Query-time ranking</span>
+                  </div>
+                  <div className="workspace-kpi workspace-kpi--amber">
+                    <span className="workspace-kpi-icon"><Gauge className="h-4 w-4" /></span>
+                    <span className="workspace-kpi-value">Live</span>
+                    <span className="workspace-kpi-label">Pipeline metrics</span>
+                  </div>
+                </div>
+                <div className="workspace-flow" aria-label="Dataset workflow">
+                  <div className="workspace-flow-label"><Workflow className="h-4 w-4" /> Research flow</div>
+                  <div className="workspace-flow-steps">
+                    <div className="workspace-flow-step workspace-flow-step--active"><span>01</span><strong>Collect</strong><small>Upload raw files</small></div>
+                    <ArrowUpRight className="workspace-flow-arrow" aria-hidden />
+                    <div className="workspace-flow-step"><span>02</span><strong>Retrieve</strong><small>Rank at query time</small></div>
+                    <ArrowUpRight className="workspace-flow-arrow" aria-hidden />
+                    <div className="workspace-flow-step"><span>03</span><strong>Ground</strong><small>Inspect evidence</small></div>
+                  </div>
+                </div>
                 <div className="chat-empty-actions anim-stagger">
-                  {/* New dataset CTA lives only in the left sidebar — center stays for browse/open */}
                   {notebookId &&
                     sources.length > 0 &&
                     SUGGESTIONS.map((s, i) => (
@@ -726,6 +742,9 @@ export function DatasetChatLayout({
                         }}
                       />
                     </label>
+                  )}
+                  {!notebookId && (
+                    <div className="workspace-empty-hint"><CheckCircle2 className="h-4 w-4" /> Select a dataset from the left panel, or create a new one to start.</div>
                   )}
                 </div>
               </div>

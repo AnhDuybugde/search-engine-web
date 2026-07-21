@@ -82,15 +82,16 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(shell).toContain('"dataset"');
   });
 
-  it("empty states use bento grid + staggered enter classes", () => {
+  it("empty states use research workspace blocks + staggered enter classes", () => {
     const search = readSrc("components", "search", "SearchChatLayout.tsx");
     const dataset = readSrc("components", "dataset", "DatasetChatLayout.tsx");
-    expect(search).toContain("bento-grid");
+    expect(search).toContain("workspace-query-grid");
+    expect(search).toContain("workspace-flow");
     expect(search).toContain("anim-stagger");
-    expect(search).toContain("chip-tint-cyan");
-    expect(dataset).toContain("bento-grid");
+    expect(dataset).toContain("workspace-kpis");
+    expect(dataset).toContain("workspace-flow");
     expect(dataset).toContain("anim-stagger");
-    expect(dataset).toContain("bento-card--violet");
+    expect(dataset).toContain("workspace-live-status");
     const thread = readSrc("components", "search", "ChatThread.tsx");
     expect(thread).toContain("anim-message");
     expect(thread).toContain("thinking-dot");
@@ -110,14 +111,13 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     );
   });
 
-  it("uses readable Plus Jakarta + Sora fonts at 16px body base", () => {
+  it("uses readable DM Sans + Space Grotesk fonts at 16px body base", () => {
     const layout = readSrc("app", "layout.tsx");
-    expect(layout).toContain("Plus_Jakarta_Sans");
-    expect(layout).toContain("Sora");
-    expect(layout).not.toContain("DM_Sans");
+    expect(layout).toContain("DM_Sans");
+    expect(layout).toContain("Space_Grotesk");
     const css = readSrc("app", "globals.css");
-    expect(css).toContain("--font-plus-jakarta");
-    expect(css).toContain("--font-sora");
+    expect(css).toContain("--font-dm-sans");
+    expect(css).toContain("--font-space-grotesk");
     expect(css).toMatch(/--text-base:\s*1rem/);
     expect(css).toContain("confirm-panel");
   });
@@ -431,9 +431,19 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(evidence).not.toContain("ranked chunks");
   });
 
-  it("home redirects to notebooks (dataset search primary)", () => {
+  it("home is a landing with Web Search and Document RAG modules", () => {
     const home = readSrc("app", "page.tsx");
-    expect(home).toContain('redirect("/notebooks")');
+    expect(home).toContain("HomeLanding");
+    expect(home).not.toContain("redirect(");
+    const landing = readSrc("components", "HomeLanding.tsx");
+    expect(landing).toContain('href: "/search"');
+    expect(landing).toContain('href: "/notebooks"');
+    expect(landing).toContain("Web Search");
+    expect(landing).toContain("Document RAG");
+    expect(landing).toContain("home-modules");
+    const shell = readSrc("components", "AppShell.tsx");
+    expect(shell).toContain('href="/"');
+    expect(shell).toContain('title="SearchEngine home"');
   });
 
   it("website UI chrome is English-only (no VN suggestion chips)", () => {
@@ -447,7 +457,7 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     const search = readSrc("components", "search", "SearchChatLayout.tsx");
     expect(search).toContain("Who is Lionel Messi?");
     expect(search).toContain("Compare BM25 and dense retrieval");
-    expect(search).toContain("How old is he?");
+    expect(search).toContain("Turn questions into evidence");
     expect(search).not.toContain("Messi là ai");
     expect(search).not.toContain("So sánh");
     expect(search).not.toContain("ông ấy");
@@ -491,4 +501,3 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     );
   });
 });
-

@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   BookOpen,
   FileSearch,
@@ -15,8 +15,6 @@ type Mode = "login" | "register";
 
 export function LoginForm() {
   const router = useRouter();
-  const params = useSearchParams();
-  const next = params.get("next") || "/notebooks";
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -56,7 +54,7 @@ export function LoginForm() {
       if (data.warning) {
         console.warn(data.warning);
       }
-      router.replace(next.startsWith("/") ? next : "/notebooks");
+      router.replace("/");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Request failed");

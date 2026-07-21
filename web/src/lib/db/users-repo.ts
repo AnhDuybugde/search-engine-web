@@ -143,7 +143,7 @@ export async function ensureUsersTable(): Promise<boolean> {
     sqlUsersAvailable = true;
     console.info("[users] ensured public.users on DATABASE_URL");
     return true;
-  } catch (err) {
+  } catch {
     // Fallback: open raw postgres for multi-statement DDL
     try {
       const postgres = (await import("postgres")).default;

@@ -46,8 +46,6 @@ export async function streamAnswer(params: {
   let workingChunks = shrinkChunks(params.chunks, Math.min(params.chunks.length, 4));
   let maxPerChunk = 700;
   let maxTotal = 3200;
-  let partial = "";
-
   for (let attempt = 0; attempt < 3; attempt++) {
     if (params.signal?.aborted) {
       const err = new Error("Aborted");
@@ -79,7 +77,6 @@ export async function streamAnswer(params: {
           throw err;
         }
         full += part;
-        partial = full;
         await params.onToken(part);
       }
       if (!full.trim()) {

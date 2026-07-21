@@ -258,7 +258,6 @@ function deriveStepStatus(
 function stepMs(
   id: StepId,
   timing: Timing | null,
-  metrics: Metrics | null,
 ): number | null {
   if (!timing) return null;
   switch (id) {
@@ -323,7 +322,7 @@ export function PipelineInspector({
         chunkCount,
         sourceCount,
       }),
-      ms: stepMs(def.id, timing, metrics),
+      ms: stepMs(def.id, timing),
     }));
   }, [
     defs,

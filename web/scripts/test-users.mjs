@@ -1,8 +1,6 @@
 import { config } from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
-import { createRequire } from "module";
-import { register } from "node:module";
 import { pathToFileURL } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
