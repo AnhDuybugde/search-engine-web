@@ -19,7 +19,7 @@ const bodySchema = z.object({
   documentTopK: z.number().int().min(1).max(20).optional(),
   generateAnswer: z.boolean().optional(),
   /** Per-request retrieval method; defaults to RETRIEVAL_MODE env. */
-  retrievalMode: z.enum(["bm25", "adaptive_rrf"]).optional(),
+  retrievalMode: z.enum(["bm25", "adaptive_rrf", "sgaf"]).optional(),
 });
 
 /** Persist history without blocking the answer stream (log failures). */

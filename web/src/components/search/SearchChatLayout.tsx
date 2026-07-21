@@ -97,7 +97,7 @@ export function SearchChatLayout({
       searchLimit: number;
       contextTopK: number;
       generateAnswer: boolean;
-      retrievalMode: "bm25" | "adaptive_rrf";
+      retrievalMode: "bm25" | "adaptive_rrf" | "sgaf";
     },
   ) => {
     setUiError(null);
