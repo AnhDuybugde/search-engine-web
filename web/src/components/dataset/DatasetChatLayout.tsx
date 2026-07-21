@@ -33,6 +33,7 @@ import type { ChatMessage } from "@/lib/hooks/use-search-chat";
 import { usePanelLayout } from "@/lib/hooks/use-panel-layout";
 import { useSsePipeline } from "@/lib/hooks/use-sse";
 import { useUploadSse } from "@/lib/hooks/use-upload-sse";
+import { readStoredRetrievalMode } from "@/lib/ir/retrieval-modes";
 import type { RankedDocument } from "@/lib/ir/types";
 import { cn } from "@/lib/utils";
 
@@ -437,7 +438,10 @@ export function DatasetChatLayout({
     })();
   };
 
-  const onSend = async (query: string) => {
+  const onSend = async (
+    query: string,
+    opts?: { retrievalMode?: "bm25" | "adaptive_rrf" },
+  ) => {
     // Prefer checked datasets; fall back to the open workspace
     const corpus =
       checkedIds.length > 0
@@ -483,6 +487,7 @@ export function DatasetChatLayout({
       contextTopK: 4,
       documentTopK: 10,
       retrieveTopK: 40,
+      ...(opts?.retrievalMode ? { retrievalMode: opts.retrievalMode } : {}),
       ...(extra.length ? { notebookIds: extra } : {}),
     });
   };
@@ -772,7 +777,11 @@ export function DatasetChatLayout({
                           i % 3 === 2 && "chip-tint-amber",
                         )}
                         disabled={running}
-                        onClick={() => void onSend(s)}
+                        onClick={() =>
+                          void onSend(s, {
+                            retrievalMode: readStoredRetrievalMode(),
+                          })
+                        }
                       >
                         {s}
                       </button>
@@ -807,7 +816,7 @@ export function DatasetChatLayout({
             disabled={!notebookId}
             running={running}
             uploading={uploading}
-            onSend={(q) => void onSend(q)}
+            onSend={(q, opts) => void onSend(q, opts)}
             onCancel={cancel}
             onUpload={
               notebookId ? (f) => void onAddToOpenDataset(f) : undefined

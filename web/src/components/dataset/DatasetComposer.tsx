@@ -1,13 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   CornerDownLeft,
   Loader2,
   Paperclip,
   Square,
 } from "lucide-react";
+import { RetrievalModePicker } from "@/components/RetrievalModePicker";
 import { handleSubmitOnEnter } from "@/lib/keyboard";
+import {
+  readStoredRetrievalMode,
+  storeRetrievalMode,
+  type RetrievalModeId,
+} from "@/lib/ir/retrieval-modes";
 import { cn } from "@/lib/utils";
 
 const ACCEPT =
@@ -26,7 +32,7 @@ export function DatasetComposer({
   disabled?: boolean;
   running?: boolean;
   uploading?: boolean;
-  onSend: (query: string) => void;
+  onSend: (query: string, opts: { retrievalMode: RetrievalModeId }) => void;
   onCancel?: () => void;
   /** Add one document to the open dataset (not used for New dataset create). */
   onUpload?: (file: File) => void;
@@ -34,17 +40,40 @@ export function DatasetComposer({
   className?: string;
 }) {
   const [query, setQuery] = useState("");
+  const [retrievalMode, setRetrievalMode] = useState<RetrievalModeId>(
+    "adaptive_rrf",
+  );
+
+  useEffect(() => {
+    setRetrievalMode(readStoredRetrievalMode());
+  }, []);
+
+  const setMode = (mode: RetrievalModeId) => {
+    setRetrievalMode(mode);
+    storeRetrievalMode(mode);
+  };
 
   const submit = () => {
     const q = query.trim();
     if (!q || disabled || running) return;
-    onSend(q);
+    onSend(q, { retrievalMode });
     setQuery("");
   };
 
   return (
     <div className={cn("chat-composer-shell", className)}>
       <div className="mx-auto max-w-[var(--chat-max)] space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-0.5">
+          <span className="text-[11px] font-medium text-[var(--fg-subtle)]">
+            Retrieval method
+          </span>
+          <RetrievalModePicker
+            value={retrievalMode}
+            onChange={setMode}
+            disabled={disabled || running}
+            size="sm"
+          />
+        </div>
         <div className="chat-composer-box !pl-1.5">
           {onUpload && (
             <label

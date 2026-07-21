@@ -5,6 +5,10 @@ import {
   rankDocumentsFromChunks,
 } from "@/lib/ir/document-rank";
 import { packContext } from "@/lib/ir/packer";
+import {
+  parseRetrievalMode,
+  type RetrievalModeId,
+} from "@/lib/ir/retrieval-modes";
 import type {
   ChunkWithEmbedding,
   Metrics,
@@ -32,6 +36,8 @@ export async function runNotebookAskPipeline(
     retrieveTopK?: number;
     documentTopK?: number;
     generateAnswer?: boolean;
+    /** Per-request override; falls back to RETRIEVAL_MODE env. */
+    retrievalMode?: RetrievalModeId;
     /** Client disconnect / cancel — checked between stages and passed to LLM */
     signal?: AbortSignal;
   },
@@ -57,6 +63,10 @@ export async function runNotebookAskPipeline(
     20,
   );
   const contextTopK = input.contextTopK ?? IR_DEFAULTS.contextTopK;
+  const retrievalMode = parseRetrievalMode(
+    input.retrievalMode,
+    parseRetrievalMode(cfg.RETRIEVAL_MODE),
+  );
 
   const totalStart = nowMs();
   const timing: Timing = {};
@@ -77,7 +87,7 @@ export async function runNotebookAskPipeline(
 
   emit({
     type: "retrieve_started",
-    mode: cfg.RETRIEVAL_MODE,
+    mode: retrievalMode,
     corpusChunks: input.chunks.length,
   });
 
@@ -87,7 +97,7 @@ export async function runNotebookAskPipeline(
     processedQuery,
     input.chunks,
     retrieveTopK,
-    cfg.RETRIEVAL_MODE,
+    retrievalMode,
   );
   assertNotAborted(signal);
   const candidates = retrieval.results;

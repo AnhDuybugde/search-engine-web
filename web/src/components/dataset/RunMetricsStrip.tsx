@@ -1,5 +1,6 @@
 "use client";
 
+import { retrievalModeLabel } from "@/lib/ir/retrieval-modes";
 import type { Metrics, Timing } from "@/lib/ir/types";
 
 function fmtMs(ms?: number | null) {
@@ -9,16 +10,9 @@ function fmtMs(ms?: number | null) {
 }
 
 function modeLabel(mode?: string) {
-  switch (mode) {
-    case "adaptive_rrf":
-      return "Hybrid RRF";
-    case "bm25_fallback":
-      return "BM25 fallback";
-    case "bm25":
-      return "BM25 only";
-    default:
-      return mode || "—";
-  }
+  if (mode === "adaptive_rrf") return "Hybrid RRF";
+  if (mode === "bm25") return "BM25 only";
+  return retrievalModeLabel(mode);
 }
 
 function pct(n?: number | null) {

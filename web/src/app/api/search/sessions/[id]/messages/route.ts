@@ -24,6 +24,8 @@ const bodySchema = z.object({
   contextTopK: z.number().int().min(1).max(12).optional(),
   generateAnswer: z.boolean().optional(),
   enrichThinPages: z.boolean().optional(),
+  /** Per-request retrieval method; defaults to RETRIEVAL_MODE env. */
+  retrievalMode: z.enum(["bm25", "adaptive_rrf"]).optional(),
 });
 
 export async function POST(
@@ -137,6 +139,7 @@ export async function POST(
             contextTopK: input.contextTopK,
             generateAnswer: input.generateAnswer,
             enrichThinPages: input.enrichThinPages ?? false,
+            retrievalMode: input.retrievalMode,
             signal,
           },
           pipelineEmit,

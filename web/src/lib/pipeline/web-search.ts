@@ -2,6 +2,10 @@ import { getConfig, IR_DEFAULTS } from "@/lib/config";
 import { chunkDocuments } from "@/lib/ir/chunker";
 import { retrieveEvidence } from "@/lib/ir/adaptive-rrf";
 import { packContext } from "@/lib/ir/packer";
+import {
+  parseRetrievalMode,
+  type RetrievalModeId,
+} from "@/lib/ir/retrieval-modes";
 import type { Metrics, RankedChunk, StreamEvent, Timing } from "@/lib/ir/types";
 import { streamAnswer } from "@/lib/llm/client";
 import { fetchViaJina, searchWeb } from "@/lib/search/tavily";
@@ -15,6 +19,8 @@ export type WebSearchInput = {
   contextTopK?: number;
   generateAnswer?: boolean;
   enrichThinPages?: boolean;
+  /** Per-request override; falls back to RETRIEVAL_MODE env. */
+  retrievalMode?: RetrievalModeId;
   signal?: AbortSignal;
 };
 
@@ -103,11 +109,15 @@ export async function runWebSearchPipeline(
 
   // 4) Retrieval + pack
   const retrieveStart = nowMs();
+  const retrievalMode = parseRetrievalMode(
+    input.retrievalMode,
+    parseRetrievalMode(cfg.RETRIEVAL_MODE),
+  );
   const retrieval = await retrieveEvidence(
     query,
     chunks,
     retrieveTopK,
-    cfg.RETRIEVAL_MODE,
+    retrievalMode,
   );
   assertNotAborted(signal);
   const candidates = retrieval.results;

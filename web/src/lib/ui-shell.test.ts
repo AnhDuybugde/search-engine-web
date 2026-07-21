@@ -226,7 +226,22 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(composer).toContain("searchLimit");
     expect(composer).toContain("contextTopK");
     expect(composer).toContain("generateAnswer");
+    expect(composer).toContain("retrievalMode");
+    expect(composer).toContain("RetrievalModePicker");
     expect(composer).toContain("handleSubmitOnEnter");
+  });
+
+  it("chat bubbles allow text selection (not native button)", () => {
+    const thread = readSrc("components", "search", "ChatThread.tsx");
+    expect(thread).toContain("select-text");
+    expect(thread).toContain('role={isUser ? undefined : "button"}');
+    expect(thread).toContain("msg-bubble");
+    // Message body is a div, not a native button (which blocks copy/select)
+    expect(thread).toMatch(/<div\s+[\s\S]*className=\{cn\(\s*"msg-bubble/);
+    expect(thread).not.toMatch(/<button[\s\n\r]*type=/);
+    const composer = readSrc("components", "dataset", "DatasetComposer.tsx");
+    expect(composer).toContain("RetrievalModePicker");
+    expect(composer).toContain("retrievalMode");
   });
 
   it("Notebooks list uses chat layout shell", () => {
