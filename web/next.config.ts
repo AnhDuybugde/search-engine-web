@@ -1,16 +1,23 @@
 import path from "path";
 import type { NextConfig } from "next";
 
-// Keep turbopack.root and outputFileTracingRoot identical (Vercel monorepo).
-// Other lockfiles in the parent repo can make Next infer a different root.
-const projectRoot = path.resolve(process.cwd());
+/**
+ * Vercel monorepo note:
+ * The full git repo is cloned to /vercel/path0; Root Directory is usually `web/`.
+ * If outputFileTracingRoot stays on `web/` only, relativeAppDir becomes "" and
+ * some Vercel/Next steps look for `/vercel/path0/.next/package.json` (ENOENT).
+ *
+ * Point both roots at the monorepo root so relativeAppDir is `web` and
+ * `.next` resolves to `/vercel/path0/web/.next`.
+ */
+const monorepoRoot = path.join(__dirname, "..");
 
 const nextConfig: NextConfig = {
   // Keep PDF tooling out of the Turbopack/webpack worker mess
   serverExternalPackages: ["unpdf", "pdfjs-dist"],
-  outputFileTracingRoot: projectRoot,
+  outputFileTracingRoot: monorepoRoot,
   turbopack: {
-    root: projectRoot,
+    root: monorepoRoot,
   },
 };
 
