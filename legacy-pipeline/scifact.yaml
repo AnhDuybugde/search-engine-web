@@ -1,0 +1,35 @@
+dataset:
+  name: scifact
+  data_dir: data/scifact
+  text_fields:
+    - title
+    - abstract
+
+retrieval:
+  top_k: 100
+  rrf_k: 60
+  dense_model: malteos/scincl
+  dense_batch_size: 32
+
+router:
+  label_order:
+    - bm25
+    - dense
+    - hybrid
+  tie_break_order:
+    - bm25
+    - dense
+    - hybrid
+
+rerank:
+  enabled: true
+  model: cross-encoder/ms-marco-MiniLM-L-6-v2
+  top_k: 20
+  router_confidence_threshold: 0.60
+  # Tuned on held-out calibration queries (seed=13); the old 0.03 OR 0.85 rule was
+  # too permissive and reranked every query. score_gap is the RRF top1/top2 gap.
+  score_gap_threshold: 0.0024
+  disagreement_threshold: 0.95
+
+outputs:
+  run_dir: runs/scifact
