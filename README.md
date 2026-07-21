@@ -2,6 +2,8 @@
 
 Serverless **Web Search + Dataset Notebooks** app — deploy on **Vercel**, store data in **Supabase Postgres**, free-tier APIs for search / LLM / embeddings.
 
+Try our product here: https://search-engine-web.vercel.app/
+
 | Surface | What it does |
 |--------|----------------|
 | **Web Search** (`/search`) | Multi-turn chat: expand query → Tavily/Brave → retrieve → Groq answer + citations |
