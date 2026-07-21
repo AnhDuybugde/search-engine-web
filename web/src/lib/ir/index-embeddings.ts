@@ -68,7 +68,8 @@ export async function indexNotebookEmbeddings(
   const batchSize = opts?.batchSize ?? EMBED_BATCH;
   const embeddings: number[][] = [];
   let model = cfg.EMBEDDING_MODEL;
-  let provider = cfg.EMBEDDING_PROVIDER;
+  // Keep as string — EmbeddingResult.provider is string; result type is string
+  let provider: string = cfg.EMBEDDING_PROVIDER;
   const embedStart = performance.now();
 
   for (let i = 0; i < units.length; i += batchSize) {
