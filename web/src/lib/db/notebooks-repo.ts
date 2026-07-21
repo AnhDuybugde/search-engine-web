@@ -293,6 +293,153 @@ export async function deleteNotebook(id: string) {
   await db.delete(notebooks).where(eq(notebooks.id, id));
 }
 
+/** Full source text for indexing (not the lightweight listSources DTO). */
+export async function listSourcesForIndex(notebookId: string): Promise<
+  Array<{
+    id: string;
+    notebookId: string;
+    title: string;
+    mime: string | null;
+    text: string;
+  }>
+> {
+  assertDurableDb("List sources for index");
+  if (!hasDb()) {
+    return Array.from(memSources.values())
+      .filter((s) => s.notebookId === notebookId)
+      .map((s) => ({
+        id: s.id,
+        notebookId: s.notebookId,
+        title: s.title,
+        mime: s.mime,
+        text: s.text,
+      }));
+  }
+
+  const sb = getSupabaseAdmin();
+  if (sb) {
+    const { data, error } = await sb
+      .from("sources")
+      .select("id,notebook_id,title,mime,text")
+      .eq("notebook_id", notebookId);
+    if (error) throw new Error(`List sources failed: ${sbError(error)}`);
+    return (data || []).map((s) => ({
+      id: s.id as string,
+      notebookId: s.notebook_id as string,
+      title: s.title as string,
+      mime: (s.mime as string | null) ?? null,
+      text: String(s.text || ""),
+    }));
+  }
+
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(sources)
+    .where(eq(sources.notebookId, notebookId));
+  return rows.map((s) => ({
+    id: s.id,
+    notebookId: s.notebookId,
+    title: s.title,
+    mime: s.mime,
+    text: s.text,
+  }));
+}
+
+export type ChunkWriteRow = {
+  id: string;
+  sourceId: string;
+  notebookId: string;
+  chunkIndex: number;
+  text: string;
+  embedding: number[] | null;
+  embeddingModel: string | null;
+};
+
+/** Replace all chunk rows for a notebook (pre-computed embeddings). */
+export async function replaceNotebookChunks(
+  notebookId: string,
+  rows: ChunkWriteRow[],
+): Promise<void> {
+  assertDurableDb("Replace notebook chunks");
+
+  if (!hasDb()) {
+    for (const [cid, c] of memChunks) {
+      if (c.notebookId === notebookId) memChunks.delete(cid);
+    }
+    for (const r of rows) {
+      memChunks.set(r.id, {
+        id: r.id,
+        sourceId: r.sourceId,
+        notebookId: r.notebookId,
+        chunkIndex: r.chunkIndex,
+        text: r.text,
+        embedding: r.embedding,
+        embeddingModel: r.embeddingModel,
+      });
+    }
+    return;
+  }
+
+  const sb = getSupabaseAdmin();
+  if (sb) {
+    const { error: delErr } = await sb
+      .from("chunks")
+      .delete()
+      .eq("notebook_id", notebookId);
+    if (delErr) throw new Error(`Clear chunks failed: ${sbError(delErr)}`);
+    if (!rows.length) return;
+
+    const payload = rows.map((r) => ({
+      id: r.id,
+      source_id: r.sourceId,
+      notebook_id: r.notebookId,
+      chunk_index: r.chunkIndex,
+      text: r.text,
+      embedding_json: r.embedding,
+      embedding_model: r.embeddingModel,
+    }));
+    const BS = 40;
+    for (let i = 0; i < payload.length; i += BS) {
+      const { error } = await sb.from("chunks").insert(payload.slice(i, i + BS));
+      if (error) {
+        // Retry without embedding columns if schema lag
+        if (isMissingEmbeddingColumn(error)) {
+          const legacy = payload.slice(i, i + BS).map((p) => ({
+            id: p.id,
+            source_id: p.source_id,
+            notebook_id: p.notebook_id,
+            chunk_index: p.chunk_index,
+            text: p.text,
+          }));
+          const leg = await sb.from("chunks").insert(legacy);
+          if (leg.error) {
+            throw new Error(`Insert chunks failed: ${sbError(leg.error)}`);
+          }
+        } else {
+          throw new Error(`Insert chunks failed: ${sbError(error)}`);
+        }
+      }
+    }
+    return;
+  }
+
+  const db = getDb();
+  await db.delete(chunks).where(eq(chunks.notebookId, notebookId));
+  if (!rows.length) return;
+  await db.insert(chunks).values(
+    rows.map((r) => ({
+      id: r.id,
+      sourceId: r.sourceId,
+      notebookId: r.notebookId,
+      chunkIndex: r.chunkIndex,
+      text: r.text,
+      embeddingJson: r.embedding,
+      embeddingModel: r.embeddingModel,
+    })),
+  );
+}
+
 export async function listSources(notebookId: string) {
   assertDurableDb('List sources');
   if (!hasDb()) {
@@ -595,15 +742,26 @@ export async function loadChunks(
       Array.from(memSources.values()).map((s) => [s.id, s] as const),
     );
     if (rows.length) {
-      return rows.map((c) => ({
-        chunkId: c.id,
-        documentId: c.sourceId,
-        title: sourceMap.get(c.sourceId)?.title || "Source",
-        text: c.text,
-        chunkIndex: c.chunkIndex,
-        embedding: c.embedding,
-        embeddingModel: c.embeddingModel,
-      }));
+      // Multi-unit sources: distinct documentId so each claim ranks separately
+      const bySource = new Map<string, number>();
+      for (const c of rows) {
+        bySource.set(c.sourceId, (bySource.get(c.sourceId) || 0) + 1);
+      }
+      return rows.map((c) => {
+        const multi = (bySource.get(c.sourceId) || 0) > 1;
+        const baseTitle = sourceMap.get(c.sourceId)?.title || "Source";
+        return {
+          chunkId: c.id,
+          documentId: multi ? `${c.sourceId}#c${c.chunkIndex}` : c.sourceId,
+          title: multi
+            ? `${baseTitle} · #${c.chunkIndex + 1}`
+            : baseTitle,
+          text: c.text,
+          chunkIndex: c.chunkIndex,
+          embedding: c.embedding,
+          embeddingModel: c.embeddingModel,
+        };
+      });
     }
     // raw sources only — query-time unit expansion
     let srcs = Array.from(memSources.values()).filter(
@@ -660,19 +818,30 @@ export async function loadChunks(
         );
       }
 
-      return chunkRows.map((c) => ({
-        chunkId: c.id as string,
-        documentId: c.source_id as string,
-        title: sourceMap.get(c.source_id as string) || "Source",
-        text: c.text as string,
-        chunkIndex: c.chunk_index as number,
-        embedding: hasEmbeddingColumns
-          ? vectorOrNull(c.embedding_json)
-          : null,
-        embeddingModel: hasEmbeddingColumns
-          ? (c.embedding_model ?? null)
-          : null,
-      }));
+      const bySource = new Map<string, number>();
+      for (const c of chunkRows) {
+        const sid = c.source_id as string;
+        bySource.set(sid, (bySource.get(sid) || 0) + 1);
+      }
+      return chunkRows.map((c) => {
+        const sid = c.source_id as string;
+        const multi = (bySource.get(sid) || 0) > 1;
+        const idx = c.chunk_index as number;
+        const baseTitle = sourceMap.get(sid) || "Source";
+        return {
+          chunkId: c.id as string,
+          documentId: multi ? `${sid}#c${idx}` : sid,
+          title: multi ? `${baseTitle} · #${idx + 1}` : baseTitle,
+          text: c.text as string,
+          chunkIndex: idx,
+          embedding: hasEmbeddingColumns
+            ? vectorOrNull(c.embedding_json)
+            : null,
+          embeddingModel: hasEmbeddingColumns
+            ? (c.embedding_model ?? null)
+            : null,
+        };
+      });
     }
 
     // RAW corpus: sources only — expand multi-record CSV / long prose at query time
@@ -716,15 +885,23 @@ export async function loadChunks(
             .where(inArray(sources.id, sourceIdsNeeded));
     const sourceMap = new Map(sourceRows.map((s) => [s.id, s] as const));
 
-    return rows.map((c) => ({
-      chunkId: c.id,
-      documentId: c.sourceId,
-      title: sourceMap.get(c.sourceId)?.title || "Source",
-      text: c.text,
-      chunkIndex: c.chunkIndex,
-      embedding: vectorOrNull(c.embeddingJson),
-      embeddingModel: c.embeddingModel,
-    }));
+    const bySource = new Map<string, number>();
+    for (const c of rows) {
+      bySource.set(c.sourceId, (bySource.get(c.sourceId) || 0) + 1);
+    }
+    return rows.map((c) => {
+      const multi = (bySource.get(c.sourceId) || 0) > 1;
+      const baseTitle = sourceMap.get(c.sourceId)?.title || "Source";
+      return {
+        chunkId: c.id,
+        documentId: multi ? `${c.sourceId}#c${c.chunkIndex}` : c.sourceId,
+        title: multi ? `${baseTitle} · #${c.chunkIndex + 1}` : baseTitle,
+        text: c.text,
+        chunkIndex: c.chunkIndex,
+        embedding: vectorOrNull(c.embeddingJson),
+        embeddingModel: c.embeddingModel,
+      };
+    });
   }
 
   // RAW: expand multi-record / long sources at query time
