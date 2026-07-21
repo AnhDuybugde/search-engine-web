@@ -141,8 +141,11 @@ function fmtMs(ms?: number | null) {
 function modeLabel(mode?: string) {
   switch (mode) {
     case "rrf":
+      return "Hybrid RRF";
     case "adaptive_rrf":
-      return "Hybrid (classic RRF)";
+      return "Adaptive RRF";
+    case "sgaf":
+      return "SGAF B5+P3";
     case "legacy_rrf_ce":
       return "SciNCL + RRF + CE";
     case "bm25_fallback":
@@ -629,9 +632,14 @@ function stepShortHint(
     case "fusion":
       if (
         metrics?.retrievalMode === "adaptive_rrf" ||
-        metrics?.retrievalMode === "legacy_rrf_ce"
+        metrics?.retrievalMode === "legacy_rrf_ce" ||
+        metrics?.retrievalMode === "sgaf"
       )
-        return "Classic RRF · equal weights · k=60";
+        return metrics.retrievalMode === "adaptive_rrf"
+          ? `Adaptive RRF · BM25 weight ${metrics.bm25Weight?.toFixed(3) ?? "dynamic"} · k=60`
+          : metrics.retrievalMode === "sgaf"
+            ? "SGAF B5+P3 · specialist/generalist fusion"
+            : "SciNCL + classic RRF · k=60";
       if (metrics?.retrievalMode === "bm25") return "No fusion (lexical only)";
       return "RRF merge of rank lists";
     case "pack":
@@ -740,16 +748,19 @@ function StepDetail({
               : "BM25 only",
       });
       if (
-        metrics?.retrievalMode === "adaptive_rrf" ||
-        metrics?.retrievalMode === "legacy_rrf_ce"
+          metrics?.retrievalMode === "adaptive_rrf" ||
+          metrics?.retrievalMode === "legacy_rrf_ce" ||
+          metrics?.retrievalMode === "sgaf"
       ) {
         rows.push({
           k: "List weights",
           v: metrics.retrievalMode === "legacy_rrf_ce"
             ? "1.0 (BM25) + 1.0 (SciNCL)"
-            : "1.0 (BM25) + 1.0 (dense)",
+            : metrics.retrievalMode === "sgaf"
+              ? "B5 mode-switch + P3 smoothing"
+              : `${metrics.bm25Weight?.toFixed(3) ?? "dynamic"} (BM25) + 1.0 (dense)`,
         });
-        rows.push({ k: "RRF k", v: "60" });
+        if (metrics.retrievalMode !== "sgaf") rows.push({ k: "RRF k", v: "60" });
       }
       rows.push({
         k: "Note",

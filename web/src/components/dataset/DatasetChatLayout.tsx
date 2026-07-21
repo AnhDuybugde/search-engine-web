@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
@@ -8,7 +8,6 @@ import {
   CheckCircle2,
   Database,
   FileSearch,
-  FileText,
   Gauge,
   Menu,
   PanelLeft,
@@ -27,6 +26,7 @@ import { DocumentResultsList } from "@/components/dataset/DocumentResultsList";
 import { ProcessExplainPanel } from "@/components/dataset/ProcessExplainPanel";
 import { RunMetricsStrip } from "@/components/dataset/RunMetricsStrip";
 import { UploadPipelinePanel } from "@/components/dataset/UploadPipelinePanel";
+import { SourceManager } from "@/components/dataset/SourceManager";
 import {
   readStoredRetrievalMode,
   storeRetrievalMode,
@@ -93,6 +93,9 @@ export function DatasetChatLayout({
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
   const [retrievalMode, setRetrievalMode] = useState<RetrievalModeId>(
     () => readStoredRetrievalMode(),
+  );
+  const initialNavigationType = useRef<PerformanceNavigationTiming["type"] | null>(
+    null,
   );
 
   const { state, run, cancel, reset } = useSsePipeline();
@@ -211,6 +214,13 @@ export function DatasetChatLayout({
 
   /* eslint-disable react-hooks/set-state-in-effect -- reset local workspace on route change. */
   useEffect(() => {
+    if (initialNavigationType.current === null) {
+      const navigation = performance.getEntriesByType("navigation")[0] as
+        | PerformanceNavigationTiming
+        | undefined;
+      initialNavigationType.current = navigation?.type || "navigate";
+    }
+
     reset();
     setMessages([]);
     setActiveAssistantId(null);
@@ -220,7 +230,12 @@ export function DatasetChatLayout({
     setTitle("");
     if (notebookId) {
       void loadNotebook(notebookId);
-      void loadChatHistory(notebookId);
+      // A browser reload starts a fresh visible conversation on this page.
+      // Keep the durable history untouched and preserve history hydration for
+      // normal in-app notebook navigation.
+      if (initialNavigationType.current !== "reload") {
+        void loadChatHistory(notebookId);
+      }
     }
   }, [notebookId, loadNotebook, loadChatHistory, reset]);
   /* eslint-enable react-hooks/set-state-in-effect */
@@ -397,7 +412,7 @@ export function DatasetChatLayout({
 
   const onSend = async (
     query: string,
-    opts: { retrievalMode: RetrievalModeId },
+    opts: { retrievalMode: RetrievalModeId; llmModel?: string },
   ) => {
     // Prefer checked datasets; fall back to the open workspace
     const corpus =
@@ -445,6 +460,7 @@ export function DatasetChatLayout({
       documentTopK: 10,
       retrieveTopK: 40,
       retrievalMode: opts.retrievalMode,
+      llmModel: opts.llmModel,
       ...(extra.length ? { notebookIds: extra } : {}),
     });
   };
@@ -917,41 +933,27 @@ export function DatasetChatLayout({
                         : "Retrieval runs across the checked datasets. Raw documents remain stored in each dataset and ranking builds units at query time."}
                     </p>
                   </div>
-                  {notebookId && <UploadPipelinePanel state={uploadSse.state} />}
-                  <ul className="space-y-1.5">
-                    {sources.map((s) => (
-                      <li
-                        key={s.id}
-                        className="flex items-start gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-2.5 text-xs"
-                      >
-                        <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--primary)]" />
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate font-medium text-[var(--fg)]">
-                            {s.title}
-                          </div>
-                          <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[var(--fg-subtle)]">
-                            <span>{s.charCount.toLocaleString()} chars</span>
-                            <span className="rounded border border-[var(--border)] bg-[var(--bg-elevated)] px-1 py-px font-mono text-[9px] uppercase tracking-wide">
-                              raw
-                            </span>
-                          </div>
-                        </div>
-                      </li>
-                    ))}
-                    {!sources.length && notebookId && (
-                      <li className="py-2 text-xs text-[var(--fg-muted)]">
-                        No sources yet — use the paperclip to store a raw
-                        document.
-                      </li>
-                    )}
-                    {!sources.length && !notebookId && (
+                  {notebookId && (
+                    <>
+                      <UploadPipelinePanel state={uploadSse.state} />
+                      <SourceManager
+                        notebookId={notebookId}
+                        sources={sources}
+                        uploadState={uploadSse.state}
+                        onUpload={onUpload}
+                        onRefresh={() => loadNotebook(notebookId)}
+                      />
+                    </>
+                  )}
+                  {!sources.length && !notebookId && (
+                    <ul className="space-y-1.5">
                       <li className="py-2 text-xs text-[var(--fg-muted)]">
                         {selectedCorpusCount > 0
                           ? "Checked datasets are active for this retrieval run. Open one dataset to inspect or upload its raw sources."
                           : "No dataset is selected for retrieval yet."}
                       </li>
-                    )}
-                  </ul>
+                    </ul>
+                  )}
                 </div>
               )}
               {rightTab === "evidence" && (

@@ -1,6 +1,7 @@
 import { getConfig, IR_DEFAULTS } from "@/lib/config";
 import { bm25Retrieve, tokenize } from "./bm25";
 import { cosineSimilarity, embedTexts } from "./embedding";
+import { sgafRetrieve } from "./sgaf";
 import type { Chunk, ChunkWithEmbedding, RankedChunk } from "./types";
 
 export type HybridRetrievalDiagnostics = {
@@ -19,6 +20,10 @@ export type HybridRetrievalDiagnostics = {
   denseMs?: number;
   fusionMs?: number;
   bm25Weight?: number;
+  b5Mode?: "specialist_safe" | "generalist_fallback";
+  b5ShiftScore?: number;
+  specialistModel?: string;
+  p3Applied?: boolean;
 };
 
 export type HybridRetrievalResult = {
@@ -178,6 +183,38 @@ export async function retrieveEvidence(
   if (mode === "legacy_rrf_ce") {
     return legacyRrfCeRetrieve(query, chunks, topK);
   }
+  if (mode === "sgaf") {
+    const cfg = getConfig();
+    const generalistModel = cfg.EMBEDDING_MODEL;
+    const specialistModel =
+      cfg.SPECIALIST_EMBEDDING_MODEL?.trim() || generalistModel;
+    try {
+      const sgaf = await sgafRetrieve(
+        query,
+        chunks,
+        topK,
+        async (texts, model) =>
+          (await embedTexts(texts, { model })).embeddings,
+        specialistModel,
+        generalistModel,
+      );
+      return {
+        results: sgaf.results,
+        diagnostics: {
+          ...sgaf.diagnostics,
+          embeddingProvider: cfg.EMBEDDING_PROVIDER,
+          embeddingModel: generalistModel,
+        },
+      };
+    } catch (err) {
+      return bm25Fallback(
+        query,
+        chunks,
+        topK,
+        err instanceof Error ? `SGAF failed: ${err.message}` : "SGAF failed",
+      );
+    }
+  }
   if (chunks.length === 0) {
     return {
       results: [],
@@ -270,10 +307,7 @@ export async function retrieveEvidence(
       err instanceof Error ? err.message : "Dense retrieval failed",
     );
     return {
-      results: fallback.results.map((result) => ({
-        ...result,
-        retrievalMode: "legacy_rrf_ce" as const,
-      })),
+      ...fallback,
       diagnostics: {
         ...fallback.diagnostics,
         bm25Ms: fallback.diagnostics.bm25Ms ?? bm25Ms,

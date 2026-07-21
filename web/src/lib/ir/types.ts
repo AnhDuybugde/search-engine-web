@@ -99,9 +99,12 @@ export type Metrics = {
   denseSkippedReason?: string;
   embeddingProvider?: string;
   embeddingModel?: string;
+  llmModel?: string;
   bm25Weight?: number;
   /** SGAF runtime mode */
   b5Mode?: "specialist_safe" | "generalist_fallback";
+  b5ShiftScore?: number;
+  p3Applied?: boolean;
   llmUsed?: boolean;
   llmSkippedReason?: string;
   documentsRanked?: number;

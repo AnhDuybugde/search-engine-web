@@ -60,6 +60,10 @@ const envSchema = z.object({
   LLM_BASE_URL: z.string().url().default("https://api.groq.com/openai/v1"),
   LLM_API_KEY: z.string().optional(),
   LLM_MODEL: z.string().default("llama-3.1-8b-instant"),
+  LLM_MODELS: z.string().optional(),
+  VILAO_BASE_URL: z.string().url().default("https://api.vilao.ai/v1"),
+  VILAO_API_KEY: z.string().optional(),
+  VILAO_MODEL: z.string().default("MiniMax-M2.7"),
   RETRIEVAL_MODE: z
     .enum(["bm25", "adaptive_rrf", "sgaf", "legacy_rrf_ce"])
     .default("bm25"),
@@ -107,6 +111,10 @@ function readRawEnv() {
     LLM_BASE_URL: process.env.LLM_BASE_URL,
     LLM_API_KEY: process.env.LLM_API_KEY,
     LLM_MODEL: process.env.LLM_MODEL,
+    LLM_MODELS: process.env.LLM_MODELS,
+    VILAO_BASE_URL: process.env.VILAO_BASE_URL,
+    VILAO_API_KEY: process.env.VILAO_API_KEY,
+    VILAO_MODEL: process.env.VILAO_MODEL,
     RETRIEVAL_MODE: process.env.RETRIEVAL_MODE,
     EMBEDDING_PROVIDER: process.env.EMBEDDING_PROVIDER,
     EMBEDDING_API_URL: process.env.EMBEDDING_API_URL,
@@ -142,6 +150,10 @@ export function getConfig(): AppConfig {
         LLM_BASE_URL: raw.LLM_BASE_URL || "https://api.groq.com/openai/v1",
         LLM_API_KEY: raw.LLM_API_KEY,
         LLM_MODEL: raw.LLM_MODEL || "llama-3.1-8b-instant",
+        LLM_MODELS: raw.LLM_MODELS,
+        VILAO_BASE_URL: raw.VILAO_BASE_URL || "https://api.vilao.ai/v1",
+        VILAO_API_KEY: raw.VILAO_API_KEY,
+        VILAO_MODEL: raw.VILAO_MODEL || "MiniMax-M2.7",
         RETRIEVAL_MODE:
           raw.RETRIEVAL_MODE === "adaptive_rrf" ||
           raw.RETRIEVAL_MODE === "sgaf" ||
@@ -196,6 +208,43 @@ export function getConfig(): AppConfig {
     hasSupabaseRest,
     onVercel,
   };
+}
+
+/** Server-approved generation models. Never expose API keys or provider URLs. */
+export function getAvailableLlmModels(cfg: AppConfig = getConfig()): string[] {
+  const configured = (cfg.LLM_MODELS || "")
+    .split(",")
+    .map((model) => model.trim())
+    .filter(Boolean);
+  const providerModels = cfg.VILAO_API_KEY ? [cfg.VILAO_MODEL] : [];
+  return [...new Set([cfg.LLM_MODEL, ...configured, ...providerModels])];
+}
+
+export function resolveLlmModel(
+  requested: string | undefined,
+  cfg: AppConfig = getConfig(),
+): string {
+  const models = getAvailableLlmModels(cfg);
+  const model = requested?.trim();
+  if (!model) return cfg.LLM_MODEL;
+  if (!models.includes(model)) {
+    throw new Error("Unsupported LLM model. Add it to LLM_MODELS first.");
+  }
+  return model;
+}
+
+export function resolveLlmConfig(
+  requested: string | undefined,
+  cfg: AppConfig = getConfig(),
+): { model: string; baseUrl: string; apiKey?: string } {
+  const model = resolveLlmModel(requested, cfg);
+  if (model === cfg.VILAO_MODEL) {
+    if (!cfg.VILAO_API_KEY) {
+      throw new Error("Vilao API key is not configured for this model.");
+    }
+    return { model, baseUrl: cfg.VILAO_BASE_URL, apiKey: cfg.VILAO_API_KEY };
+  }
+  return { model, baseUrl: cfg.LLM_BASE_URL, apiKey: cfg.LLM_API_KEY };
 }
 
 /** Human-readable fix when DB is misconfigured (especially Vercel). */
@@ -253,7 +302,8 @@ export const IR_DEFAULTS = {
   maxNotebookChars: envPositiveInt("MAX_NOTEBOOK_CHARS", 2_000_000),
   maxChunksPerNotebook: envPositiveInt("MAX_CHUNKS_PER_NOTEBOOK", 2000),
   denseTopK: 40,
-  maxDenseChunks: 160,
+  /** Keep enough candidates for semantic recall on medium-sized raw corpora. */
+  maxDenseChunks: envPositiveInt("MAX_DENSE_CHUNKS", 512),
   rrfK: 60,
   adaptiveRrfScale: 1.0,
   adaptiveRrfMinBm25Weight: 0.05,

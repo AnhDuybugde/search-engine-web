@@ -34,7 +34,9 @@ export function bm25Retrieve(
     }));
   }
 
-  const docs = chunks.map((c) => tokenize(c.text));
+  // Include source titles: scientific chunks often put the entity/model name
+  // in the title while the body starts mid-section after PDF extraction.
+  const docs = chunks.map((c) => tokenize(`${c.title} ${c.text}`));
   const N = docs.length;
   const avgdl = docs.reduce((s, d) => s + d.length, 0) / Math.max(N, 1);
 

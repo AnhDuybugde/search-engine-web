@@ -20,6 +20,7 @@ import { AppShell } from "@/components/AppShell";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EvidenceList } from "@/components/EvidenceList";
 import { ModeSwitcher } from "@/components/ModeSwitcher";
+import { ResizeHandle } from "@/components/ResizeHandle";
 import { StepRail } from "@/components/StepRail";
 import { ChatComposer } from "@/components/search/ChatComposer";
 import { ChatThread } from "@/components/search/ChatThread";
@@ -28,6 +29,7 @@ import {
   useSearchChat,
   useSearchSessions,
 } from "@/lib/hooks/use-search-chat";
+import { usePanelLayout } from "@/lib/hooks/use-panel-layout";
 import { cn } from "@/lib/utils";
 
 const MEDICAL_SUGGESTION_FALLBACKS = [
@@ -86,9 +88,20 @@ export function SearchChatLayout({
   const [activeCitation, setActiveCitation] = useState<number | null>(null);
   const [uiError, setUiError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
-  const [suggestions, setSuggestions] = useState(() =>
-    pickRandomSuggestions(MEDICAL_SUGGESTION_FALLBACKS),
+  // Keep the first render deterministic for SSR hydration. Randomization is
+  // intentionally deferred to the client effect below.
+  const [suggestions, setSuggestions] = useState(
+    MEDICAL_SUGGESTION_FALLBACKS.slice(0, 4),
   );
+  const panel = usePanelLayout({
+    // v2 resets the stale collapsed layout saved by the previous sidebar
+    // implementation, while preserving future user resize/collapse choices.
+    storageKey: "search-chat-v2",
+    defaultLeftWidth: 270,
+    minLeft: 220,
+    maxLeft: 420,
+    defaultRightOpen: false,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -150,6 +163,7 @@ export function SearchChatLayout({
       searchLimit: number;
       contextTopK: number;
       generateAnswer: boolean;
+      llmModel?: string;
     },
   ) => {
     setUiError(null);
@@ -201,6 +215,7 @@ export function SearchChatLayout({
             searchLimit: number;
             contextTopK: number;
             generateAnswer: boolean;
+            llmModel?: string;
           };
         };
         if (pending.id !== sessionId) return;
@@ -233,6 +248,13 @@ export function SearchChatLayout({
     (chat.activeEvidence.length > 0 || chat.status === "running");
 
   const bannerError = uiError || chat.error || sessionsError;
+  const {
+    leftOpen,
+    leftWidth,
+    openLeft,
+    closeLeft,
+    beginResize,
+  } = panel;
 
   return (
     <AppShell fill>
@@ -247,23 +269,53 @@ export function SearchChatLayout({
           />
         )}
 
-        <SearchSidebar
-          sessions={sessions}
-          currentId={sessionId}
-          loading={sessionsLoading}
-          onNew={() => void onNew()}
-          onSelect={goSession}
-          onRename={rename}
-          onRequestDelete={(id, title) => {
-            setUiError(null);
-            setPendingDelete({ id, title });
-          }}
+        {!leftOpen && (
+          <div className="panel-rail hidden xl:flex" aria-label="Sessions collapsed">
+            <button
+              type="button"
+              className="panel-rail-btn"
+              onClick={openLeft}
+              aria-label="Expand sessions panel"
+              title="Expand sessions"
+            >
+              <PanelRight className="h-4 w-4 rotate-180" />
+            </button>
+          </div>
+        )}
+
+        <div
           className={cn(
-            "absolute inset-y-0 left-0 z-40 w-[var(--sidebar-w)] transition-transform duration-200 lg:static lg:translate-x-0",
+            "panel-shell z-40 bg-[var(--bg-elevated)]",
+            "absolute inset-y-0 left-0 transition-transform duration-200 lg:static",
             sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
-            !sidebarOpen && "pointer-events-none lg:pointer-events-auto",
+            !leftOpen && "is-collapsed",
           )}
-        />
+          style={{ width: leftWidth }}
+        >
+          <SearchSidebar
+            sessions={sessions}
+            currentId={sessionId}
+            loading={sessionsLoading}
+            onNew={() => void onNew()}
+            onSelect={goSession}
+            onRename={rename}
+            onRequestDelete={(id, title) => {
+              setUiError(null);
+              setPendingDelete({ id, title });
+            }}
+            onCollapse={closeLeft}
+            className="h-full border-0"
+          />
+          {leftOpen && (
+            <div className="absolute inset-y-0 right-0 hidden xl:block">
+              <ResizeHandle
+                side="left"
+                label="Resize sessions panel"
+                onResizeStart={(e) => beginResize("left", e)}
+              />
+            </div>
+          )}
+        </div>
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--bg-base)]">
           <div className="chat-toolbar">
@@ -428,6 +480,7 @@ export function SearchChatLayout({
           />
 
           <ChatComposer
+            className="web-composer-compact"
             running={chat.status === "running" || creating}
             disabled={false}
             onCancel={chat.cancel}

@@ -1,6 +1,6 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { streamText } from "ai";
-import { getConfig, IR_DEFAULTS } from "@/lib/config";
+import { getConfig, IR_DEFAULTS, resolveLlmConfig } from "@/lib/config";
 import {
   buildCitationSystemPrompt,
   buildCitationUserPrompt,
@@ -20,12 +20,87 @@ export function createLlmProvider() {
   });
 }
 
+function createProviderForModel(modelName?: string) {
+  const cfg = getConfig();
+  const resolved = resolveLlmConfig(modelName, cfg);
+  if (!resolved.apiKey) throw new Error(`API key is not configured for ${resolved.model}`);
+  return {
+    provider: createOpenAI({
+      baseURL: resolved.baseUrl,
+      apiKey: resolved.apiKey,
+      name: resolved.model === cfg.VILAO_MODEL ? "vilao-compatible" : "groq-compatible",
+    }),
+    model: resolved.model,
+  };
+}
+
 function shrinkChunks(chunks: RankedChunk[], keep: number): RankedChunk[] {
   return chunks.slice(0, keep).map((c, i) => ({
     ...c,
     citationId: i + 1,
     finalRank: i + 1,
   }));
+}
+
+/** Hide provider reasoning tags while preserving the final answer stream. */
+function createThinkingFilter(onVisible: (text: string) => void) {
+  let pending = "";
+  let thinking = false;
+  const open = "<think>";
+  const close = "</think>";
+
+  const emitOutsideTags = (text: string, flush = false) => {
+    pending += text;
+    while (pending) {
+      if (thinking) {
+        const end = pending.indexOf(close);
+        if (end < 0) {
+          if (flush) pending = "";
+          return;
+        }
+        pending = pending.slice(end + close.length);
+        thinking = false;
+        continue;
+      }
+
+      const start = pending.indexOf(open);
+      if (start >= 0) {
+        if (start > 0) onVisible(pending.slice(0, start));
+        pending = pending.slice(start + open.length);
+        thinking = true;
+        continue;
+      }
+
+      if (flush) {
+        onVisible(pending);
+        pending = "";
+        return;
+      }
+
+      // Keep a possible partial tag at the token boundary.
+      const maxTail = Math.min(pending.length, open.length - 1);
+      let keep = 0;
+      for (let size = maxTail; size > 0; size--) {
+        const suffix = pending.slice(-size);
+        if (open.startsWith(suffix)) {
+          keep = size;
+          break;
+        }
+      }
+      if (pending.length > keep) onVisible(pending.slice(0, pending.length - keep));
+      pending = keep ? pending.slice(-keep) : "";
+      return;
+    }
+  };
+
+  return {
+    push(text: string) {
+      emitOutsideTags(text);
+    },
+    flush() {
+      emitOutsideTags("", true);
+    },
+  };
 }
 
 /**
@@ -35,13 +110,14 @@ function shrinkChunks(chunks: RankedChunk[], keep: number): RankedChunk[] {
 export async function streamAnswer(params: {
   query: string;
   chunks: RankedChunk[];
+  model?: string;
   onToken: (token: string) => void | Promise<void>;
   signal?: AbortSignal;
 }): Promise<string> {
-  const cfg = getConfig();
-  const openai = createLlmProvider();
+  const selected = createProviderForModel(params.model);
+  const openai = selected.provider;
   // Force Chat Completions — not /v1/responses
-  const model = openai.chat(cfg.LLM_MODEL);
+  const model = openai.chat(selected.model);
 
   let workingChunks = shrinkChunks(params.chunks, Math.min(params.chunks.length, 4));
   let maxPerChunk = 700;
@@ -69,6 +145,11 @@ export async function streamAnswer(params: {
       });
 
       let full = "";
+      const visibleParts: string[] = [];
+      const thinkingFilter = createThinkingFilter((visible) => {
+        full += visible;
+        visibleParts.push(visible);
+      });
       for await (const part of result.textStream) {
         if (params.signal?.aborted) {
           const err = new Error("Aborted");
@@ -76,8 +157,14 @@ export async function streamAnswer(params: {
           (err as Error & { partial?: string }).partial = full;
           throw err;
         }
-        full += part;
-        await params.onToken(part);
+        thinkingFilter.push(part);
+        for (const visible of visibleParts.splice(0)) {
+          await params.onToken(visible);
+        }
+      }
+      thinkingFilter.flush();
+      for (const visible of visibleParts.splice(0)) {
+        await params.onToken(visible);
       }
       if (!full.trim()) {
         throw new Error("LLM returned empty response");

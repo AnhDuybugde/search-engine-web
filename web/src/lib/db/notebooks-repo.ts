@@ -1,4 +1,4 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import type { ChunkWithEmbedding } from "@/lib/ir/types";
 import { expandRawSourcesToUnits } from "@/lib/ir/raw-units";
@@ -960,6 +960,123 @@ export async function addSource(
     embeddedCount: 0,
     mode: "raw-sources-only",
   };
+}
+
+export async function renameSource(
+  notebookId: string,
+  sourceId: string,
+  title: string,
+) {
+  assertDurableDb("Rename source");
+  const notebook = await getNotebook(notebookId);
+  if (!notebook) throw new Error("Notebook not found");
+  const clean = title.trim();
+  if (!clean) throw new Error("Source name is required");
+  if (clean.length > 200) throw new Error("Source name is too long (max 200)");
+
+  if (!hasDb()) {
+    const source = memSources.get(sourceId);
+    if (!source || source.notebookId !== notebookId) return null;
+    source.title = clean;
+    memSources.set(sourceId, source);
+    return {
+      id: source.id,
+      notebookId: source.notebookId,
+      title: source.title,
+      mime: source.mime,
+      charCount: source.text.length,
+      createdAt: source.createdAt,
+    };
+  }
+
+  const now = new Date().toISOString();
+  const sb = getSupabaseAdmin();
+  if (sb) {
+    const { data, error } = await sb
+      .from("sources")
+      .update({ title: clean })
+      .eq("id", sourceId)
+      .eq("notebook_id", notebookId)
+      .select("id,notebook_id,title,mime,text,created_at")
+      .maybeSingle();
+    if (error) throw new Error(`Rename source failed: ${sbError(error)}`);
+    if (!data) return null;
+    return {
+      id: data.id as string,
+      notebookId: data.notebook_id as string,
+      title: data.title as string,
+      mime: (data.mime as string | null) ?? null,
+      charCount: String(data.text || "").length,
+      createdAt: toIso(data.created_at, now),
+    };
+  }
+
+  const db = getDb();
+  const [updated] = await db
+    .update(sources)
+    .set({ title: clean })
+    .where(eq(sources.id, sourceId))
+    .returning();
+  if (!updated || updated.notebookId !== notebookId) return null;
+  return {
+    id: updated.id,
+    notebookId: updated.notebookId,
+    title: updated.title,
+    mime: updated.mime,
+    charCount: updated.text.length,
+    createdAt: toIso(updated.createdAt, now),
+  };
+}
+
+export async function deleteSource(notebookId: string, sourceId: string) {
+  assertDurableDb("Delete source");
+  const notebook = await getNotebook(notebookId);
+  if (!notebook) throw new Error("Notebook not found");
+
+  if (!hasDb()) {
+    const source = memSources.get(sourceId);
+    if (!source || source.notebookId !== notebookId) return false;
+    memSources.delete(sourceId);
+    for (const [chunkId, chunk] of memChunks) {
+      if (chunk.sourceId === sourceId && chunk.notebookId === notebookId) {
+        memChunks.delete(chunkId);
+      }
+    }
+    return true;
+  }
+
+  const sb = getSupabaseAdmin();
+  if (sb) {
+    const chunksResult = await sb
+      .from("chunks")
+      .delete()
+      .eq("source_id", sourceId)
+      .eq("notebook_id", notebookId);
+    if (chunksResult.error) {
+      throw new Error(`Delete source index failed: ${sbError(chunksResult.error)}`);
+    }
+    const sourceResult = await sb
+      .from("sources")
+      .delete()
+      .eq("id", sourceId)
+      .eq("notebook_id", notebookId)
+      .select("id")
+      .maybeSingle();
+    if (sourceResult.error) {
+      throw new Error(`Delete source failed: ${sbError(sourceResult.error)}`);
+    }
+    return Boolean(sourceResult.data);
+  }
+
+  const db = getDb();
+  await db
+    .delete(chunks)
+    .where(and(eq(chunks.sourceId, sourceId), eq(chunks.notebookId, notebookId)));
+  const deleted = await db
+    .delete(sources)
+    .where(and(eq(sources.id, sourceId), eq(sources.notebookId, notebookId)))
+    .returning({ id: sources.id, notebookId: sources.notebookId });
+  return deleted[0]?.notebookId === notebookId;
 }
 
 /** Count stored chunk rows (legacy corpora only; raw ingest writes 0). */

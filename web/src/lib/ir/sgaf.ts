@@ -195,21 +195,24 @@ export async function sgafRetrieve(
       : 0;
 
   // ---- BM25 pre-filter ----
-  const bm25TopK = Math.max(topK, 160);
+  const bm25TopK = Math.max(topK, IR_DEFAULTS.maxDenseChunks);
+  const bm25Start = performance.now();
   const bm25All = bm25Retrieve(query, chunks, bm25TopK);
-  const bm25Ms = 0; // already measured in bm25Retrieve
+  const bm25Ms = Math.round(performance.now() - bm25Start);
 
   // ---- Embed query with both models ----
   const queryText = `Represent this sentence for searching relevant passages: ${query}`;
 
+  const embeddingStart = performance.now();
   const [specialistEmb, generalistEmb] = await Promise.all([
     embedFn([queryText], specialistModel).then((r) => r[0]),
     embedFn([queryText], generalistModel).then((r) => r[0]),
   ]);
+  const embeddingMs = Math.round(performance.now() - embeddingStart);
 
   // ---- Build candidate pool (specialist + generalist) ----
   const candidateIds = new Set(
-    bm25All.slice(0, 160).map((h) => h.chunkId),
+    bm25All.slice(0, IR_DEFAULTS.maxDenseChunks).map((h) => h.chunkId),
   );
   const candidates = chunks.filter((c) => candidateIds.has(c.chunkId));
 
@@ -271,6 +274,7 @@ export async function sgafRetrieve(
       b5ShiftScore: S,
       denseUsed: true,
       bm25Ms,
+      embeddingMs,
       specialistModel,
       p3Applied,
     },
