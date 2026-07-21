@@ -36,7 +36,7 @@ function makeChunks(): ChunkWithEmbedding[] {
 }
 
 describe("runNotebookAskPipeline (shipped entry)", () => {
-  it("emits timings, confidence metrics, and top documents for a real query", async () => {
+  it("emits timings, relative score metrics, and top documents for a real query", async () => {
     const events: StreamEvent[] = [];
     const result = await runNotebookAskPipeline(
       {
@@ -62,10 +62,11 @@ describe("runNotebookAskPipeline (shipped entry)", () => {
     expect(result.documents.length).toBeLessThanOrEqual(10);
     expect(result.documents[0].finalRank).toBe(1);
     expect(result.documents[0].title.length).toBeGreaterThan(0);
-    expect(result.documents[0].confidence).toBeGreaterThan(0);
-    expect(result.documents[0].confidence).toBeLessThanOrEqual(1);
+    expect(result.documents[0].relativeScore).toBeGreaterThan(0);
+    expect(result.documents[0].relativeScore).toBeLessThanOrEqual(1);
 
-    expect(result.metrics.confidenceMax).toBeTypeOf("number");
+    expect(result.metrics.topScoreStrength).toBeTypeOf("number");
+    expect(result.metrics.relativeScoreMean).toBeTypeOf("number");
     expect(result.metrics.documentsRanked).toBe(result.documents.length);
     expect(result.metrics.llmUsed).toBe(false);
 

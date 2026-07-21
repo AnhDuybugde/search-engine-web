@@ -1,24 +1,24 @@
 import type { Metadata } from "next";
 import {
+  DM_Sans,
   JetBrains_Mono,
-  Plus_Jakarta_Sans,
-  Sora,
+  Space_Grotesk,
 } from "next/font/google";
 import "./globals.css";
 
-/** Body UI — highly readable geometric sans at 16px+ */
-const plusJakarta = Plus_Jakarta_Sans({
+/** Body UI — compact, readable SaaS typography. */
+const dmSans = DM_Sans({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
-  variable: "--font-plus-jakarta",
+  variable: "--font-dm-sans",
   display: "swap",
 });
 
-/** Display / titles */
-const sora = Sora({
+/** Display / titles — technical but restrained. */
+const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
-  variable: "--font-sora",
+  variable: "--font-space-grotesk",
   display: "swap",
 });
 
@@ -46,7 +46,7 @@ export default function RootLayout({
     // otherwise surfaces as a noisy mismatch in dev.
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${plusJakarta.variable} ${sora.variable} ${jetbrains.variable} min-h-dvh antialiased`}
+        className={`${dmSans.variable} ${spaceGrotesk.variable} ${jetbrains.variable} min-h-dvh antialiased`}
         suppressHydrationWarning
       >
         <div className="page-mesh" aria-hidden />

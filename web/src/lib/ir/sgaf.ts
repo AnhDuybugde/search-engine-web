@@ -5,9 +5,8 @@
  * - B5: batch (single-query) mode-switch based on 5 query features
  * - P3: rank-window smoothing (only in generalist-fallback mode)
  */
-import { getConfig, IR_DEFAULTS } from "@/lib/config";
+import { IR_DEFAULTS } from "@/lib/config";
 import { bm25Retrieve, tokenize } from "./bm25";
-import { embedTexts } from "./embedding";
 import type {
   HybridRetrievalDiagnostics,
 } from "./adaptive-rrf";
@@ -157,7 +156,6 @@ export async function sgafRetrieve(
   results: RankedChunk[];
   diagnostics: SgafDiagnostics;
 }> {
-  const cfg = getConfig();
   const threshold = IR_DEFAULTS.sgafShiftThreshold;
   const p3Window = IR_DEFAULTS.p3Window;
   const p3Alpha = IR_DEFAULTS.p3Alpha;

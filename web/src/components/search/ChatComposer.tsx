@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   ChevronDown,
   CornerDownLeft,
@@ -44,12 +44,8 @@ export function ChatComposer({
   const [contextTopK, setContextTopK] = useState(4);
   const [generateAnswer, setGenerateAnswer] = useState(true);
   const [retrievalMode, setRetrievalMode] = useState<RetrievalModeId>(
-    "adaptive_rrf",
+    () => readStoredRetrievalMode(),
   );
-
-  useEffect(() => {
-    setRetrievalMode(readStoredRetrievalMode());
-  }, []);
 
   const setMode = (mode: RetrievalModeId) => {
     setRetrievalMode(mode);

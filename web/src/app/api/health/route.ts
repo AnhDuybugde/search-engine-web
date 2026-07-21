@@ -150,7 +150,7 @@ export async function GET(req: Request) {
   const missing: string[] = [];
   if (!cfg.hasSearch) missing.push("TAVILY_API_KEY (or BRAVE_API_KEY)");
   if (!cfg.hasLlm) missing.push("LLM_API_KEY");
-  if (cfg.RETRIEVAL_MODE === "adaptive_rrf" && !cfg.hasEmbedding) {
+  if (cfg.RETRIEVAL_MODE !== "bm25" && !cfg.hasEmbedding) {
     missing.push("EMBEDDING_API_URL (or Hugging Face EMBEDDING_API_KEY)");
   }
   if (!cfg.hasSupabaseRest) {

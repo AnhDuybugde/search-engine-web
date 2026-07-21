@@ -33,6 +33,8 @@ export type RankedDocument = {
   title: string;
   finalScore: number;
   finalRank: number;
+  /** Display-only score normalized within this query's ranked list. */
+  relativeScore: number;
   /**
    * Display confidence proxy in [0,1] from this query's ranked scores
    * (absolute BM25/dense/final + relative margin). Not a calibrated ML probability.
@@ -91,6 +93,11 @@ export type Metrics = {
   llmSkippedReason?: string;
   documentsRanked?: number;
   topKDocuments?: number;
+  /** Absolute strength of the top ranked document. */
+  topScoreStrength?: number;
+  /** Mean and max display-normalized score across ranked documents. */
+  relativeScoreMean?: number;
+  relativeScoreMax?: number;
   confidenceMean?: number;
   confidenceMax?: number;
   /** (top1 - top2) / top1 on finalScore (retrieval signal) */

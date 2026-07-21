@@ -312,8 +312,8 @@ export function applySseEvent(prev: SseState, event: StreamEvent): SseState {
     case "fusion_completed":
       logs.push(
         `Fusion ${event.method} (${event.ms}ms${
-          event.bm25Weight != null
-            ? ` · w_BM25=${event.bm25Weight.toFixed(2)}`
+          event.method === "rrf" || event.method === "adaptive_rrf"
+            ? " · classic RRF k=60"
             : ""
         })`,
       );

@@ -71,6 +71,7 @@ describe("applySseEvent ranked vs packed separation", () => {
           title: "Title d1",
           finalScore: 3,
           finalRank: 1,
+          relativeScore: 1,
           confidence: 1,
           chunkHits: 1,
           topChunkIds: ["c1"],
@@ -106,6 +107,7 @@ describe("applySseEvent ranked vs packed separation", () => {
       metrics: {
         contextCount: 1,
         documentsRanked: 1,
+        relativeScoreMax: 1,
         confidenceMax: 1,
         llmUsed: false,
         llmSkippedReason: "generateAnswer=false",
@@ -118,6 +120,7 @@ describe("applySseEvent ranked vs packed separation", () => {
           title: "Title d1",
           finalScore: 3,
           finalRank: 1,
+          relativeScore: 1,
           confidence: 1,
           chunkHits: 1,
           topChunkIds: ["c1"],

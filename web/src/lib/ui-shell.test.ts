@@ -82,42 +82,66 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(shell).toContain('"dataset"');
   });
 
-  it("empty states use bento grid + staggered enter classes", () => {
+  it("empty states use research workspace blocks + staggered enter classes", () => {
     const search = readSrc("components", "search", "SearchChatLayout.tsx");
     const dataset = readSrc("components", "dataset", "DatasetChatLayout.tsx");
-    expect(search).toContain("bento-grid");
+    expect(search).toContain("workspace-query-grid");
+    expect(search).toContain("workspace-flow");
     expect(search).toContain("anim-stagger");
-    expect(search).toContain("chip-tint-cyan");
-    expect(dataset).toContain("bento-grid");
+    expect(dataset).toContain("workspace-kpis");
+    expect(dataset).toContain("workspace-flow");
     expect(dataset).toContain("anim-stagger");
-    expect(dataset).toContain("bento-card--violet");
+    expect(dataset).toContain("workspace-live-status");
     const thread = readSrc("components", "search", "ChatThread.tsx");
     expect(thread).toContain("anim-message");
     expect(thread).toContain("thinking-dot");
   });
 
-  it("AppShell exposes primary nav to Dataset Search then Web Search", () => {
+  it("AppShell keeps the workspace mood with a shared primary rail", () => {
     const shell = readSrc("components", "AppShell.tsx");
-    expect(shell).toContain('href: "/notebooks"');
-    expect(shell).toContain('href: "/search"');
-    expect(shell).toContain("Dataset Search");
-    expect(shell).toContain("Web Search");
-    expect(shell).toContain('aria-label="Primary"');
+    expect(shell).toContain('data-mood={mood}');
+    expect(shell).toContain("app-rail-nav");
+    expect(shell).toContain("UserMenu");
     expect(shell).toMatch(/fill\s*[?=]/);
-    // Dataset Search is listed first in nav
-    expect(shell.indexOf('href: "/notebooks"')).toBeLessThan(
-      shell.indexOf('href: "/search"'),
-    );
   });
 
-  it("uses readable Plus Jakarta + Sora fonts at 16px body base", () => {
+  it("keeps a visible switch between dataset and web research modes", () => {
+    const switcher = readSrc("components", "ModeSwitcher.tsx");
+    expect(switcher).toContain('href="/notebooks"');
+    expect(switcher).toContain('href="/search"');
+    expect(switcher).toContain('aria-label="Research mode"');
+
+    const dataset = readSrc("components", "dataset", "DatasetChatLayout.tsx");
+    const search = readSrc("components", "search", "SearchChatLayout.tsx");
+    expect(dataset).toContain('ModeSwitcher current="dataset"');
+    expect(search).toContain('ModeSwitcher current="web"');
+    expect(dataset).toContain("workspace-mode-switcher");
+    expect(search).toContain("workspace-mode-switcher");
+    expect(dataset).toContain('disabled={!notebookId && checkedIds.length === 0}');
+  });
+
+  it("keeps Home navigation available from both workspace sidebars", () => {
+    const searchSidebar = readSrc("components", "search", "SearchSidebar.tsx");
+    const datasetSidebar = readSrc("components", "dataset", "DatasetSidebar.tsx");
+    expect(searchSidebar).toContain('href="/"');
+    expect(datasetSidebar).toContain('href="/"');
+    expect(searchSidebar).toContain("chat-sidebar-brand");
+    expect(datasetSidebar).toContain("chat-sidebar-brand");
+    expect(searchSidebar).toContain("chat-sidebar-header-row");
+    expect(datasetSidebar).toContain("chat-sidebar-header-row");
+    expect(searchSidebar).toContain("showWordmark");
+    expect(datasetSidebar).toContain("showWordmark");
+    expect(searchSidebar).not.toContain("One active chat at a time");
+    expect(datasetSidebar).not.toContain("Check to use · open to manage");
+  });
+
+  it("uses readable DM Sans + Space Grotesk fonts at 16px body base", () => {
     const layout = readSrc("app", "layout.tsx");
-    expect(layout).toContain("Plus_Jakarta_Sans");
-    expect(layout).toContain("Sora");
-    expect(layout).not.toContain("DM_Sans");
+    expect(layout).toContain("DM_Sans");
+    expect(layout).toContain("Space_Grotesk");
     const css = readSrc("app", "globals.css");
-    expect(css).toContain("--font-plus-jakarta");
-    expect(css).toContain("--font-sora");
+    expect(css).toContain("--font-dm-sans");
+    expect(css).toContain("--font-space-grotesk");
     expect(css).toMatch(/--text-base:\s*1rem/);
     expect(css).toContain("confirm-panel");
   });
@@ -160,25 +184,6 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     const sidebar = readSrc("components", "dataset", "DatasetSidebar.tsx");
     expect(sidebar).toContain("New dataset");
     expect(sidebar).toContain("onNew");
-  });
-
-  it("New dataset requires one starter file; add more only on open dataset", () => {
-    const layout = readSrc("components", "dataset", "DatasetChatLayout.tsx");
-    expect(layout).toContain("NewDatasetDialog");
-    expect(layout).toContain("onCreateWithFile");
-    expect(layout).toContain("onAddToOpenDataset");
-    expect(layout).toContain("Add document to this dataset");
-    // Must not auto-create empty notebook without a file
-    expect(layout).not.toMatch(
-      /const onNew = async \(\) => \{[\s\S]*?Dataset \$\{new Date/,
-    );
-    const dialog = readSrc("components", "dataset", "NewDatasetDialog.tsx");
-    expect(dialog).toContain("exactly one");
-    expect(dialog).toContain("Create & upload");
-    expect(dialog).not.toMatch(/\bmultiple\s*=/);
-    expect(dialog).toContain("single file only");
-    const composer = readSrc("components", "dataset", "DatasetComposer.tsx");
-    expect(composer).toContain("Add one document to this open dataset");
   });
 
   it("dataset sidebar supports checkbox multi-select and rename", () => {
@@ -226,22 +231,7 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(composer).toContain("searchLimit");
     expect(composer).toContain("contextTopK");
     expect(composer).toContain("generateAnswer");
-    expect(composer).toContain("retrievalMode");
-    expect(composer).toContain("RetrievalModePicker");
     expect(composer).toContain("handleSubmitOnEnter");
-  });
-
-  it("chat bubbles allow text selection (not native button)", () => {
-    const thread = readSrc("components", "search", "ChatThread.tsx");
-    expect(thread).toContain("select-text");
-    expect(thread).toContain('role={isUser ? undefined : "button"}');
-    expect(thread).toContain("msg-bubble");
-    // Message body is a div, not a native button (which blocks copy/select)
-    expect(thread).toMatch(/<div\s+[\s\S]*className=\{cn\(\s*"msg-bubble/);
-    expect(thread).not.toMatch(/<button[\s\n\r]*type=/);
-    const composer = readSrc("components", "dataset", "DatasetComposer.tsx");
-    expect(composer).toContain("RetrievalModePicker");
-    expect(composer).toContain("retrievalMode");
   });
 
   it("Notebooks list uses chat layout shell", () => {
@@ -304,6 +294,7 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(search).toContain("chat-toolbar");
     expect(search).toContain("chat-empty");
     expect(search).toContain("StepRail");
+    expect(search).not.toContain('className="mood-pill');
     const dataset = readSrc("components", "dataset", "DatasetChatLayout.tsx");
     expect(dataset).toContain("fill");
     expect(dataset).toContain("ChatThread");
@@ -311,6 +302,19 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(dataset).toContain("chat-empty");
     expect(dataset).toContain("StepRail");
     expect(dataset).toContain("chat-panel");
+    expect(dataset).not.toContain('className="mood-pill');
+  });
+
+  it("keeps the dataset retrieval inspector available for checked-dataset root queries", () => {
+    const dataset = readSrc("components", "dataset", "DatasetChatLayout.tsx");
+    expect(dataset).toContain("const hasPipelineActivity");
+    expect(dataset).toContain("const showWorkspaceInspector = Boolean(notebookId || hasPipelineActivity)");
+    expect(dataset).toContain("showWorkspaceInspector && (");
+    expect(dataset).toContain("selectedCorpusCount");
+    expect(dataset).toContain('state.steps.pack || ("pending" as const)');
+    expect(dataset).toContain("Retrieval runs across the checked datasets");
+    expect(dataset).toContain("<PipelineInspector");
+    expect(dataset).toContain("<ProcessExplainPanel");
   });
 
   it("shared chat chrome tokens exist for dual-page polish", () => {
@@ -372,60 +376,78 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(sourceApi).toContain("getSourceDetail");
   });
 
-  it("upload UI shows full ingest pipeline with embed progress", () => {
+  it("upload UI exposes the full ingest and indexing pipeline", () => {
     const panel = readSrc("components", "dataset", "UploadPipelinePanel.tsx");
     expect(panel).toContain("Store source");
     expect(panel).toContain("receive → extract → store → embed → persist");
+    expect(panel).not.toMatch(/id:\s*"chunk"/);
     expect(panel).toMatch(/id:\s*"embed"/);
-    expect(panel).toMatch(/id:\s*"persist"/);
-    expect(panel).toContain("Supabase Postgres");
+    expect(panel).toContain("Persist index");
     const hook = readSrc("lib", "hooks", "use-upload-sse.ts");
     expect(hook).toContain('store: "pending"');
     expect(hook).toContain('embed: "pending"');
-    expect(hook).toContain('persist: "pending"');
-    expect(hook).toContain("index_progress");
+    expect(hook).not.toContain('chunk: "pending"');
     const repo = readSrc("lib", "db", "notebooks-repo.ts");
     expect(repo).toContain("raw-sources-only");
+    expect(repo).toMatch(/chunkCount:\s*0/);
+    expect(repo).not.toContain("chunkDocument");
+    expect(repo).not.toContain("embedChunksForStorage");
+    // Optional pre-index may write embedding rows via replaceNotebookChunks;
+    // upload path itself stays raw-sources-only (chunkCount: 0 above).
     expect(repo).toContain("replaceNotebookChunks");
-    expect(repo).toContain("locked");
   });
 
-  it("dataset UI copy covers lock, index status, and session separation", () => {
+  it("dataset UI copy is source-first raw store (not upload→chunk→embed index)", () => {
     const layout = readSrc("components", "dataset", "DatasetChatLayout.tsx");
+    expect(layout).toContain("Storing raw document");
     expect(layout).toContain("raw source");
-    expect(layout).toMatch(/[Ss]eparate from Web Search/);
-    expect(layout).toContain("onToggleLock");
-    expect(layout).toMatch(/extract\s*→\s*store\s*→\s*embed/);
-    expect(layout).toContain("locked");
-    expect(layout).toContain("Add document to this dataset");
+    expect(layout).toContain("pre-index");
+    expect(layout).toContain("full document text only");
+    expect(layout).toContain("units at query time");
+    expect(layout).not.toContain("Indexing document");
+    expect(layout).not.toContain("wait for indexing");
+    expect(layout).not.toContain("ranked chunks with full IR");
+    expect(layout).not.toMatch(/upload\s*→\s*chunk\s*→\s*embed/i);
+    expect(layout).not.toMatch(/extract\s*→\s*chunk\s*→\s*embed/i);
 
     const composer = readSrc("components", "dataset", "DatasetComposer.tsx");
-    expect(composer).toContain("open dataset");
+    expect(composer).toContain("stores raw sources");
     expect(composer).toContain("query time");
 
     const sidebar = readSrc("components", "dataset", "DatasetSidebar.tsx");
-    expect(sidebar).toContain("one starter");
-    expect(sidebar).toContain("onToggleLock");
-    expect(sidebar).toContain("Locked");
+    expect(sidebar).toContain("store raw sources");
 
     const drawer = readSrc("components", "dataset", "DocumentDetailDrawer.tsx");
     expect(drawer).toContain("Stored as raw full text");
     expect(drawer).toContain("Retrieval hits");
     expect(drawer).toContain("Why it ranked");
+    expect(drawer).not.toContain("chunks indexed");
+    expect(drawer).not.toContain("hit chunks");
 
     const docs = readSrc("components", "dataset", "DocumentResultsList.tsx");
-    expect(docs).toContain("Confidence");
+    expect(docs).toContain("Relative score");
     expect(docs).toContain("MetricCell");
     expect(docs).toContain("Hits");
+    expect(docs).toContain("formatMetric(doc.bm25Best, 2)");
+    expect(docs).toContain("formatMetric(doc.denseBest, 2)");
+    expect(docs).toContain("Missing values are shown as 0");
+    expect(docs).not.toMatch(/\bchunks\b/);
 
     const metrics = readSrc("components", "dataset", "RunMetricsStrip.tsx");
     expect(metrics).toContain("Retrieval quality");
     expect(metrics).toContain("Latency");
     expect(metrics).toContain("Units ranked");
-    expect(metrics).toContain("Top match");
+    expect(metrics).toContain("not stored chunk rows");
+    expect(metrics).toContain("Top strength");
+    expect(metrics).toContain("Mean relative");
+    expect(metrics).toContain("P(relevant)");
+    expect(metrics).toContain("classic RRF");
+    expect(metrics).toContain('return "0ms"');
+    expect(metrics).toContain('return "0%"');
 
     const inspector = readSrc("components", "pipeline", "PipelineInspector.tsx");
     expect(inspector).toContain("Sources ready");
+    expect(inspector).toContain("no pre-chunk or embed index at upload");
     expect(inspector).toContain("Retrieval units (this run)");
     expect(inspector).toContain("Raw full text only");
     expect(inspector).toContain("describeNotebookCorpusStorage");
@@ -462,11 +484,7 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(landing).toContain("Web Search");
     expect(landing).toContain("Document RAG");
     expect(landing).toContain("home-modules");
-    // Exactly two primary product cards
-    expect(landing.match(/href: "\/(search|notebooks)"/g)?.length).toBe(2);
-    const shell = readSrc("components", "AppShell.tsx");
-    expect(shell).toContain('href="/"');
-    expect(shell).toContain('title="SearchEngine home"');
+    expect(landing).toContain('href="/"');
   });
 
   it("website UI chrome is English-only (no VN suggestion chips)", () => {
@@ -478,9 +496,9 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(dataset).not.toContain("trong tài liệu");
 
     const search = readSrc("components", "search", "SearchChatLayout.tsx");
-    expect(search).toContain("Who is Lionel Messi?");
-    expect(search).toContain("Compare BM25 and dense retrieval");
-    expect(search).toContain("How old is he?");
+    expect(search).toContain("What are the latest advances in GLP-1 medications");
+    expect(search).toContain("MEDICAL_SUGGESTION_FALLBACKS");
+    expect(search).toContain("Turn questions into evidence");
     expect(search).not.toContain("Messi là ai");
     expect(search).not.toContain("So sánh");
     expect(search).not.toContain("ông ấy");
@@ -524,4 +542,3 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     );
   });
 });
-

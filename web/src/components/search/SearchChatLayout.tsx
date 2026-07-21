@@ -4,17 +4,22 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
+  ArrowUpRight,
+  CheckCircle2,
   Globe2,
+  History,
   Layers,
   Menu,
   MessageSquareText,
   PanelRight,
   Sparkles,
+  Zap,
   X,
 } from "lucide-react";
 import { AppShell } from "@/components/AppShell";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { EvidenceList } from "@/components/EvidenceList";
+import { ModeSwitcher } from "@/components/ModeSwitcher";
 import { StepRail } from "@/components/StepRail";
 import { ChatComposer } from "@/components/search/ChatComposer";
 import { ChatThread } from "@/components/search/ChatThread";
@@ -23,15 +28,36 @@ import {
   useSearchChat,
   useSearchSessions,
 } from "@/lib/hooks/use-search-chat";
-import { readStoredRetrievalMode } from "@/lib/ir/retrieval-modes";
 import { cn } from "@/lib/utils";
 
-const SUGGESTIONS = [
-  "Who is Lionel Messi?",
-  "What is TypeScript and why use it?",
-  "Compare BM25 and dense retrieval",
-  "How does Supabase Auth work?",
+const MEDICAL_SUGGESTION_FALLBACKS = [
+  "What are the latest advances in GLP-1 medications for obesity and type 2 diabetes?",
+  "What is the current evidence for long COVID treatment and recovery?",
+  "How is artificial intelligence being used in medical diagnosis?",
+  "What are the latest findings on antimicrobial resistance in hospitals?",
+  "How effective are mRNA vaccines against emerging respiratory viruses?",
+  "What are the current clinical approaches to Alzheimer’s disease prevention?",
+  "What does recent research show about gut microbiota and human health?",
+  "How is liquid biopsy being used for early cancer detection?",
+  "What are the latest treatments for treatment-resistant depression?",
+  "How does sleep affect cardiovascular and metabolic health?",
+  "What is the current evidence for personalized cancer immunotherapy?",
+  "How are wearable devices being used for remote patient monitoring?",
+  "What are the latest advances in gene therapy for rare diseases?",
+  "What does current research show about precision medicine in oncology?",
+  "How can clinical research improve the early diagnosis of sepsis?",
+  "What are the latest evidence-based treatments for chronic pain?",
+  "How does air pollution affect respiratory and cardiovascular disease?",
+  "What are the current trends in regenerative medicine and tissue engineering?",
+  "How is genomic sequencing changing infectious disease surveillance?",
+  "What does recent medical research say about the health effects of climate change?",
 ];
+
+function pickRandomSuggestions(items: string[], count = 4) {
+  return [...items]
+    .sort(() => Math.random() - 0.5)
+    .slice(0, count);
+}
 
 export function SearchChatLayout({
   sessionId,
@@ -60,6 +86,33 @@ export function SearchChatLayout({
   const [activeCitation, setActiveCitation] = useState<number | null>(null);
   const [uiError, setUiError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [suggestions, setSuggestions] = useState(() =>
+    pickRandomSuggestions(MEDICAL_SUGGESTION_FALLBACKS),
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/medical-trends", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Medical trends unavailable");
+        const payload = (await response.json()) as { suggestions?: unknown };
+        const items = Array.isArray(payload.suggestions)
+          ? payload.suggestions.filter(
+              (item): item is string =>
+                typeof item === "string" && item.trim().length > 20,
+            )
+          : [];
+        if (!cancelled && items.length >= 4) {
+          setSuggestions(pickRandomSuggestions(items));
+        }
+      })
+      .catch(() => {
+        // Keep the curated medical fallback when the upstream index is unavailable.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (chat.status === "idle") void refresh();
@@ -97,7 +150,6 @@ export function SearchChatLayout({
       searchLimit: number;
       contextTopK: number;
       generateAnswer: boolean;
-      retrievalMode: "bm25" | "adaptive_rrf" | "sgaf";
     },
   ) => {
     setUiError(null);
@@ -225,9 +277,6 @@ export function SearchChatLayout({
             </button>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="mood-pill hidden sm:inline-flex">
-                  Web Search
-                </span>
                 <h1
                   className="truncate text-sm font-semibold tracking-tight"
                   style={{ fontFamily: "var(--font-display)" }}
@@ -289,74 +338,90 @@ export function SearchChatLayout({
           {(chat.status === "running" ||
             Object.values(chat.steps || {}).some(
               (s) => s === "success" || s === "failed" || s === "running",
-            )) && <StepRail steps={chat.steps} />}
+            )) && (
+              <StepRail
+                steps={chat.steps}
+                timing={
+                  chat.messages.find((m) => m.id === chat.activeAssistantId)
+                    ?.timing
+                }
+              />
+            )}
 
           <ChatThread
             messages={chat.messages}
             activeAssistantId={chat.activeAssistantId}
             onSelectAssistant={chat.setActiveAssistantId}
             empty={
-              <div className="chat-empty anim-enter">
-                <div className="chat-empty-badge">
-                  <Sparkles className="h-3 w-3 text-[var(--cyan)]" aria-hidden />
-                  Session-aware web research
+              <div className="chat-empty workspace-empty workspace-empty--web anim-enter">
+                <div className="workspace-empty-head">
+                  <div className="chat-empty-badge">
+                    <Sparkles className="h-3 w-3 text-[var(--cyan)]" aria-hidden />
+                    Session-aware web research
+                  </div>
+                  <span className="workspace-live-status workspace-live-status--cyan">
+                    <span className="workspace-status-dot" />
+                    Web index online
+                  </span>
                 </div>
-                <h2 className="chat-empty-title">Ask the open web</h2>
-                <p className="chat-empty-copy">
-                  Follow-ups keep context in this session — ask who someone is,
-                  then “How old is he?” without repeating the name.
+                <div className="workspace-mode-switcher">
+                  <ModeSwitcher current="web" />
+                </div>
+                <h2 className="chat-empty-title workspace-empty-title">Turn questions into evidence</h2>
+                <p className="chat-empty-copy workspace-empty-copy">
+                  Search the open web, keep context across follow-ups, and open the sources behind every answer when you need to verify it.
                 </p>
-                <div className="bento-grid anim-stagger">
-                  <div className="bento-card bento-card--cyan">
-                    <div className="bento-card-icon">
-                      <Globe2 className="h-3.5 w-3.5" />
-                    </div>
-                    <h3>Live search</h3>
-                    <p>
-                      Provider results ranked with hybrid retrieval and cited
-                      answers in one thread.
-                    </p>
+                <div className="workspace-kpis anim-stagger" aria-label="Web research overview">
+                  <div className="workspace-kpi workspace-kpi--cyan">
+                    <span className="workspace-kpi-icon"><Globe2 className="h-4 w-4" /></span>
+                    <span className="workspace-kpi-value">Live</span>
+                    <span className="workspace-kpi-label">Web providers</span>
                   </div>
-                  <div className="bento-card bento-card--violet">
-                    <div className="bento-card-icon">
-                      <MessageSquareText className="h-3.5 w-3.5" />
-                    </div>
-                    <h3>Multi-turn</h3>
-                    <p>Query expansion uses entities from prior turns.</p>
+                  <div className="workspace-kpi workspace-kpi--violet">
+                    <span className="workspace-kpi-icon"><History className="h-4 w-4" /></span>
+                    <span className="workspace-kpi-value">{sessions.length}</span>
+                    <span className="workspace-kpi-label">Research sessions</span>
                   </div>
-                  <div className="bento-card bento-card--teal">
-                    <div className="bento-card-icon">
-                      <Layers className="h-3.5 w-3.5" />
-                    </div>
-                    <h3>Evidence</h3>
-                    <p>Open sources beside the answer anytime.</p>
+                  <div className="workspace-kpi workspace-kpi--teal">
+                    <span className="workspace-kpi-icon"><Layers className="h-4 w-4" /></span>
+                    <span className="workspace-kpi-value">Cited</span>
+                    <span className="workspace-kpi-label">Answer trail</span>
+                  </div>
+                </div>
+                <div className="workspace-query-panel">
+                  <div className="workspace-query-panel-head"><span><Zap className="h-4 w-4 text-[var(--cyan)]" /> Start with a focused question</span><small>Suggestions are ready to run</small></div>
+                  <div className="workspace-query-grid anim-stagger">
+                    {suggestions.map((s, i) => (
+                      <button
+                        key={s}
+                        type="button"
+                        className={cn("workspace-query-card", `workspace-query-card--${i % 4}`)}
+                        disabled={creating || chat.status === "running"}
+                        onClick={() =>
+                          void ensureSessionAndSend(s, {
+                            searchLimit: 6,
+                            contextTopK: 4,
+                            generateAnswer: true,
+                          })
+                        }
+                      >
+                        <span>{s}</span><ArrowUpRight className="h-4 w-4" aria-hidden />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="workspace-flow" aria-label="Web research workflow">
+                  <div className="workspace-flow-label"><MessageSquareText className="h-4 w-4" /> Research loop</div>
+                  <div className="workspace-flow-steps">
+                    <div className="workspace-flow-step workspace-flow-step--active"><span>01</span><strong>Ask</strong><small>Frame the question</small></div>
+                    <ArrowUpRight className="workspace-flow-arrow" aria-hidden />
+                    <div className="workspace-flow-step"><span>02</span><strong>Explore</strong><small>Expand the context</small></div>
+                    <ArrowUpRight className="workspace-flow-arrow" aria-hidden />
+                    <div className="workspace-flow-step"><span>03</span><strong>Verify</strong><small>Read the evidence</small></div>
                   </div>
                 </div>
                 <div className="chat-empty-actions anim-stagger">
-                  {SUGGESTIONS.map((s, i) => (
-                    <button
-                      key={s}
-                      type="button"
-                      className={cn(
-                        "chip",
-                        i % 4 === 0 && "chip-tint-cyan",
-                        i % 4 === 1 && "chip-tint-violet",
-                        i % 4 === 2 && "chip-tint-teal",
-                        i % 4 === 3 && "chip-tint-amber",
-                      )}
-                      disabled={creating || chat.status === "running"}
-                      onClick={() =>
-                        void ensureSessionAndSend(s, {
-                          searchLimit: 6,
-                          contextTopK: 4,
-                          generateAnswer: true,
-                          retrievalMode: readStoredRetrievalMode(),
-                        })
-                      }
-                    >
-                      {s}
-                    </button>
-                  ))}
+                  <div className="workspace-empty-hint"><CheckCircle2 className="h-4 w-4" /> Follow-up questions stay connected to the current session.</div>
                 </div>
               </div>
             }

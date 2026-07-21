@@ -77,6 +77,7 @@ export function usePanelLayout(opts: PanelLayoutOptions) {
   const [rightOpen, setRightOpen] = useState(defaultRightOpen);
   const [hydrated, setHydrated] = useState(false);
 
+  /* eslint-disable react-hooks/set-state-in-effect -- hydrate persisted layout after browser mount. */
   useEffect(() => {
     setLeftWidth(
       clamp(readStoredNumber(leftWKey, defaultLeftWidth), minLeft, maxLeft),
@@ -89,6 +90,7 @@ export function usePanelLayout(opts: PanelLayoutOptions) {
     setHydrated(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate once per storageKey
   }, [storageKey]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     if (!hydrated || typeof window === "undefined") return;

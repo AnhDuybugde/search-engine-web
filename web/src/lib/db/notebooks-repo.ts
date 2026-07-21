@@ -156,7 +156,7 @@ export async function listNotebooks(): Promise<NotebookDto[]> {
 
   const sb = getSupabaseAdmin();
   if (sb) {
-    let { data, error } = await sb
+    const { data, error } = await sb
       .from("notebooks")
       .select(NOTEBOOK_SELECT)
       .order("created_at", { ascending: false });
@@ -237,7 +237,7 @@ export async function createNotebook(title: string): Promise<NotebookDto> {
       created_at: now,
       updated_at: now,
     };
-    let { data, error } = await sb
+    const { data, error } = await sb
       .from("notebooks")
       .insert(payload)
       .select(NOTEBOOK_SELECT)
@@ -308,7 +308,7 @@ export async function getNotebook(id: string): Promise<NotebookDto | null> {
 
   const sb = getSupabaseAdmin();
   if (sb) {
-    let { data, error } = await sb
+    const { data, error } = await sb
       .from("notebooks")
       .select(NOTEBOOK_SELECT)
       .eq("id", id)
@@ -385,7 +385,7 @@ export async function updateNotebook(
     };
     if (patch.locked !== undefined) body.locked = nextLocked;
 
-    let { data, error } = await sb
+    const { data, error } = await sb
       .from("notebooks")
       .update(body)
       .eq("id", id)

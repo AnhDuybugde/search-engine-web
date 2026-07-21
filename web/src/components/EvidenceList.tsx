@@ -122,16 +122,11 @@ export function EvidenceList({
                 />
               )}
               <ScorePill
-                label="Final"
+                label={hybrid ? "RRF" : "Final"}
                 rank={r.finalRank}
                 score={r.finalScore ?? r.bm25Score}
                 emphasis
               />
-              {r.bm25Weight != null && Number.isFinite(r.bm25Weight) && (
-                <span className="rounded border border-[var(--border)] bg-[var(--bg-elevated)] px-1.5 py-0.5 text-[var(--fg-subtle)]">
-                  w_BM25={fmt(r.bm25Weight, 2)}
-                </span>
-              )}
             </div>
           </li>
         );

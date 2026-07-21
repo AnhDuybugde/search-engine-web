@@ -94,6 +94,7 @@ export function ProcessExplainPanel({
         title: hit.title,
         finalScore: hit.finalScore ?? hit.bm25Score,
         finalRank: hit.finalRank,
+        relativeScore: 0,
         confidence: 0,
         chunkHits: 1,
         topChunkIds: [hit.chunkId],
@@ -212,7 +213,7 @@ export function ProcessExplainPanel({
       {/* Document score bars — clickable */}
       {scoreSeries.length > 0 && (
         <div>
-          <h3 className="section-title">Top documents — score & match strength</h3>
+          <h3 className="section-title">Top documents — RRF & relative score</h3>
           <p className="mb-2 text-[11px] text-[var(--fg-muted)]">
             Click a document to open full source and ranking detail.
           </p>
@@ -235,7 +236,7 @@ export function ProcessExplainPanel({
                       </span>
                     </span>
                     <span className="flex shrink-0 items-center gap-1 font-mono text-[10px] text-[var(--fg-muted)]">
-                      {row.finalScore.toFixed(3)} · {(row.confidence * 100).toFixed(0)}%
+                      {row.finalScore.toFixed(4)} · {((row.relativeScore ?? row.confidence) * 100).toFixed(0)}%
                       <ChevronRight className="h-3.5 w-3.5 opacity-50 group-hover:opacity-100" />
                     </span>
                   </div>
@@ -262,7 +263,7 @@ export function ProcessExplainPanel({
               <span className="h-1.5 w-3 rounded bg-[var(--primary)]" /> Score
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-1.5 w-3 rounded bg-[var(--accent)]" /> Match strength
+              <span className="h-1.5 w-3 rounded bg-[var(--accent)]" /> Relative score
             </span>
           </div>
         </div>
