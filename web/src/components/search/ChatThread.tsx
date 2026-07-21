@@ -51,14 +51,29 @@ export function ChatThread({
                   <Bot className="h-3.5 w-3.5" />
                 </div>
               )}
-              <button
-                type="button"
-                disabled={isUser}
+              {/*
+                Use a div (not <button>) so query / answer text can be selected
+                and copied. Assistant bubbles stay clickable to focus evidence.
+              */}
+              <div
+                role={isUser ? undefined : "button"}
+                tabIndex={isUser ? undefined : 0}
                 onClick={() => {
-                  if (!isUser) onSelectAssistant(m.id);
+                  if (isUser) return;
+                  // Don't steal focus when the user is selecting text to copy
+                  const sel = window.getSelection()?.toString();
+                  if (sel && sel.length > 0) return;
+                  onSelectAssistant(m.id);
+                }}
+                onKeyDown={(e) => {
+                  if (isUser) return;
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSelectAssistant(m.id);
+                  }
                 }}
                 className={cn(
-                  "msg-bubble hover-lift",
+                  "msg-bubble hover-lift select-text",
                   isUser ? "msg-bubble--user" : "msg-bubble--assistant",
                   active && "msg-bubble--active",
                 )}
@@ -101,7 +116,7 @@ export function ChatThread({
                     {active ? " · viewing evidence" : ""}
                   </p>
                 )}
-              </button>
+              </div>
               {isUser && (
                 <div className="msg-avatar msg-avatar--user" aria-hidden>
                   <User className="h-3.5 w-3.5" />

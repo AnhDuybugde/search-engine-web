@@ -60,9 +60,8 @@ const envSchema = z.object({
   LLM_BASE_URL: z.string().url().default("https://api.groq.com/openai/v1"),
   LLM_API_KEY: z.string().optional(),
   LLM_MODEL: z.string().default("llama-3.1-8b-instant"),
-  // adaptive_rrf kept as env alias → normalized to classic rrf
   RETRIEVAL_MODE: z
-    .enum(["bm25", "rrf", "adaptive_rrf"])
+    .enum(["bm25", "adaptive_rrf", "sgaf"])
     .default("bm25"),
   EMBEDDING_PROVIDER: z
     .enum(["openai", "huggingface", "tei"])
@@ -70,6 +69,11 @@ const envSchema = z.object({
   EMBEDDING_API_URL: z.string().url().optional(),
   EMBEDDING_API_KEY: z.string().optional(),
   EMBEDDING_MODEL: z.string().default("BAAI/bge-base-en-v1.5"),
+  SPECIALIST_EMBEDDING_MODEL: z.string().optional(),
+  SPECIALIST_EMBEDDING_API_URL: z.string().url().optional(),
+  SGAF_SHIFT_THRESHOLD: z.string().default("2.0"),
+  P3_WINDOW: z.string().default("20"),
+  P3_ALPHA: z.string().default("0.10"),
   TAVILY_API_KEY: z.string().optional(),
   BRAVE_API_KEY: z.string().optional(),
   DATABASE_URL: z.string().optional(),
@@ -79,9 +83,7 @@ const envSchema = z.object({
   APP_PASSWORD: z.string().optional(),
 });
 
-export type AppConfig = Omit<z.infer<typeof envSchema>, "RETRIEVAL_MODE"> & {
-  /** Normalized: adaptive_rrf env alias becomes classic rrf */
-  RETRIEVAL_MODE: "bm25" | "rrf";
+export type AppConfig = z.infer<typeof envSchema> & {
   hasLlm: boolean;
   hasSearch: boolean;
   hasEmbedding: boolean;
@@ -106,6 +108,11 @@ function readRawEnv() {
     EMBEDDING_MODEL: process.env.EMBEDDING_MODEL,
     TAVILY_API_KEY: process.env.TAVILY_API_KEY,
     BRAVE_API_KEY: process.env.BRAVE_API_KEY,
+    SPECIALIST_EMBEDDING_MODEL: process.env.SPECIALIST_EMBEDDING_MODEL,
+    SPECIALIST_EMBEDDING_API_URL: process.env.SPECIALIST_EMBEDDING_API_URL,
+    SGAF_SHIFT_THRESHOLD: process.env.SGAF_SHIFT_THRESHOLD,
+    P3_WINDOW: process.env.P3_WINDOW,
+    P3_ALPHA: process.env.P3_ALPHA,
     DATABASE_URL,
     SUPABASE_URL,
     SUPABASE_PUBLIC_KEY:
@@ -126,8 +133,8 @@ export function getConfig(): AppConfig {
         LLM_API_KEY: raw.LLM_API_KEY,
         LLM_MODEL: raw.LLM_MODEL || "llama-3.1-8b-instant",
         RETRIEVAL_MODE:
-          raw.RETRIEVAL_MODE === "rrf" || raw.RETRIEVAL_MODE === "adaptive_rrf"
-            ? "rrf"
+          raw.RETRIEVAL_MODE === "adaptive_rrf" || raw.RETRIEVAL_MODE === "sgaf"
+            ? (raw.RETRIEVAL_MODE as "adaptive_rrf" | "sgaf")
             : "bm25",
         EMBEDDING_PROVIDER:
           raw.EMBEDDING_PROVIDER === "openai" ||
@@ -140,6 +147,11 @@ export function getConfig(): AppConfig {
         EMBEDDING_MODEL: raw.EMBEDDING_MODEL || "BAAI/bge-base-en-v1.5",
         TAVILY_API_KEY: raw.TAVILY_API_KEY,
         BRAVE_API_KEY: raw.BRAVE_API_KEY,
+        SPECIALIST_EMBEDDING_MODEL: raw.SPECIALIST_EMBEDDING_MODEL,
+        SPECIALIST_EMBEDDING_API_URL: raw.SPECIALIST_EMBEDDING_API_URL,
+        SGAF_SHIFT_THRESHOLD: raw.SGAF_SHIFT_THRESHOLD || "2.0",
+        P3_WINDOW: raw.P3_WINDOW || "20",
+        P3_ALPHA: raw.P3_ALPHA || "0.10",
         DATABASE_URL: raw.DATABASE_URL,
         SUPABASE_URL: raw.SUPABASE_URL,
         SUPABASE_PUBLIC_KEY: raw.SUPABASE_PUBLIC_KEY,
@@ -154,11 +166,8 @@ export function getConfig(): AppConfig {
   const hasSql = Boolean(data.DATABASE_URL);
   const onVercel = process.env.VERCEL === "1" || Boolean(process.env.VERCEL_ENV);
 
-  const retrievalMode = normalizeRetrievalMode(data.RETRIEVAL_MODE);
-
   return {
     ...data,
-    RETRIEVAL_MODE: retrievalMode,
     supabaseUrl,
     hasLlm: Boolean(data.LLM_API_KEY),
     hasSearch: Boolean(data.TAVILY_API_KEY || data.BRAVE_API_KEY),
@@ -197,6 +206,19 @@ export function dbSetupHint(cfg: AppConfig = getConfig()): string {
   return "No DB configured — history/notebooks use in-memory store (lost on restart).";
 }
 
+function envPositiveInt(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
+/**
+ * IR / ingest caps.
+ * - maxNotebookChars: sum of all source text in one notebook (raise via MAX_NOTEBOOK_CHARS).
+ * - maxUploadBytes: single file size (raise via MAX_UPLOAD_BYTES).
+ */
 export const IR_DEFAULTS = {
   chunkSizeWords: 280,
   chunkOverlapWords: 40,
@@ -205,21 +227,22 @@ export const IR_DEFAULTS = {
   contextTopK: 4,
   maxOutputTokens: 600,
   temperature: 0.1,
-  maxUploadBytes: 5 * 1024 * 1024,
-  maxNotebookChars: 200_000,
-  maxChunksPerNotebook: 500,
+  /** Default 15 MB per file (PDF extract can still be large). */
+  maxUploadBytes: envPositiveInt("MAX_UPLOAD_BYTES", 15 * 1024 * 1024),
+  /**
+   * Default 2M chars ≈ long multi-doc corpus.
+   * Old hard cap was 200k and blocked real PDFs / multi-source notebooks.
+   */
+  maxNotebookChars: envPositiveInt("MAX_NOTEBOOK_CHARS", 2_000_000),
+  maxChunksPerNotebook: envPositiveInt("MAX_CHUNKS_PER_NOTEBOOK", 2000),
   denseTopK: 40,
   maxDenseChunks: 160,
-  /** Classic RRF constant k (Cormack et al., typically 60). */
   rrfK: 60,
-  /** Equal list weight for classic RRF (both BM25 and dense contribute 1/(k+rank)). */
-  rrfListWeight: 1,
-} as const;
-
-/** Normalize env aliases to the active retrieval mode. */
-export function normalizeRetrievalMode(
-  mode: string | undefined | null,
-): "bm25" | "rrf" {
-  if (mode === "rrf" || mode === "adaptive_rrf") return "rrf";
-  return "bm25";
-}
+  adaptiveRrfScale: 1.0,
+  adaptiveRrfMinBm25Weight: 0.05,
+  adaptiveRrfMaxBm25Weight: 0.9,
+  /** SGAF B5+P3 parameters (from frozen SEG paper) */
+  sgafShiftThreshold: 2.0,
+  p3Window: 20,
+  p3Alpha: 0.10,
+};

@@ -97,11 +97,11 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(thread).toContain("thinking-dot");
   });
 
-  it("AppShell keeps the workspace mood without a duplicate rail", () => {
+  it("AppShell keeps the workspace mood with a shared primary rail", () => {
     const shell = readSrc("components", "AppShell.tsx");
     expect(shell).toContain('data-mood={mood}');
-    expect(shell).not.toContain("app-rail-nav");
-    expect(shell).not.toContain("UserMenu");
+    expect(shell).toContain("app-rail-nav");
+    expect(shell).toContain("UserMenu");
     expect(shell).toMatch(/fill\s*[?=]/);
   });
 
@@ -376,17 +376,17 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(sourceApi).toContain("getSourceDetail");
   });
 
-  it("upload UI is raw-store only (no chunk/embed index steps)", () => {
+  it("upload UI exposes the full ingest and indexing pipeline", () => {
     const panel = readSrc("components", "dataset", "UploadPipelinePanel.tsx");
-    expect(panel).toContain("Store raw source");
-    expect(panel).toContain("receive → extract → store");
+    expect(panel).toContain("Store source");
+    expect(panel).toContain("receive → extract → store → embed → persist");
     expect(panel).not.toMatch(/id:\s*"chunk"/);
-    expect(panel).not.toMatch(/id:\s*"embed"/);
-    expect(panel).not.toMatch(/Index pipeline/i);
+    expect(panel).toMatch(/id:\s*"embed"/);
+    expect(panel).toContain("Persist index");
     const hook = readSrc("lib", "hooks", "use-upload-sse.ts");
     expect(hook).toContain('store: "pending"');
+    expect(hook).toContain('embed: "pending"');
     expect(hook).not.toContain('chunk: "pending"');
-    expect(hook).not.toContain('embed: "pending"');
     const repo = readSrc("lib", "db", "notebooks-repo.ts");
     expect(repo).toContain("raw-sources-only");
     expect(repo).toMatch(/chunkCount:\s*0/);

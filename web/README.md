@@ -2,53 +2,69 @@
 
 MVP **Web Search + Notebooks** chạy **100% serverless trên Vercel**.
 
-- Không Docker
-- Không GPU / Ollama
-- Không SurrealDB / FastAPI / SearXNG
-- Free-tier APIs: **Tavily** (search) + **Groq** (LLM) + **Supabase Postgres** (DB)
+- Không Docker / GPU / Ollama
+- Không SurrealDB / FastAPI / SearXNG cho production
+- Free-tier: **Tavily** (search) + **Groq** (LLM) + **Supabase Postgres** (DB + embeddings)
 
-Repo `open-notebook/` bên cạnh chỉ còn là **reference** (stack Docker cũ).
+Repo gốc: xem [README.md](../README.md) cho overview + luồng sản phẩm.
+
+Sản phẩm runtime **chỉ** là thư mục `web/`. Thư mục `open-notebook/` (nếu còn trên máy) là clone legacy Docker/FastAPI, đã gitignore — **không** tham gia build/deploy và **không** ảnh hưởng Web Search / Notebooks.
+
+---
 
 ## Architecture
 
 ```text
 Browser → Next.js (Vercel)
-            ├─ /search                   session chat UI (ChatGPT-style)
+            ├─ /search                   session chat UI
             ├─ POST /api/search/sessions/.../messages  SSE + query expansion
             ├─ POST /api/web-search      one-shot SSE (stateless)
-            ├─ POST /api/notebooks/...   upload + ask SSE
+            ├─ POST /api/notebooks/...   upload (SSE progress) + ask SSE
             ├─ Context engine            entities + coref + expand query
             ├─ Tavily / Brave            web results
             ├─ BM25 + BGE + Adaptive RRF retrieve/rerank
             ├─ Groq (OpenAI-compatible)  generate
-            └─ Supabase Postgres         sessions + notebooks
+            └─ Supabase Postgres         sessions + notebooks + chunk embeddings
 ```
 
-### Multi-turn search sessions
+**Storage:** documents + vectors in **Postgres** (`sources`, `chunks.embedding_json`) — not MongoDB.
 
-Web Search is a **chat session**, not a single-shot form:
+### Multi-turn web search sessions
 
-1. Each conversation is a `search_sessions` row with messages.
-2. Before retrieval, `expandQuery` rewrites follow-ups using session entities + recent turns  
-   (e.g. “ông ấy bao nhiêu tuổi?” → “Lionel Messi bao nhiêu tuổi?”).
-3. Hybrid expansion: heuristics first, cheap LLM rewrite when needed.
-4. Context is **isolated per session** — New chat clears memory.
+1. Mỗi conversation = một `search_sessions` + messages.
+2. `expandQuery` rewrite follow-up bằng entities + recent turns.
+3. Heuristic trước, LLM rewrite khi cần.
+4. Context **cô lập theo session** — New chat xóa memory phiên đó.
+
+### Notebook sessions (dataset)
+
+1. Mỗi notebook = corpus riêng (`sources` / `chunks`).
+2. Upload SSE: receive → extract → store → **embed** → persist (success/fail hiển thị).
+3. Ask: load corpus → BM25 / adaptive_rrf → pack → LLM.
+4. Chat history: `notebook_messages` theo `(user, notebook)`.
+5. **Lock** notebook: chặn xóa (demo SCIFACT/SCIDOCS).
+
+Web search sessions và notebook datasets **không dùng chung** ID/table.
+
+---
 
 ## Quick start (local)
 
 ```bash
 cd web
-# put secrets in web/.env.local (or repo root .env + copy)
+cp .env.example .env.local
+# điền keys (LLM, search, Supabase, optional embeddings)
 npm install
-npm run db:init   # create tables on Supabase
+npm run db:init
 npm run dev
 ```
 
-Open http://localhost:3001 (scripts bind port **3001**).
+Mở http://localhost:3001 (port **3001**).
 
-If `APP_PASSWORD` is set, open `/login` first (or send `Authorization: Bearer <APP_PASSWORD>` to APIs).
+- Có user auth: đăng ký/đăng nhập tại `/login`.
+- Không Supabase: fallback **in-memory** (mất data khi restart). Production fail-closed trừ khi `ALLOW_MEMORY_DB=1`.
 
-Without Supabase REST keys (or `DATABASE_URL`), history/notebooks use **in-memory** storage (lost on restart / cold start). Production/Vercel without durable DB is fail-closed unless `ALLOW_MEMORY_DB=1`.
+---
 
 ## Environment
 
@@ -59,94 +75,94 @@ Without Supabase REST keys (or `DATABASE_URL`), history/notebooks use **in-memor
 | `LLM_MODEL` | no | e.g. `llama-3.1-8b-instant` |
 | `RETRIEVAL_MODE` | no | `bm25` default, or `adaptive_rrf` |
 | `EMBEDDING_PROVIDER` | for adaptive RRF | `tei`, `openai`, or `huggingface` |
-| `EMBEDDING_API_URL` | for `tei`/`openai` | self-host embedding endpoint or OpenAI-compatible base URL; optional override for Hugging Face |
-| `EMBEDDING_API_KEY` | optional/required | bearer token; required for Hugging Face |
+| `EMBEDDING_API_URL` | for `tei`/`openai` | embedding endpoint |
+| `EMBEDDING_API_KEY` | often yes | bearer; required for Hugging Face |
 | `EMBEDDING_MODEL` | no | default `BAAI/bge-base-en-v1.5` |
 | `TAVILY_API_KEY` | for web search | or set `BRAVE_API_KEY` |
 | `SUPABASE_URL` | **yes on Vercel** | `https://PROJECT.supabase.co` |
-| `SUPABASE_SECRET_KEY` | **yes on Vercel** | secret / service_role key (Dashboard → API Keys) |
-| `DATABASE_URL` | optional | SQL fallback; prefer pooler `:6543` if used |
-| `SUPABASE_PUBLIC_KEY` | optional | not required by this app |
-| `APP_PASSWORD` | **required on Vercel/production** | Shared-secret gate for all product APIs/pages (Bearer or `/login` cookie) |
-| `HEALTH_SECRET` | optional | unlocks detailed `/api/health` diagnostics (falls back to `APP_PASSWORD`) |
+| `SUPABASE_SECRET_KEY` | **yes on Vercel** | secret / service_role key |
+| `DATABASE_URL` | optional | SQL fallback; prefer pooler `:6543` |
+| `APP_SESSION_SECRET` | prod multi-user | HMAC for session cookies |
+| `APP_PASSWORD` | optional | ops / health |
+| `HEALTH_SECRET` | optional | detailed `/api/health` |
+| `ALLOW_MEMORY_DB` | dev only | allow ephemeral DB in prod-like mode |
 
-**Critical on Vercel:** search can work without DB, but **history + notebooks need** `SUPABASE_URL` + `SUPABASE_SECRET_KEY`.  
-If `/api/health` shows `"db": "postgres"` and `hasSecretKey: false`, history/notebooks will fail.
+**Vercel:** history + notebooks cần `SUPABASE_URL` + `SUPABASE_SECRET_KEY`.  
+Hybrid retrieval + auto-index upload cần embedding env; thiếu → index **skipped**, ask vẫn BM25.
+
+---
 
 ## Supabase schema
 
 ```bash
-# with DATABASE_URL in .env.local
 npm run db:init
 ```
 
-Or paste `drizzle/0000_init.sql` into Supabase **SQL Editor** → Run.
+Migrations trong `drizzle/`:
+
+| File | Nội dung |
+|------|----------|
+| `0000_init.sql` | Core |
+| `0001_search_sessions.sql` | Web sessions |
+| `0002_chunk_embeddings.sql` | Vectors |
+| `0003_users.sql` | Users |
+| `0004_chat_history_owners.sql` | Chat owners |
+| `0005_notebook_lock_index.sql` | Lock + index status |
+
+Hoặc paste lần lượt trong Supabase **SQL Editor**.
+
+---
 
 ## Deploy to Vercel
 
-1. Root Directory = `web`.
-2. Add env vars (Production + Preview):
+1. **Root Directory** = `web`.
+2. Env (Production + Preview): LLM, search, Supabase, session secret, optional embeddings.
+3. Chạy migrations trên Supabase.
+4. Redeploy.
+5. Health:
+   - Public: `GET /api/health` → `{ ok, status: { search, llm, db } }`
+   - Diagnostics: `GET /api/health?token=YOUR_SECRET`
 
-| Env | Required |
-|-----|----------|
-| `TAVILY_API_KEY` | yes (search) |
-| `LLM_API_KEY` + `LLM_BASE_URL` + `LLM_MODEL` | yes (answers) |
-| `RETRIEVAL_MODE=adaptive_rrf` + embedding env | for BGE dense retrieval |
-| `SUPABASE_URL` | **yes on Vercel** e.g. `https://xxxx.supabase.co` |
-| `SUPABASE_SECRET_KEY` | **yes on Vercel** (service/secret key) |
-| `DATABASE_URL` | optional if REST keys set; if used, prefer **pooler :6543** |
+App dùng **Supabase REST** (secret key); TCP Postgres thuần dễ fail trên serverless.
 
-3. In Supabase **SQL Editor**, run `drizzle/0000_init.sql` once (create tables).
-4. Redeploy after setting env.
-5. Health check:
-   - Public: `GET /api/health` → only booleans `{ ok, status: { search, llm, db } }` (no stack leaks).
-   - Diagnostics (optional): set `HEALTH_SECRET` or `APP_PASSWORD`, then  
-     `GET /api/health?token=YOUR_SECRET`  
-     Expect `providers.db: "supabase-rest"`, `dbProbe.ok: true`.
-
-**Why notebooks failed on Vercel:** direct Postgres `db.*.supabase.co:5432` is unreliable from serverless. This app now uses **Supabase REST** with the secret key.
+---
 
 ## Scripts
 
 ```bash
-npm run dev      # local
-npm run build    # production build
-npm test         # BM25/chunk unit tests
-npm run db:init  # create tables on Supabase
+npm run dev               # local :3001
+npm run build && npm start
+npm test
+npm run db:init
+npm run seed:scifact      # demo locked corpus (khi có data)
+npm run seed:scidocs
+npm run index:embeddings  # pre-index demos
+npm run bench:retrieval
 ```
+
+---
 
 ## API
 
-- `GET /api/health` — provider status
-- `GET/POST /api/search/sessions` — list / create chat sessions
-- `GET/PATCH/DELETE /api/search/sessions/:id` — session + messages / rename / delete
-- `POST /api/search/sessions/:id/messages` — multi-turn SSE (expand → search → answer)
-- `POST /api/web-search` — one-shot SSE search pipeline (no session)
-- `GET /api/web-search/history` — legacy flat runs
-- `GET /api/web-search/:id` — one legacy run
-- `GET/POST /api/notebooks`
-- `GET/DELETE /api/notebooks/:id`
-- `POST /api/notebooks/:id/upload` — multipart file
-- `POST /api/notebooks/:id/ask` — SSE notebook Q&A
+| Endpoint | Role |
+|----------|------|
+| `GET /api/health` | Provider status |
+| `GET/POST /api/search/sessions` | Web chat sessions |
+| `POST /api/search/sessions/:id/messages` | Multi-turn SSE web Q&A |
+| `POST /api/web-search` | One-shot SSE |
+| `GET/POST /api/notebooks` | Datasets |
+| `GET/PATCH/DELETE /api/notebooks/:id` | Meta / lock / delete |
+| `POST /api/notebooks/:id/upload` | Multipart + SSE index progress |
+| `POST /api/notebooks/:id/ask` | SSE notebook Q&A |
+| `GET/POST /api/notebooks/:id/messages` | Notebook chat history |
 
-### DB migration
-
-```bash
-npm run db:init   # applies drizzle/0000_init.sql (+ 0001_search_sessions)
-```
-
-Or run `drizzle/0001_search_sessions.sql` in Supabase SQL Editor if tables already exist.
+---
 
 ## Notes
 
-- Reranker GPU is intentionally removed; BM25 + domain packing keeps it fast on serverless.
-- Adaptive RRF uses BM25 plus dense embeddings. On Vercel, run BGE through a managed
-  embedding API or a separate self-hosted embedding service; if it is missing or
-  fails, retrieval falls back to BM25.
-- For quick Hugging Face dev mode, set `EMBEDDING_PROVIDER=huggingface` and
-  `EMBEDDING_API_KEY`; the app uses the HF Inference Providers router by default.
-- Notebook uploads cache chunk embeddings in Supabase when adaptive retrieval is
-  configured. Existing chunks without embeddings still work and are embedded
-  on demand, or fall back to BM25.
-- If LLM key is missing, retrieval still works (IR-only).
-- Vercel hobby timeout is short; keep `searchLimit` low (default 8).
+- Reranker GPU đã bỏ; serverless dùng BM25 + domain packing / adaptive RRF.
+- Adaptive RRF = BM25 + dense. Thiếu embedding → fallback BM25.
+- Upload có pre-index embeddings khi cấu hình đủ; UI hiện success/fail.
+- Notebook **locked** không xóa được (bảo vệ demo).
+- Vercel hobby timeout ngắn — giữ `searchLimit` thấp (default 8).
+- LLM thiếu key: retrieval vẫn chạy (IR-only).

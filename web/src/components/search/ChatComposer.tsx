@@ -8,7 +8,13 @@ import {
   Settings2,
   Square,
 } from "lucide-react";
+import { RetrievalModePicker } from "@/components/RetrievalModePicker";
 import { handleSubmitOnEnter } from "@/lib/keyboard";
+import {
+  readStoredRetrievalMode,
+  storeRetrievalMode,
+  type RetrievalModeId,
+} from "@/lib/ir/retrieval-modes";
 import { cn } from "@/lib/utils";
 
 export function ChatComposer({
@@ -26,6 +32,7 @@ export function ChatComposer({
       searchLimit: number;
       contextTopK: number;
       generateAnswer: boolean;
+      retrievalMode: RetrievalModeId;
     },
   ) => void;
   onCancel?: () => void;
@@ -36,17 +43,37 @@ export function ChatComposer({
   const [searchLimit, setSearchLimit] = useState(6);
   const [contextTopK, setContextTopK] = useState(4);
   const [generateAnswer, setGenerateAnswer] = useState(true);
+  const [retrievalMode, setRetrievalMode] = useState<RetrievalModeId>(
+    () => readStoredRetrievalMode(),
+  );
+
+  const setMode = (mode: RetrievalModeId) => {
+    setRetrievalMode(mode);
+    storeRetrievalMode(mode);
+  };
 
   const submit = () => {
     const q = query.trim();
     if (!q || disabled || running) return;
-    onSend(q, { searchLimit, contextTopK, generateAnswer });
+    onSend(q, { searchLimit, contextTopK, generateAnswer, retrievalMode });
     setQuery("");
   };
 
   return (
     <div className={cn("chat-composer-shell", className)}>
       <div className="mx-auto max-w-[var(--chat-max)] space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-0.5">
+          <span className="text-[11px] font-medium text-[var(--fg-subtle)]">
+            Retrieval method
+          </span>
+          <RetrievalModePicker
+            value={retrievalMode}
+            onChange={setMode}
+            disabled={disabled || running}
+            size="sm"
+          />
+        </div>
+
         {showOpts && (
           <div
             className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] px-3.5 py-3 text-xs text-[var(--fg-muted)] shadow-sm"

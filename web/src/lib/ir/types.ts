@@ -20,15 +20,11 @@ export type RankedChunk = Chunk & {
   finalScore?: number;
   finalRank: number;
   citationId: number;
-  /**
-   * Retrieval mode used for this hit.
-   * - bm25 / bm25_fallback: Okapi BM25 only
-   * - rrf: classic Reciprocal Rank Fusion (equal list weights)
-   * - adaptive_rrf: legacy alias of rrf (kept for older payloads)
-   */
-  retrievalMode?: "bm25" | "rrf" | "adaptive_rrf" | "bm25_fallback";
-  /** Always 1 for classic RRF (equal list weights). */
+  retrievalMode?: "bm25" | "adaptive_rrf" | "bm25_fallback" | "sgaf";
   bm25Weight?: number;
+  /** SGAF-specific fields */
+  b5Mode?: "specialist_safe" | "generalist_fallback";
+  b5ShiftScore?: number;
 };
 
 /** Document-level hit for Top-10 title list + drawer */
@@ -37,17 +33,13 @@ export type RankedDocument = {
   title: string;
   finalScore: number;
   finalRank: number;
-  /**
-   * Relative score in [0,1] for UI bars (standard within-list normalization):
-   * multi-hit → finalScore / max(finalScores);
-   * sole RRF-scale hit → finalScore / dual-list RRF ceiling 2/(k+1).
-   * Not a calibrated P(relevant); ranking uses finalScore only.
-   */
+  /** Display-only score normalized within this query's ranked list. */
   relativeScore: number;
   /**
-   * @deprecated Use relativeScore. Mirrored for older SSE clients.
+   * Display confidence proxy in [0,1] from this query's ranked scores
+   * (absolute BM25/dense/final + relative margin). Not a calibrated ML probability.
    */
-  confidence?: number;
+  confidence: number;
   bm25Best?: number;
   denseBest?: number;
   chunkHits: number;
@@ -73,8 +65,14 @@ export type Timing = {
   rankMs?: number;
   ttftMs?: number;
   extractMs?: number;
+  /** Dense embed stage during notebook index */
+  embedMs?: number;
   indexEmbedMs?: number;
   storeMs?: number;
+  /** SGAF stages */
+  b5RoutingMs?: number;
+  p3SmoothingMs?: number;
+  specialistEmbeddingMs?: number;
 };
 
 export type Metrics = {
@@ -83,34 +81,26 @@ export type Metrics = {
   chunkCount?: number;
   contextCount?: number;
   sourcesUsed?: number;
-  retrievalMode?: "bm25" | "rrf" | "adaptive_rrf" | "bm25_fallback";
+  retrievalMode?: "bm25" | "adaptive_rrf" | "bm25_fallback" | "sgaf";
   denseUsed?: boolean;
   denseSkippedReason?: string;
   embeddingProvider?: string;
   embeddingModel?: string;
-  /** Classic RRF list weight for BM25 (always 1). */
   bm25Weight?: number;
+  /** SGAF runtime mode */
+  b5Mode?: "specialist_safe" | "generalist_fallback";
   llmUsed?: boolean;
   llmSkippedReason?: string;
   documentsRanked?: number;
   topKDocuments?: number;
-  /**
-   * Absolute strength of the top document’s rank score vs dual-list RRF ceiling
-   * 2/(k+1). Not the same as relativeScoreMax (always ~1 in multi-hit lists).
-   */
+  /** Absolute strength of the top ranked document. */
   topScoreStrength?: number;
-  /** Mean relative score (score/max) across ranked documents. */
+  /** Mean and max display-normalized score across ranked documents. */
   relativeScoreMean?: number;
-  /** Max relative score in the ranked list (usually 1 for multi-hit). */
   relativeScoreMax?: number;
-  /** @deprecated use relativeScoreMean */
   confidenceMean?: number;
-  /**
-   * Absolute top hit strength (mirrors topScoreStrength).
-   * @deprecated prefer topScoreStrength
-   */
   confidenceMax?: number;
-  /** (top1 − top2) / top1 on finalScore — standard score margin */
+  /** (top1 - top2) / top1 on finalScore (retrieval signal) */
   scoreMargin?: number;
   eval?: {
     dataset?: "scifact" | "scidocs" | string;
@@ -195,21 +185,53 @@ export type UploadStreamEvent =
   | { type: "extract_completed"; chars: number; ms: number }
   | { type: "store_completed"; sourceId: string; ms: number }
   | {
+      type: "index_started";
+      unitCount: number;
+      message: string;
+    }
+  | {
+      type: "index_progress";
+      done: number;
+      total: number;
+      message: string;
+    }
+  | {
+      type: "index_completed";
+      unitCount: number;
+      embeddedCount: number;
+      model: string;
+      provider: string;
+      embedMs: number;
+      totalMs: number;
+      storage: "supabase-postgres";
+      message: string;
+    }
+  | {
+      type: "index_failed";
+      message: string;
+    }
+  | {
+      type: "index_skipped";
+      message: string;
+      reason: string;
+    }
+  | {
       type: "upload_completed";
       source: {
         id: string;
         title: string;
-        /** Always 0 — raw sources only. */
-        chunkCount: 0;
+        chunkCount: number;
         charCount: number;
-        mode?: "raw-sources-only";
+        mode?: "raw-sources-only" | "indexed";
       };
       timing: Timing;
       metrics: {
-        chunkCount: 0;
+        chunkCount: number;
         charCount: number;
-        embeddedCount: 0;
-        mode?: "raw-sources-only";
+        embeddedCount: number;
+        mode?: "raw-sources-only" | "indexed" | "index-failed" | "index-skipped";
+        indexStatus?: string;
+        storage?: string;
       };
     }
   | { type: "error"; message: string };

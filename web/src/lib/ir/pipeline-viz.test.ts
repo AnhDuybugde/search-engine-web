@@ -40,7 +40,7 @@ const timing: Timing = {
 };
 
 const metricsHybrid: Metrics = {
-  retrievalMode: "rrf",
+  retrievalMode: "adaptive_rrf",
   denseUsed: true,
   embeddingProvider: "tei",
   embeddingModel: "bge",
