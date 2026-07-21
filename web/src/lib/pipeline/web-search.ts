@@ -15,7 +15,16 @@ export type WebSearchInput = {
   contextTopK?: number;
   generateAnswer?: boolean;
   enrichThinPages?: boolean;
+  signal?: AbortSignal;
 };
+
+function assertNotAborted(signal?: AbortSignal) {
+  if (signal?.aborted) {
+    const err = new Error("Aborted");
+    err.name = "AbortError";
+    throw err;
+  }
+}
 
 export async function runWebSearchPipeline(
   input: WebSearchInput,
@@ -29,6 +38,7 @@ export async function runWebSearchPipeline(
   const cfg = getConfig();
   const query = input.query.trim();
   if (!query) throw new Error("Query is required");
+  const signal = input.signal;
 
   const searchLimit = input.searchLimit ?? IR_DEFAULTS.searchLimit;
   const retrieveTopK = input.retrieveTopK ?? IR_DEFAULTS.retrieveTopK;
@@ -45,6 +55,7 @@ export async function runWebSearchPipeline(
   const metrics: Metrics = {};
 
   emit({ type: "search_started", query });
+  assertNotAborted(signal);
 
   // 1) Search
   const searchStart = nowMs();
@@ -53,6 +64,7 @@ export async function runWebSearchPipeline(
     braveKey: cfg.BRAVE_API_KEY,
     limit: searchLimit,
   });
+  assertNotAborted(signal);
   timing.searchMs = elapsed(searchStart);
   metrics.resultCount = hits.length;
   emit({ type: "search_completed", count: hits.length, ms: timing.searchMs });
@@ -76,6 +88,7 @@ export async function runWebSearchPipeline(
       };
     }),
   );
+  assertNotAborted(signal);
   const usable = docs.filter((d) => d.text.trim().length > 0);
   timing.fetchMs = elapsed(fetchStart);
   metrics.pageCount = usable.length;
@@ -88,7 +101,6 @@ export async function runWebSearchPipeline(
   metrics.chunkCount = chunks.length;
   emit({ type: "chunk_completed", chunks: chunks.length, ms: timing.chunkMs });
 
-  // 4) BM25 + pack
   // 4) Retrieval + pack
   const retrieveStart = nowMs();
   const retrieval = await retrieveEvidence(
@@ -97,6 +109,7 @@ export async function runWebSearchPipeline(
     retrieveTopK,
     cfg.RETRIEVAL_MODE,
   );
+  assertNotAborted(signal);
   const candidates = retrieval.results;
   const results = packContext(candidates, contextTopK, 2);
   timing.retrieveMs = elapsed(retrieveStart);
@@ -120,9 +133,12 @@ export async function runWebSearchPipeline(
   if (!generateAnswer) {
     metrics.llmUsed = false;
     metrics.llmSkippedReason = "generateAnswer=false";
+    answer = "Answer generation was disabled for this request.";
   } else if (!cfg.hasLlm) {
     metrics.llmUsed = false;
     metrics.llmSkippedReason = "LLM_API_KEY not configured";
+    answer =
+      "Search completed, but LLM_API_KEY is not configured so no answer could be generated.";
   } else if (results.length === 0) {
     metrics.llmUsed = false;
     metrics.llmSkippedReason = "No evidence chunks";
@@ -134,14 +150,19 @@ export async function runWebSearchPipeline(
       answer = await streamAnswer({
         query,
         chunks: results,
+        signal,
         onToken: async (token) => emit({ type: "generation_token", token }),
       });
       metrics.llmUsed = true;
     } catch (err) {
+      if ((err as Error)?.name === "AbortError") throw err;
       metrics.llmUsed = false;
       metrics.llmSkippedReason =
         err instanceof Error ? err.message : "LLM generation failed";
-      // IR still returns
+      const partial = (err as Error & { partial?: string })?.partial?.trim();
+      answer =
+        partial ||
+        `Generation failed: ${metrics.llmSkippedReason}. Retrieval results are still available as citations.`;
       emit({
         type: "error",
         message: `Generation failed: ${metrics.llmSkippedReason}`,

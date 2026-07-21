@@ -49,8 +49,10 @@ export function useSearchSessions() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async (opts?: { quiet?: boolean }) => {
+    // Quiet refreshes (after create/send) must not flip sidebar into a loading
+    // spinner — that made the app feel "stuck" for 1s+ on every first message.
+    if (!opts?.quiet) setLoading(true);
     try {
       const res = await fetch("/api/search/sessions", { cache: "no-store" });
       const data = await res.json();
@@ -59,7 +61,7 @@ export function useSearchSessions() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load sessions");
     } finally {
-      setLoading(false);
+      if (!opts?.quiet) setLoading(false);
     }
   }, []);
 
@@ -87,8 +89,23 @@ export function useSearchSessions() {
           `Create session failed (HTTP ${res.status}). If tables are missing, run: cd web && npm run db:init`,
       );
     }
-    await refresh();
-    return { id: j.id, title: j.title || "New chat" };
+    const now = new Date().toISOString();
+    const created = {
+      id: j.id,
+      title: (j.title || title || "New chat").trim() || "New chat",
+    };
+    // Optimistic sidebar update — do NOT await listSessions (was 1–2s).
+    setSessions((prev) => [
+      {
+        id: created.id,
+        title: created.title,
+        createdAt: now,
+        updatedAt: now,
+      },
+      ...prev.filter((s) => s.id !== created.id),
+    ]);
+    void refresh({ quiet: true });
+    return created;
   }, [refresh]);
 
   const rename = useCallback(
@@ -99,18 +116,48 @@ export function useSearchSessions() {
         body: JSON.stringify({ title }),
       });
       if (!res.ok) throw new Error("Rename failed");
-      await refresh();
+      setSessions((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, title } : s)),
+      );
+      void refresh({ quiet: true });
     },
     [refresh],
   );
 
-  const remove = useCallback(
-    async (id: string) => {
-      await fetch(`/api/search/sessions/${id}`, { method: "DELETE" });
-      await refresh();
-    },
-    [refresh],
-  );
+  /**
+   * Optimistic remove: drop from sidebar immediately, DELETE in background.
+   * Rejects only if the server fails — caller may restore UI via refresh.
+   */
+  const remove = useCallback(async (id: string) => {
+    const snapshot = sessions.find((s) => s.id === id);
+    // Instant UI
+    setSessions((prev) => prev.filter((s) => s.id !== id));
+
+    try {
+      const res = await fetch(`/api/search/sessions/${id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(j.error || `Delete failed (HTTP ${res.status})`);
+      }
+      // Quiet background reconcile
+      void refresh({ quiet: true });
+    } catch (err) {
+      // Restore on failure
+      if (snapshot) {
+        setSessions((prev) => {
+          if (prev.some((s) => s.id === id)) return prev;
+          return [snapshot, ...prev].sort((a, b) =>
+            b.updatedAt.localeCompare(a.updatedAt),
+          );
+        });
+      } else {
+        void refresh({ quiet: true });
+      }
+      throw err;
+    }
+  }, [sessions, refresh]);
 
   return { sessions, loading, error, refresh, create, rename, remove };
 }
@@ -136,6 +183,11 @@ export function useSearchChat(sessionId: string | null) {
   const tokenBuf = useRef("");
   const flushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const streamAssistantId = useRef<string | null>(null);
+  /** Tracks last sessionId so we only abort streams when switching chats */
+  const prevSessionIdRef = useRef<string | null | undefined>(undefined);
+  /** Mirror of status for async load() without stale closures */
+  const statusRef = useRef(status);
+  statusRef.current = status;
 
   const flushTokens = useCallback(() => {
     if (!tokenBuf.current || !streamAssistantId.current) return;
@@ -165,8 +217,11 @@ export function useSearchChat(sessionId: string | null) {
         cache: "no-store",
       });
       if (!res.ok) {
-        setMessages([]);
-        setError("Session not found");
+        // Don't wipe optimistic UI if a send is already streaming.
+        if (statusRef.current !== "running") {
+          setMessages([]);
+          setError("Session not found");
+        }
         return;
       }
       const data = await res.json();
@@ -194,33 +249,74 @@ export function useSearchChat(sessionId: string | null) {
           createdAt: m.createdAt,
         }),
       );
-      setMessages(msgs);
+
+      // If a message stream already started (pending first message after
+      // create→navigate), keep optimistic messages instead of replacing with
+      // empty history from a parallel load.
+      if (statusRef.current === "running") {
+        return;
+      }
+
+      // Prefer server history when idle. Only protect in-progress optimistic
+      // temp messages for *this* load race (create→navigate→send).
+      setMessages((prev) => {
+        const hasLiveOptimistic =
+          prev.some((m) => m.streaming || m.id.startsWith("temp-")) &&
+          msgs.length === 0;
+        if (hasLiveOptimistic) return prev;
+        return msgs;
+      });
       const lastAsst = [...msgs].reverse().find((m) => m.role === "assistant");
-      setActiveAssistantId(lastAsst?.id ?? null);
+      setActiveAssistantId((prev) => {
+        if (statusRef.current === "running") return prev;
+        return lastAsst?.id ?? null;
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Load failed");
+      if (statusRef.current !== "running") {
+        setError(err instanceof Error ? err.message : "Load failed");
+      }
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const prev = prevSessionIdRef.current;
+    prevSessionIdRef.current = sessionId;
+    const switching = prev !== undefined && prev !== sessionId;
+
+    // Only abort an in-flight stream when navigating between different sessions.
+    // Aborting on every mount races the "pending first message" flow: create session
+    // on /search → store pendingSearch → push /search/:id → send starts → this effect
+    // used to abort immediately and silently drop the message (AbortError is ignored).
+    if (switching) {
       abortRef.current?.abort();
+      statusRef.current = "idle";
       setStatus("idle");
       setError(null);
       setSteps(emptySteps());
       setLogs([]);
       setLastExpanded(null);
-      if (!sessionId) {
-        setMessages([]);
-        setSessionTitle("New chat");
-        setActiveAssistantId(null);
-        return;
-      }
-      void load(sessionId);
-    }, 0);
-    return () => clearTimeout(timer);
+      // Clear previous chat immediately so we never show another session's turns
+      // while history loads (and so temp- guards from a prior stream don't block hydrate).
+      setMessages([]);
+      setActiveAssistantId(null);
+    }
+
+    if (!sessionId) {
+      setMessages([]);
+      setSessionTitle("New chat");
+      setActiveAssistantId(null);
+      setStatus("idle");
+      setError(null);
+      setSteps(emptySteps());
+      setLogs([]);
+      setLastExpanded(null);
+      setLoading(false);
+      return;
+    }
+
+    void load(sessionId);
   }, [sessionId, load]);
 
   const cancel = useCallback(() => {
@@ -381,16 +477,42 @@ export function useSearchChat(sessionId: string | null) {
           flushTokens();
         }
 
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === streamAssistantId.current || m.streaming
-              ? { ...m, streaming: false, status: "completed" }
-              : m,
-          ),
-        );
-        setStatus("idle");
+        // Only mark success when run_completed set status completed on the assistant.
+        setMessages((prev) => {
+          const asst = prev.find(
+            (m) => m.id === streamAssistantId.current || m.streaming,
+          );
+          const succeeded = asst?.status === "completed" && !asst.streaming;
+          return prev.map((m) => {
+            if (m.id === streamAssistantId.current || m.streaming) {
+              if (succeeded || m.status === "completed") {
+                return { ...m, streaming: false, status: "completed" };
+              }
+              return {
+                ...m,
+                streaming: false,
+                status: "failed",
+                content:
+                  m.content ||
+                  "Stream ended without a completed answer. Please retry.",
+              };
+            }
+            return m;
+          });
+        });
+        setStatus((s) => (s === "running" ? "idle" : s));
       } catch (err) {
-        if ((err as Error).name === "AbortError") return;
+        if ((err as Error).name === "AbortError") {
+          setStatus((s) => (s === "running" ? "failed" : s));
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.streaming
+                ? { ...m, streaming: false, status: "failed" }
+                : m,
+            ),
+          );
+          return;
+        }
         const message = err instanceof Error ? err.message : "Request failed";
         setStatus("failed");
         setError(message);
@@ -578,7 +700,19 @@ function applyChatEvent(
     }
     case "error":
       setError(event.message);
-      setLogs((l) => [...l, `Warning: ${event.message}`]);
+      setLogs((l) => [...l, `Error: ${event.message}`]);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === (streamAssistantId.current || tempAsstId) || m.streaming
+            ? {
+                ...m,
+                streaming: false,
+                status: m.status === "completed" ? m.status : "failed",
+                content: m.content || `Error: ${event.message}`,
+              }
+            : m,
+        ),
+      );
       break;
     default:
       break;

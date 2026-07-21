@@ -1,7 +1,7 @@
 import { desc, eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import type { Metrics, RankedChunk, Timing } from "@/lib/ir/types";
-import { enrichDbError, getDb, hasDb } from "./client";
+import { assertDurableDb, enrichDbError, getDb, hasDb } from "./client";
 import { searchRuns } from "./schema";
 import { getSupabaseAdmin, sbError, toIso } from "./supabase";
 import { memRuns, type MemSearchRun } from "./memory";
@@ -13,6 +13,7 @@ export async function saveSearchRun(params: {
   timing: Timing;
   metrics: Metrics;
 }) {
+  assertDurableDb("Save search run");
   const id = randomUUID();
   const now = new Date().toISOString();
 
@@ -101,6 +102,7 @@ export async function saveSearchRun(params: {
 }
 
 export async function listSearchRuns(limit = 30) {
+  assertDurableDb("List search history");
   if (!hasDb()) {
     return Array.from(memRuns.values())
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -159,6 +161,7 @@ export async function listSearchRuns(limit = 30) {
 }
 
 export async function getSearchRun(id: string) {
+  assertDurableDb("Get search run");
   if (!hasDb()) {
     return memRuns.get(id) || null;
   }
@@ -202,6 +205,7 @@ export async function getSearchRun(id: string) {
 }
 
 export async function deleteSearchRun(id: string) {
+  assertDurableDb("Delete search run");
   if (!hasDb()) {
     memRuns.delete(id);
     return;

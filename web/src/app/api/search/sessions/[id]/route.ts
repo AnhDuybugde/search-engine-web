@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { requireUserId } from "@/lib/auth";
 import {
   deleteSession,
   getSession,
@@ -10,16 +11,31 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
+  const auth = requireUserId(req);
+  if ("error" in auth) return auth.error;
+
   const { id } = await ctx.params;
-  const session = await getSession(id);
-  if (!session) {
-    return Response.json({ error: "Session not found" }, { status: 404 });
+  try {
+    // Ownership check first (cheap); messages only if owned
+    const session = await getSession(id, auth.userId);
+    if (!session) {
+      return Response.json({ error: "Session not found" }, { status: 404 });
+    }
+    const messages = await listMessages(id);
+    return Response.json({ session, messages });
+  } catch (err) {
+    return Response.json(
+      {
+        error: err instanceof Error ? err.message : "Failed to load session",
+        session: null,
+        messages: [],
+      },
+      { status: 500 },
+    );
   }
-  const messages = await listMessages(id);
-  return Response.json({ session, messages });
 }
 
 const patchSchema = z.object({
@@ -30,6 +46,9 @@ export async function PATCH(
   req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
+  const auth = requireUserId(req);
+  if ("error" in auth) return auth.error;
+
   const { id } = await ctx.params;
   let json: unknown;
   try {
@@ -43,10 +62,11 @@ export async function PATCH(
   }
 
   try {
-    const session = await updateSession(id, { title: parsed.data.title });
-    if (!session) {
+    const existing = await getSession(id, auth.userId);
+    if (!existing) {
       return Response.json({ error: "Session not found" }, { status: 404 });
     }
+    const session = await updateSession(id, { title: parsed.data.title });
     return Response.json(session);
   } catch (err) {
     return Response.json(
@@ -57,11 +77,18 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  _req: Request,
+  req: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
+  const auth = requireUserId(req);
+  if ("error" in auth) return auth.error;
+
   const { id } = await ctx.params;
   try {
+    const existing = await getSession(id, auth.userId);
+    if (!existing) {
+      return Response.json({ error: "Session not found" }, { status: 404 });
+    }
     await deleteSession(id);
     return Response.json({ ok: true });
   } catch (err) {

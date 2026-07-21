@@ -115,16 +115,9 @@ export async function expandQuery(
     };
   }
 
+  // Prefer heuristic first — avoids an extra LLM RTT on most follow-ups
+  // (realtime product path: expand must not add multi-hundred-ms before Tavily).
   const heuristic = heuristicExpand(originalQuery, memory);
-  const llm = await llmExpand(originalQuery, memory);
-
-  if (llm) {
-    return {
-      ...llm,
-      entitiesDelta: mergeEntities(fromUser, llm.entitiesDelta),
-    };
-  }
-
   if (heuristic) {
     return {
       originalQuery,
@@ -136,6 +129,14 @@ export async function expandQuery(
         heuristic.entity ? [heuristic.entity] : [],
       ),
       resolvedReferents: heuristic.entity ? [heuristic.entity.name] : [],
+    };
+  }
+
+  const llm = await llmExpand(originalQuery, memory);
+  if (llm) {
+    return {
+      ...llm,
+      entitiesDelta: mergeEntities(fromUser, llm.entitiesDelta),
     };
   }
 
