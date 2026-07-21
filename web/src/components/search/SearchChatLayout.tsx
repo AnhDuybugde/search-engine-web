@@ -23,6 +23,7 @@ import {
   useSearchChat,
   useSearchSessions,
 } from "@/lib/hooks/use-search-chat";
+import { readStoredRetrievalMode } from "@/lib/ir/retrieval-modes";
 import { cn } from "@/lib/utils";
 
 const SUGGESTIONS = [
@@ -96,6 +97,7 @@ export function SearchChatLayout({
       searchLimit: number;
       contextTopK: number;
       generateAnswer: boolean;
+      retrievalMode: "bm25" | "adaptive_rrf";
     },
   ) => {
     setUiError(null);
@@ -348,6 +350,7 @@ export function SearchChatLayout({
                           searchLimit: 6,
                           contextTopK: 4,
                           generateAnswer: true,
+                          retrievalMode: readStoredRetrievalMode(),
                         })
                       }
                     >

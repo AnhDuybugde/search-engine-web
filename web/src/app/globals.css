@@ -1496,7 +1496,7 @@ body {
   }
 }
 
-/* Message bubbles */
+/* Message bubbles — text must be selectable/copyable (not native <button>) */
 .msg-bubble {
   max-width: min(100%, 40rem);
   border-radius: 16px;
@@ -1507,6 +1507,9 @@ body {
   transition:
     border-color 140ms,
     box-shadow 140ms;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 .msg-bubble--user {
   background: linear-gradient(
@@ -1526,6 +1529,10 @@ body {
   );
   color: var(--fg);
   cursor: pointer;
+}
+.msg-bubble--assistant:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .msg-bubble--assistant:hover {
   border-color: var(--mood-border);

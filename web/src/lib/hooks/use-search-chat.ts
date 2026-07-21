@@ -338,6 +338,7 @@ export function useSearchChat(sessionId: string | null) {
         searchLimit?: number;
         contextTopK?: number;
         generateAnswer?: boolean;
+        retrievalMode?: "bm25" | "adaptive_rrf";
       },
     ) => {
       if (!sessionId || !query.trim() || status === "running") return;
@@ -396,6 +397,7 @@ export function useSearchChat(sessionId: string | null) {
             searchLimit: opts?.searchLimit,
             contextTopK: opts?.contextTopK,
             generateAnswer: opts?.generateAnswer,
+            retrievalMode: opts?.retrievalMode,
           }),
           signal: controller.signal,
           cache: "no-store",
