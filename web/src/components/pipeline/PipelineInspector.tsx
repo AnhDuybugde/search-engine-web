@@ -141,8 +141,13 @@ function fmtMs(ms?: number | null) {
 function modeLabel(mode?: string) {
   switch (mode) {
     case "rrf":
+      return "Hybrid RRF";
     case "adaptive_rrf":
-      return "Hybrid (classic RRF)";
+      return "Adaptive RRF";
+    case "sgaf":
+      return "SGAF B5+P3";
+    case "legacy_rrf_ce":
+      return "SciNCL + RRF + CE";
     case "bm25_fallback":
       return "BM25 fallback";
     case "bm25":
@@ -227,7 +232,8 @@ function deriveStepStatus(
     case "fusion": {
       if (legacySteps.retrieve === "running" && !metrics) return "running";
       if (
-        metrics?.retrievalMode === "adaptive_rrf"
+        metrics?.retrievalMode === "adaptive_rrf" ||
+        metrics?.retrievalMode === "legacy_rrf_ce"
       )
         return "success";
       if (metrics?.retrievalMode === "bm25" || metrics?.retrievalMode === "bm25_fallback")
@@ -625,9 +631,15 @@ function stepShortHint(
       return metrics.denseSkippedReason || "Dense not used";
     case "fusion":
       if (
-        metrics?.retrievalMode === "adaptive_rrf"
+        metrics?.retrievalMode === "adaptive_rrf" ||
+        metrics?.retrievalMode === "legacy_rrf_ce" ||
+        metrics?.retrievalMode === "sgaf"
       )
-        return "Classic RRF · equal weights · k=60";
+        return metrics.retrievalMode === "adaptive_rrf"
+          ? `Adaptive RRF · BM25 weight ${metrics.bm25Weight?.toFixed(3) ?? "dynamic"} · k=60`
+          : metrics.retrievalMode === "sgaf"
+            ? "SGAF B5+P3 · specialist/generalist fusion"
+            : "SciNCL + classic RRF · k=60";
       if (metrics?.retrievalMode === "bm25") return "No fusion (lexical only)";
       return "RRF merge of rank lists";
     case "pack":
@@ -726,21 +738,36 @@ function StepDetail({
       rows.push({
         k: "Method",
         v:
-          metrics?.retrievalMode === "adaptive_rrf"
-            ? "Classic RRF (Cormack et al.)"
+          metrics?.retrievalMode === "adaptive_rrf" ||
+          metrics?.retrievalMode === "legacy_rrf_ce"
+            ? metrics.retrievalMode === "legacy_rrf_ce"
+              ? "SciNCL + classic RRF + optional Cross-Encoder"
+              : "Classic RRF (Cormack et al.)"
             : metrics?.retrievalMode === "bm25_fallback"
               ? "BM25 only (dense failed)"
               : "BM25 only",
       });
       if (
-        metrics?.retrievalMode === "adaptive_rrf"
+          metrics?.retrievalMode === "adaptive_rrf" ||
+          metrics?.retrievalMode === "legacy_rrf_ce" ||
+          metrics?.retrievalMode === "sgaf"
       ) {
-        rows.push({ k: "List weights", v: "1.0 (BM25) + 1.0 (dense)" });
-        rows.push({ k: "RRF k", v: "60" });
+        rows.push({
+          k: "List weights",
+          v: metrics.retrievalMode === "legacy_rrf_ce"
+            ? "1.0 (BM25) + 1.0 (SciNCL)"
+            : metrics.retrievalMode === "sgaf"
+              ? "B5 mode-switch + P3 smoothing"
+              : `${metrics.bm25Weight?.toFixed(3) ?? "dynamic"} (BM25) + 1.0 (dense)`,
+        });
+        if (metrics.retrievalMode !== "sgaf") rows.push({ k: "RRF k", v: "60" });
       }
       rows.push({
         k: "Note",
-        v: "Not a cross-encoder reranker — ranks are fused by reciprocal rank.",
+        v:
+          metrics?.retrievalMode === "legacy_rrf_ce"
+            ? "Cross-Encoder reranking is optional and reported in the retrieval status when unavailable."
+            : "Not a cross-encoder reranker — ranks are fused by reciprocal rank.",
       });
       break;
     case "pack":

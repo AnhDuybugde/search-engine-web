@@ -17,10 +17,16 @@ export type RankedChunk = Chunk & {
   bm25Rank: number;
   denseScore?: number;
   denseRank?: number;
+  crossEncoderScore?: number;
   finalScore?: number;
   finalRank: number;
   citationId: number;
-  retrievalMode?: "bm25" | "adaptive_rrf" | "bm25_fallback" | "sgaf";
+  retrievalMode?:
+    | "bm25"
+    | "adaptive_rrf"
+    | "bm25_fallback"
+    | "sgaf"
+    | "legacy_rrf_ce";
   bm25Weight?: number;
   /** SGAF-specific fields */
   b5Mode?: "specialist_safe" | "generalist_fallback";
@@ -68,6 +74,8 @@ export type Timing = {
   /** Dense embed stage during notebook index */
   embedMs?: number;
   indexEmbedMs?: number;
+  /** User-upload ingest stages */
+  persistMs?: number;
   storeMs?: number;
   /** SGAF stages */
   b5RoutingMs?: number;
@@ -81,14 +89,22 @@ export type Metrics = {
   chunkCount?: number;
   contextCount?: number;
   sourcesUsed?: number;
-  retrievalMode?: "bm25" | "adaptive_rrf" | "bm25_fallback" | "sgaf";
+  retrievalMode?:
+    | "bm25"
+    | "adaptive_rrf"
+    | "bm25_fallback"
+    | "sgaf"
+    | "legacy_rrf_ce";
   denseUsed?: boolean;
   denseSkippedReason?: string;
   embeddingProvider?: string;
   embeddingModel?: string;
+  llmModel?: string;
   bm25Weight?: number;
   /** SGAF runtime mode */
   b5Mode?: "specialist_safe" | "generalist_fallback";
+  b5ShiftScore?: number;
+  p3Applied?: boolean;
   llmUsed?: boolean;
   llmSkippedReason?: string;
   documentsRanked?: number;
@@ -190,9 +206,34 @@ export type UploadStreamEvent =
       message: string;
     }
   | {
+      type: "chunk_started";
+      message: string;
+    }
+  | {
+      type: "chunk_completed";
+      chunkCount: number;
+      chunkMs: number;
+      message: string;
+    }
+  | {
+      type: "embed_started";
+      total: number;
+      message: string;
+    }
+  | {
       type: "index_progress";
       done: number;
       total: number;
+      message: string;
+    }
+  | {
+      type: "persist_started";
+      total: number;
+      message: string;
+    }
+  | {
+      type: "persist_completed";
+      persistMs: number;
       message: string;
     }
   | {
@@ -202,6 +243,8 @@ export type UploadStreamEvent =
       model: string;
       provider: string;
       embedMs: number;
+      chunkMs?: number;
+      persistMs?: number;
       totalMs: number;
       storage: "supabase-postgres";
       message: string;

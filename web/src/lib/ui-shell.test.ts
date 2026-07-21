@@ -236,14 +236,18 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
 
   it("Notebooks list uses chat layout shell", () => {
     const page = readSrc("app", "notebooks", "page.tsx");
-    expect(page).toContain("DatasetChatLayout");
-    expect(page).toContain("notebookId={null}");
+    expect(page).toContain("return null");
+    const routeLayout = readSrc("app", "notebooks", "layout.tsx");
+    expect(routeLayout).toContain("DatasetChatLayout");
+    expect(routeLayout).toContain("segment || null");
   });
 
   it("Notebook detail uses DatasetChatLayout with chat frame wiring", () => {
     const page = readSrc("app", "notebooks", "[id]", "page.tsx");
-    expect(page).toContain("DatasetChatLayout");
-    expect(page).toContain("params.id");
+    expect(page).toContain("return null");
+    const routeLayout = readSrc("app", "notebooks", "layout.tsx");
+    expect(routeLayout).toContain("useSelectedLayoutSegment");
+    expect(routeLayout).toContain("DatasetChatLayout");
     const layout = readSrc("components", "dataset", "DatasetChatLayout.tsx");
     expect(layout).toContain("AppShell");
     expect(layout).toContain("fill");
@@ -361,9 +365,9 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(upload).toContain("store_completed");
     expect(upload).toContain("upload_completed");
     expect(upload).toContain("raw-sources-only");
-    // raw ingest: no chunk/embed index steps on the upload path
-    expect(upload).not.toContain("chunk_completed");
-    expect(upload).not.toContain("embed_completed");
+    // Upload keeps the existing indexing logic but now exposes additive stage events.
+    expect(upload).toContain("chunk_completed");
+    expect(upload).toContain("persist_completed");
     const sourceApi = readSrc(
       "app",
       "api",
@@ -379,14 +383,14 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
   it("upload UI exposes the full ingest and indexing pipeline", () => {
     const panel = readSrc("components", "dataset", "UploadPipelinePanel.tsx");
     expect(panel).toContain("Store source");
-    expect(panel).toContain("receive → extract → store → embed → persist");
-    expect(panel).not.toMatch(/id:\s*"chunk"/);
+    expect(panel).toContain("receive → extract → store → chunk → embed → persist");
+    expect(panel).toMatch(/id:\s*"chunk"/);
     expect(panel).toMatch(/id:\s*"embed"/);
     expect(panel).toContain("Persist index");
     const hook = readSrc("lib", "hooks", "use-upload-sse.ts");
     expect(hook).toContain('store: "pending"');
+    expect(hook).toContain('chunk: "pending"');
     expect(hook).toContain('embed: "pending"');
-    expect(hook).not.toContain('chunk: "pending"');
     const repo = readSrc("lib", "db", "notebooks-repo.ts");
     expect(repo).toContain("raw-sources-only");
     expect(repo).toMatch(/chunkCount:\s*0/);
@@ -420,7 +424,7 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     const drawer = readSrc("components", "dataset", "DocumentDetailDrawer.tsx");
     expect(drawer).toContain("Stored as raw full text");
     expect(drawer).toContain("Retrieval hits");
-    expect(drawer).toContain("Why it ranked");
+    expect(drawer).not.toContain("Why it ranked");
     expect(drawer).not.toContain("chunks indexed");
     expect(drawer).not.toContain("hit chunks");
 
@@ -487,7 +491,7 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(landing).toContain('href="/"');
   });
 
-  it("website UI chrome is English-only (no VN suggestion chips)", () => {
+  it("website UI chrome stays English while answers follow the user's language", () => {
     const dataset = readSrc("components", "dataset", "DatasetChatLayout.tsx");
     expect(dataset).toContain("Summarize the main points in this corpus");
     expect(dataset).toContain("What are the key concepts?");
@@ -510,15 +514,13 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(layout).toMatch(/subsets:\s*\[\s*"latin"\s*\]/);
 
     const cite = readSrc("lib", "llm", "prompts.ts");
-    expect(cite).toMatch(/English only/i);
-    expect(cite).toMatch(/Do not answer in Vietnamese/i);
-    expect(cite).not.toMatch(/Prefer Vietnamese/i);
-    expect(cite).not.toMatch(/Respond in Vietnamese only/i);
-    expect(cite).not.toMatch(/The user question is in Vietnamese/i);
+    expect(cite).toMatch(/Respond naturally in/i);
+    expect(cite).toMatch(/Preserve technical terms/i);
+    expect(cite).not.toMatch(/Do not answer in Vietnamese/i);
 
     const expand = readSrc("lib", "context", "prompts.ts");
-    expect(expand).toMatch(/English only/i);
-    expect(expand).not.toMatch(/Vietnamese or English/i);
+    expect(expand).toMatch(/user's natural language/i);
+    expect(expand).toMatch(/technical terms/i);
   });
 
   it("PipelineInspector documents hybrid fusion (not cross-encoder rerank)", () => {
@@ -534,11 +536,8 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(readSrc("app", "search", "[sessionId]", "page.tsx")).toContain(
       "SearchChatLayout",
     );
-    expect(readSrc("app", "notebooks", "page.tsx")).toContain(
-      "DatasetChatLayout",
-    );
-    expect(readSrc("app", "notebooks", "[id]", "page.tsx")).toContain(
-      "DatasetChatLayout",
-    );
+    const notebooksLayout = readSrc("app", "notebooks", "layout.tsx");
+    expect(notebooksLayout).toContain("DatasetChatLayout");
+    expect(notebooksLayout).toContain("useSelectedLayoutSegment");
   });
 });

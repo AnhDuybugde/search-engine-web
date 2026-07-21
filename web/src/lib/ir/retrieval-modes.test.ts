@@ -4,14 +4,17 @@ import {
   isRetrievalModeId,
   parseRetrievalMode,
   RETRIEVAL_MODES,
+  RETRIEVAL_MODE_IDS,
   retrievalModeLabel,
 } from "./retrieval-modes";
 
 describe("retrieval-modes registry", () => {
-  it("exposes adaptive_rrf and bm25 for UI switching", () => {
+  it("exposes retrieval models for UI switching", () => {
     const ids = RETRIEVAL_MODES.map((m) => m.id);
     expect(ids).toContain("adaptive_rrf");
     expect(ids).toContain("bm25");
+    expect(ids).toContain("legacy_rrf_ce");
+    expect(RETRIEVAL_MODE_IDS).toEqual(ids);
     expect(DEFAULT_RETRIEVAL_MODE).toBe("adaptive_rrf");
   });
 
@@ -27,5 +30,6 @@ describe("retrieval-modes registry", () => {
     expect(retrievalModeLabel("adaptive_rrf")).toBe("Adaptive");
     expect(retrievalModeLabel("bm25")).toBe("BM25");
     expect(retrievalModeLabel("bm25_fallback")).toBe("BM25 fallback");
+    expect(retrievalModeLabel("legacy_rrf_ce")).toBe("SciNCL + RRF + CE");
   });
 });

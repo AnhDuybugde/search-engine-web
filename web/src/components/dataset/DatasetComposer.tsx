@@ -7,7 +7,10 @@ import {
   Paperclip,
   Square,
 } from "lucide-react";
+import { RetrievalModePicker } from "@/components/RetrievalModePicker";
+import { GenerationModelPicker } from "@/components/GenerationModelPicker";
 import { handleSubmitOnEnter } from "@/lib/keyboard";
+import type { RetrievalModeId } from "@/lib/ir/retrieval-modes";
 import { cn } from "@/lib/utils";
 
 export function DatasetComposer({
@@ -20,12 +23,14 @@ export function DatasetComposer({
   placeholder,
   suggestions = [],
   recommendationIds = [],
+  retrievalMode,
+  onRetrievalModeChange,
   className,
 }: {
   disabled?: boolean;
   running?: boolean;
   uploading?: boolean;
-  onSend: (query: string) => void;
+  onSend: (query: string, opts: { retrievalMode: RetrievalModeId; llmModel?: string }) => void;
   onCancel?: () => void;
   onUpload?: (file: File) => void;
   placeholder?: string;
@@ -33,10 +38,13 @@ export function DatasetComposer({
   suggestions?: string[];
   /** Notebook ids whose raw database content should power recommendations. */
   recommendationIds?: string[];
+  retrievalMode: RetrievalModeId;
+  onRetrievalModeChange: (mode: RetrievalModeId) => void;
   className?: string;
 }) {
   const [query, setQuery] = useState("");
   const [databaseSuggestions, setDatabaseSuggestions] = useState<string[]>([]);
+  const [llmModel, setLlmModel] = useState("");
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -74,7 +82,7 @@ export function DatasetComposer({
   const submit = () => {
     const q = query.trim();
     if (!q || disabled || running) return;
-    onSend(q);
+    onSend(q, { retrievalMode, llmModel: llmModel || undefined });
     setQuery("");
   };
 
@@ -115,6 +123,22 @@ export function DatasetComposer({
   return (
     <div className={cn("chat-composer-shell dataset-composer-compact", className)}>
       <div className="mx-auto max-w-[var(--chat-max)] space-y-2">
+        <div className="flex items-center justify-between gap-2 px-0.5">
+          <span className="text-[11px] font-medium text-[var(--fg-subtle)]">
+            Retrieval method
+          </span>
+          <RetrievalModePicker
+            value={retrievalMode}
+            onChange={onRetrievalModeChange}
+            disabled={disabled || running || uploading}
+            size="sm"
+          />
+          <GenerationModelPicker
+            value={llmModel}
+            onChange={setLlmModel}
+            disabled={disabled || running || uploading}
+          />
+        </div>
         <div className="chat-composer-box !pl-1.5">
           {onUpload && (
             <label

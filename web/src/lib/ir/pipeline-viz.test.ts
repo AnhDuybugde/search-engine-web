@@ -167,6 +167,54 @@ describe("buildDocumentScoreSeries", () => {
     expect(series[1].scoreFraction).toBeCloseTo(0.5);
     expect(series[1].confFraction).toBeCloseTo(0.4);
   });
+
+  it("keeps absolute RRF strength distinct from relative score", () => {
+    const docs: RankedDocument[] = [
+      {
+        documentId: "d1",
+        title: "A",
+        finalScore: 0.022,
+        finalRank: 1,
+        relativeScore: 1,
+        confidence: 1,
+        chunkHits: 1,
+        topChunkIds: ["c1"],
+      },
+      {
+        documentId: "d2",
+        title: "B",
+        finalScore: 0.018,
+        finalRank: 2,
+        relativeScore: 0.818,
+        confidence: 0.818,
+        chunkHits: 1,
+        topChunkIds: ["c2"],
+      },
+    ];
+    const series = buildDocumentScoreSeries(docs, "adaptive_rrf");
+    expect(series[0].scoreFraction).toBeLessThan(1);
+    expect(series[0].scoreFraction).not.toBeCloseTo(series[0].confFraction);
+    expect(series[1].scoreFraction).not.toBeCloseTo(series[1].confFraction);
+  });
+
+  it("does not render duplicate document ids", () => {
+    const document = {
+      documentId: "same-source",
+      title: "Same source",
+      finalScore: 0.02,
+      finalRank: 1,
+      relativeScore: 1,
+      confidence: 1,
+      chunkHits: 1,
+      topChunkIds: ["c1"],
+    } satisfies RankedDocument;
+    const series = buildDocumentScoreSeries([
+      document,
+      { ...document, finalScore: 0.01, finalRank: 2, topChunkIds: ["c2"] },
+    ]);
+    expect(series).toHaveLength(1);
+    expect(series[0].finalScore).toBe(0.02);
+  });
 });
 
 describe("buildCandidateCompare + buildPipelineVizModel", () => {

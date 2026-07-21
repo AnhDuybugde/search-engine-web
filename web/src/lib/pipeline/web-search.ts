@@ -1,4 +1,4 @@
-import { getConfig, IR_DEFAULTS } from "@/lib/config";
+import { getConfig, IR_DEFAULTS, resolveLlmModel } from "@/lib/config";
 import { chunkDocuments } from "@/lib/ir/chunker";
 import { retrieveEvidence } from "@/lib/ir/adaptive-rrf";
 import { packContext } from "@/lib/ir/packer";
@@ -8,6 +8,7 @@ import {
 } from "@/lib/ir/retrieval-modes";
 import type { Metrics, RankedChunk, StreamEvent, Timing } from "@/lib/ir/types";
 import { streamAnswer } from "@/lib/llm/client";
+import { expandQueryForRetrieval } from "@/lib/ir/query-expansion";
 import { fetchViaJina, searchWeb } from "@/lib/search/tavily";
 import { elapsed, nowMs } from "@/lib/utils";
 import { randomUUID } from "crypto";
@@ -21,6 +22,7 @@ export type WebSearchInput = {
   enrichThinPages?: boolean;
   /** Per-request override; falls back to RETRIEVAL_MODE env. */
   retrievalMode?: RetrievalModeId;
+  llmModel?: string;
   signal?: AbortSignal;
 };
 
@@ -58,7 +60,7 @@ export async function runWebSearchPipeline(
 
   const totalStart = nowMs();
   const timing: Timing = {};
-  const metrics: Metrics = {};
+  const metrics: Metrics = { llmModel: resolveLlmModel(input.llmModel, cfg) };
 
   emit({ type: "search_started", query });
   assertNotAborted(signal);
@@ -114,7 +116,7 @@ export async function runWebSearchPipeline(
     parseRetrievalMode(cfg.RETRIEVAL_MODE),
   );
   const retrieval = await retrieveEvidence(
-    query,
+    expandQueryForRetrieval(query),
     chunks,
     retrieveTopK,
     retrievalMode,
@@ -160,6 +162,7 @@ export async function runWebSearchPipeline(
       answer = await streamAnswer({
         query,
         chunks: results,
+        model: input.llmModel,
         signal,
         onToken: async (token) => emit({ type: "generation_token", token }),
       });

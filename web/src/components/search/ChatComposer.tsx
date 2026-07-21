@@ -9,6 +9,7 @@ import {
   Square,
 } from "lucide-react";
 import { RetrievalModePicker } from "@/components/RetrievalModePicker";
+import { GenerationModelPicker } from "@/components/GenerationModelPicker";
 import { handleSubmitOnEnter } from "@/lib/keyboard";
 import {
   readStoredRetrievalMode,
@@ -33,6 +34,7 @@ export function ChatComposer({
       contextTopK: number;
       generateAnswer: boolean;
       retrievalMode: RetrievalModeId;
+      llmModel?: string;
     },
   ) => void;
   onCancel?: () => void;
@@ -46,6 +48,7 @@ export function ChatComposer({
   const [retrievalMode, setRetrievalMode] = useState<RetrievalModeId>(
     () => readStoredRetrievalMode(),
   );
+  const [llmModel, setLlmModel] = useState("");
 
   const setMode = (mode: RetrievalModeId) => {
     setRetrievalMode(mode);
@@ -55,7 +58,7 @@ export function ChatComposer({
   const submit = () => {
     const q = query.trim();
     if (!q || disabled || running) return;
-    onSend(q, { searchLimit, contextTopK, generateAnswer, retrievalMode });
+    onSend(q, { searchLimit, contextTopK, generateAnswer, retrievalMode, llmModel: llmModel || undefined });
     setQuery("");
   };
 
@@ -71,6 +74,11 @@ export function ChatComposer({
             onChange={setMode}
             disabled={disabled || running}
             size="sm"
+          />
+          <GenerationModelPicker
+            value={llmModel}
+            onChange={setLlmModel}
+            disabled={disabled || running}
           />
         </div>
 
@@ -125,7 +133,7 @@ export function ChatComposer({
                 allowShiftNewline: true,
               })
             }
-            rows={2}
+            rows={1}
             placeholder="Ask a research question or follow up…"
             disabled={disabled || running}
             aria-label="Message"

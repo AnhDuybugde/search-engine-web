@@ -71,8 +71,12 @@ function validateEmbeddings(vectors: number[][], expected: number) {
   }
 }
 
-export async function embedTexts(texts: string[]): Promise<EmbeddingResult> {
+export async function embedTexts(
+  texts: string[],
+  options?: { model?: string },
+): Promise<EmbeddingResult> {
   const cfg = getConfig();
+  const model = options?.model?.trim() || cfg.EMBEDDING_MODEL;
   const input = texts.map((t) => t.trim()).filter(Boolean);
   if (input.length !== texts.length) {
     throw new Error("Cannot embed empty text");
@@ -96,12 +100,12 @@ export async function embedTexts(texts: string[]): Promise<EmbeddingResult> {
     endpoint = cfg.EMBEDDING_API_URL.endsWith("/embeddings")
       ? cfg.EMBEDDING_API_URL
       : baseUrlJoin(cfg.EMBEDDING_API_URL, "/embeddings");
-    body = { model: cfg.EMBEDDING_MODEL, input };
+    body = { model, input };
   } else if (cfg.EMBEDDING_PROVIDER === "huggingface") {
     endpoint =
       cfg.EMBEDDING_API_URL ||
       `https://router.huggingface.co/hf-inference/models/${encodeURIComponent(
-        cfg.EMBEDDING_MODEL,
+        model,
       )}`;
     body = {
       inputs: input,
@@ -147,7 +151,7 @@ export async function embedTexts(texts: string[]): Promise<EmbeddingResult> {
   return {
     embeddings: vectors.map(normalizeVector),
     provider: cfg.EMBEDDING_PROVIDER as EmbeddingProvider,
-    model: cfg.EMBEDDING_MODEL,
+    model,
   };
 }
 

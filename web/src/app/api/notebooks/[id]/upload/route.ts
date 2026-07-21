@@ -154,11 +154,38 @@ export async function POST(
               unitCount: ev.unitCount,
               message: ev.message,
             });
+          } else if (ev.type === "chunk_started") {
+            emit({ type: "chunk_started", message: ev.message });
+          } else if (ev.type === "chunk_completed") {
+            emit({
+              type: "chunk_completed",
+              chunkCount: ev.chunkCount,
+              chunkMs: ev.chunkMs,
+              message: ev.message,
+            });
+          } else if (ev.type === "embed_started") {
+            emit({
+              type: "embed_started",
+              total: ev.total,
+              message: ev.message,
+            });
           } else if (ev.type === "index_progress") {
             emit({
               type: "index_progress",
               done: ev.done,
               total: ev.total,
+              message: ev.message,
+            });
+          } else if (ev.type === "persist_started") {
+            emit({
+              type: "persist_started",
+              total: ev.total,
+              message: ev.message,
+            });
+          } else if (ev.type === "persist_completed") {
+            emit({
+              type: "persist_completed",
+              persistMs: ev.persistMs,
               message: ev.message,
             });
           } else if (ev.type === "index_completed") {
@@ -169,6 +196,8 @@ export async function POST(
               model: ev.model,
               provider: ev.provider,
               embedMs: ev.embedMs,
+              chunkMs: ev.chunkMs,
+              persistMs: ev.persistMs,
               totalMs: ev.totalMs,
               storage: ev.storage,
               message: ev.message,
@@ -188,7 +217,9 @@ export async function POST(
       const timing = {
         extractMs,
         storeMs: source.timing?.storeMs ?? storeMs,
+        chunkMs: indexResult.chunkMs,
         embedMs: indexResult.embedMs,
+        persistMs: indexResult.persistMs,
         totalMs: elapsed(totalStart),
       };
 

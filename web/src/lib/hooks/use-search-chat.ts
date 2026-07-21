@@ -342,7 +342,8 @@ export function useSearchChat(sessionId: string | null) {
         searchLimit?: number;
         contextTopK?: number;
         generateAnswer?: boolean;
-        retrievalMode?: "bm25" | "adaptive_rrf" | "sgaf";
+        retrievalMode?: "bm25" | "adaptive_rrf" | "sgaf" | "legacy_rrf_ce";
+        llmModel?: string;
       },
     ) => {
       if (!sessionId || !query.trim() || status === "running") return;
@@ -402,6 +403,7 @@ export function useSearchChat(sessionId: string | null) {
             contextTopK: opts?.contextTopK,
             generateAnswer: opts?.generateAnswer,
             retrievalMode: opts?.retrievalMode,
+            llmModel: opts?.llmModel,
           }),
           signal: controller.signal,
           cache: "no-store",

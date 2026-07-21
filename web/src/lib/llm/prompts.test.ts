@@ -19,36 +19,67 @@ function chunk(partial: Partial<RankedChunk> & { text: string }): RankedChunk {
   };
 }
 
-describe("citation prompts English-only product (shipped)", () => {
-  it("system prompt always requires English answers", () => {
+describe("citation prompts preserve user language and technical terms", () => {
+  it("system prompt follows the user's language", () => {
     const system = buildCitationSystemPrompt(
-      "what the name of dataset having in the database now?",
+      "ALW có công thức là gì?",
     );
-    expect(system).toMatch(/English only/i);
-    expect(system).toMatch(/Do not answer in Vietnamese/i);
-    // No bilingual preference / positive VN answer instruction
-    expect(system).not.toMatch(/Prefer Vietnamese/i);
-    expect(system).not.toMatch(/answer in Vietnamese —/i);
-    expect(system).not.toMatch(/Respond in Vietnamese only/i);
+    expect(system).toMatch(/Vietnamese/i);
+    expect(system).toMatch(/Preserve technical terms/i);
+    expect(system).not.toMatch(/English only/i);
   });
 
-  it("user prompt restates English-only", () => {
-    const q = "what datasets are in this notebook?";
+  it("user prompt follows the detected response language", () => {
+    const q = "ALW có công thức là gì?";
     const prompt = buildCitationUserPrompt(q, [
       chunk({
         text: "10-20% of people with severe mental disorder receive no treatment.",
         citationId: 1,
       }),
     ]);
-    expect(prompt).toContain("Respond in English only");
-    expect(prompt).not.toMatch(/Respond in Vietnamese only/i);
+    expect(prompt).toContain("Respond naturally in Vietnamese");
+    expect(prompt).toContain("Keep model names");
     expect(prompt).toContain(`Question: ${q}`);
   });
 
-  it("system prompt has no VN answer-language branch for any query", () => {
+  it("system prompt follows English when the query is English", () => {
     const system = buildCitationSystemPrompt("summarize the documents");
-    expect(system).toMatch(/English only/i);
-    expect(system).not.toMatch(/The user question is in Vietnamese/i);
-    expect(system).not.toMatch(/detectAnswerLanguageHint/i);
+    expect(system).toMatch(/same language as the user's question/i);
+    expect(system).not.toMatch(/Do not answer in Vietnamese/i);
+  });
+
+  it("system and user prompts enforce grounded answers without fabrication", () => {
+    const system = buildCitationSystemPrompt("What is the result?");
+    const user = buildCitationUserPrompt("What is the result?", []);
+
+    expect(system).toMatch(/only authoritative knowledge/i);
+    expect(system).toMatch(/Do not use general world knowledge/i);
+    expect(system).toMatch(/Never fabricate facts/i);
+    expect(system).toMatch(/I don't know based on the provided documents/i);
+    expect(user).toMatch(/complete evidence set/i);
+    expect(user).toMatch(/do not guess/i);
+  });
+
+  it("treats document-finding questions as source discovery", () => {
+    const q = "tìm các tài liệu liên quan tới vitamin";
+    const chunks = [
+      chunk({
+        title: "Vitamins E and C in the prevention of prostate cancer",
+        text: "The study evaluates vitamins E and C.",
+        citationId: 1,
+      }),
+      chunk({
+        title: "Vitamins E and C in the prevention of prostate cancer",
+        text: "A randomized controlled study.",
+        citationId: 2,
+      }),
+    ];
+    const system = buildCitationSystemPrompt(q);
+    const user = buildCitationUserPrompt(q, chunks);
+
+    expect(system).toMatch(/source-discovery questions/i);
+    expect(user).toMatch(/Retrieved source titles/i);
+    expect(user).toMatch(/if one or more titles\/snippets directly match/i);
+    expect(user).toContain("Vitamins E and C in the prevention of prostate cancer");
   });
 });

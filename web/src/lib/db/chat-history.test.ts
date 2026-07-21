@@ -51,7 +51,7 @@ describe("chat history per user (shipped repos, memory backend)", () => {
     for (const k of DB_KEYS) prev[k] = process.env[k];
     for (const k of DB_KEYS) delete process.env[k];
     process.env.ALLOW_MEMORY_DB = "1";
-    process.env.NODE_ENV = "test";
+    setEnv("NODE_ENV", "test");
     setSearchSessionsUserIdColumnForTests(null);
     resetChatHistorySchemaCache();
     memSessions.clear();
@@ -182,7 +182,7 @@ describe("chat history durable SQL path (DATABASE_URL)", () => {
     process.env.DB_SSL = "disable";
     delete process.env.ALLOW_MEMORY_DB;
     delete process.env.VERCEL;
-    process.env.NODE_ENV = "test";
+    setEnv("NODE_ENV", "test");
     setSearchSessionsUserIdColumnForTests(null);
     resetChatHistorySchemaCache();
   });

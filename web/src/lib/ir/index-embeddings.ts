@@ -27,9 +27,34 @@ export type IndexProgressEvent =
       message: string;
     }
   | {
+      type: "chunk_started";
+      message: string;
+    }
+  | {
+      type: "chunk_completed";
+      chunkCount: number;
+      chunkMs: number;
+      message: string;
+    }
+  | {
+      type: "embed_started";
+      total: number;
+      message: string;
+    }
+  | {
       type: "index_progress";
       done: number;
       total: number;
+      message: string;
+    }
+  | {
+      type: "persist_started";
+      total: number;
+      message: string;
+    }
+  | {
+      type: "persist_completed";
+      persistMs: number;
       message: string;
     }
   | {
@@ -39,6 +64,8 @@ export type IndexProgressEvent =
       model: string;
       provider: string;
       embedMs: number;
+      chunkMs: number;
+      persistMs: number;
       totalMs: number;
       storage: "supabase-postgres";
       message: string;
@@ -60,6 +87,8 @@ export type IndexNotebookResult = {
   model: string;
   provider: string;
   embedMs: number;
+  chunkMs: number;
+  persistMs: number;
   totalMs: number;
   status: "ready" | "skipped" | "failed";
   message: string;
@@ -99,6 +128,8 @@ export async function indexNotebookEmbeddings(
       model: cfg.EMBEDDING_MODEL,
       provider: cfg.EMBEDDING_PROVIDER,
       embedMs: 0,
+      chunkMs: 0,
+      persistMs: 0,
       totalMs: Math.round(performance.now() - totalStart),
       status: "skipped",
       message,
@@ -112,6 +143,11 @@ export async function indexNotebookEmbeddings(
     });
 
     const sources = await listSourcesForIndex(notebookId);
+    emit?.({
+      type: "chunk_started",
+      message: `Preparing retrieval chunks from ${sources.length} source${sources.length === 1 ? "" : "s"}…`,
+    });
+    const chunkStart = performance.now();
     const units = expandRawSourcesToUnits(
       sources.map((s) => ({
         id: s.id,
@@ -120,6 +156,13 @@ export async function indexNotebookEmbeddings(
         mime: s.mime,
       })),
     ).slice(0, opts?.maxUnits ?? MAX_INDEX_UNITS);
+    const chunkMs = Math.round(performance.now() - chunkStart);
+    emit?.({
+      type: "chunk_completed",
+      chunkCount: units.length,
+      chunkMs,
+      message: `Prepared ${units.length} retrieval chunks`,
+    });
 
     emit?.({
       type: "index_started",
@@ -144,6 +187,8 @@ export async function indexNotebookEmbeddings(
         model: cfg.EMBEDDING_MODEL,
         provider: cfg.EMBEDDING_PROVIDER,
         embedMs: 0,
+        chunkMs,
+        persistMs: 0,
         totalMs: Math.round(performance.now() - totalStart),
         storage: "supabase-postgres",
         message,
@@ -155,6 +200,8 @@ export async function indexNotebookEmbeddings(
         model: cfg.EMBEDDING_MODEL,
         provider: cfg.EMBEDDING_PROVIDER,
         embedMs: 0,
+        chunkMs,
+        persistMs: 0,
         totalMs: Math.round(performance.now() - totalStart),
         status: "ready",
         message,
@@ -166,6 +213,11 @@ export async function indexNotebookEmbeddings(
     let model = cfg.EMBEDDING_MODEL;
     let provider: string = cfg.EMBEDDING_PROVIDER;
     const embedStart = performance.now();
+    emit?.({
+      type: "embed_started",
+      total: units.length,
+      message: `Embedding ${units.length} chunks…`,
+    });
 
     for (let i = 0; i < units.length; i += batchSize) {
       const slice = units.slice(i, i + batchSize);
@@ -212,6 +264,13 @@ export async function indexNotebookEmbeddings(
     });
 
     emit?.({
+      type: "persist_started",
+      total: rows.length,
+      message: `Persisting ${rows.length} vectors to database…`,
+    });
+    const persistStart = performance.now();
+
+    emit?.({
       type: "index_progress",
       done: units.length,
       total: units.length,
@@ -219,6 +278,12 @@ export async function indexNotebookEmbeddings(
     });
 
     await replaceNotebookChunks(notebookId, rows);
+    const persistMs = Math.round(performance.now() - persistStart);
+    emit?.({
+      type: "persist_completed",
+      persistMs,
+      message: `Persisted ${rows.length} vectors`,
+    });
 
     const embeddedCount = rows.filter(
       (r) => r.embedding && r.embedding.length > 0,
@@ -241,6 +306,8 @@ export async function indexNotebookEmbeddings(
       model,
       provider,
       embedMs,
+      chunkMs,
+      persistMs,
       totalMs,
       storage: "supabase-postgres",
       message,
@@ -253,6 +320,8 @@ export async function indexNotebookEmbeddings(
       model,
       provider,
       embedMs,
+      chunkMs,
+      persistMs,
       totalMs,
       status: "ready",
       message,
@@ -271,6 +340,8 @@ export async function indexNotebookEmbeddings(
       model: cfg.EMBEDDING_MODEL,
       provider: cfg.EMBEDDING_PROVIDER,
       embedMs: 0,
+      chunkMs: 0,
+      persistMs: 0,
       totalMs: Math.round(performance.now() - totalStart),
       status: "failed",
       message,
