@@ -1,4 +1,4 @@
-import { getConfig, IR_DEFAULTS } from "@/lib/config";
+import { getConfig, IR_DEFAULTS, resolveLlmModel } from "@/lib/config";
 import { retrieveEvidence } from "@/lib/ir/adaptive-rrf";
 import {
   documentRunMetrics,
@@ -18,6 +18,7 @@ import type {
   Timing,
 } from "@/lib/ir/types";
 import { streamAnswer } from "@/lib/llm/client";
+import { expandQueryForRetrieval } from "@/lib/ir/query-expansion";
 import { elapsed, nowMs } from "@/lib/utils";
 
 function assertNotAborted(signal?: AbortSignal) {
@@ -38,6 +39,7 @@ export async function runNotebookAskPipeline(
     generateAnswer?: boolean;
     /** Per-request override; falls back to RETRIEVAL_MODE env. */
     retrievalMode?: RetrievalModeId;
+    llmModel?: string;
     /** Client disconnect / cancel — checked between stages and passed to LLM */
     signal?: AbortSignal;
   },
@@ -72,12 +74,14 @@ export async function runNotebookAskPipeline(
   const timing: Timing = {};
   const metrics: Metrics = {
     chunkCount: input.chunks.length,
+    llmModel: resolveLlmModel(input.llmModel, cfg),
   };
 
   emit({ type: "query_started", query });
 
   const qpStart = nowMs();
-  const processedQuery = query; // placeholder for future expand/normalize
+  const processedQuery = query;
+  const retrievalQuery = expandQueryForRetrieval(query);
   timing.queryProcessMs = elapsed(qpStart);
   emit({
     type: "query_processed",
@@ -94,7 +98,7 @@ export async function runNotebookAskPipeline(
   assertNotAborted(signal);
   const retrieveStart = nowMs();
   const retrieval = await retrieveEvidence(
-    processedQuery,
+    retrievalQuery,
     input.chunks,
     retrieveTopK,
     retrievalMode,
@@ -168,6 +172,9 @@ export async function runNotebookAskPipeline(
   metrics.embeddingProvider = retrieval.diagnostics.embeddingProvider;
   metrics.embeddingModel = retrieval.diagnostics.embeddingModel;
   metrics.bm25Weight = retrieval.diagnostics.bm25Weight;
+  metrics.b5Mode = retrieval.diagnostics.b5Mode;
+  metrics.b5ShiftScore = retrieval.diagnostics.b5ShiftScore;
+  metrics.p3Applied = retrieval.diagnostics.p3Applied;
   metrics.documentsRanked = docMetrics.documentsRanked;
   metrics.topKDocuments = docMetrics.topKDocuments;
   metrics.topScoreStrength = docMetrics.topScoreStrength;
@@ -201,6 +208,7 @@ export async function runNotebookAskPipeline(
       answer = await streamAnswer({
         query: processedQuery,
         chunks: results,
+        model: input.llmModel,
         signal,
         onToken: async (token) => {
           if (firstTokenAt == null) firstTokenAt = nowMs();

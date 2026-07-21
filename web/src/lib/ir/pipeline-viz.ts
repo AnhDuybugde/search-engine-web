@@ -106,7 +106,7 @@ const STAGE_COPY: Record<
   fusion: {
     label: "Hybrid fusion (RRF)",
     explanation:
-      "Classic Reciprocal Rank Fusion (Cormack et al.) merges BM25 and dense rank lists with equal weights: score = Σ 1/(k + rank), k=60. This is not a cross-encoder reranker.",
+      "Rank fusion merges BM25 and dense rank lists. Adaptive mode applies a query-dependent BM25 weight; legacy mode uses classic Reciprocal Rank Fusion (Cormack et al.), k=60. This is not a cross-encoder reranker.",
   },
   pack: {
     label: "Context pack",
@@ -180,16 +180,18 @@ export function buildStageTimeline(
       explanation: STAGE_COPY.fusion.explanation,
       ms: timing?.fusionMs ?? null,
       outcome:
-        mode === "adaptive_rrf" || mode === "legacy_rrf_ce"
+        mode === "adaptive_rrf" || mode === "legacy_rrf_ce" || mode === "sgaf"
           ? "ran"
           : mode === "bm25" || mode === "bm25_fallback"
             ? "skipped"
             : "idle",
       detail:
-        mode === "adaptive_rrf" || mode === "legacy_rrf_ce"
+        mode === "adaptive_rrf" || mode === "legacy_rrf_ce" || mode === "sgaf"
           ? mode === "legacy_rrf_ce"
             ? "SciNCL · classic RRF · k=60 · optional Cross-Encoder"
-            : "Classic RRF · equal weights · k=60"
+            : mode === "sgaf"
+              ? "SGAF B5+P3 · specialist/generalist fusion"
+              : "Adaptive RRF · query-dependent BM25 weight · k=60"
           : mode
             ? `No RRF (${mode})`
             : undefined,

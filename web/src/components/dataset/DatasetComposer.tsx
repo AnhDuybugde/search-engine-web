@@ -8,6 +8,7 @@ import {
   Square,
 } from "lucide-react";
 import { RetrievalModePicker } from "@/components/RetrievalModePicker";
+import { GenerationModelPicker } from "@/components/GenerationModelPicker";
 import { handleSubmitOnEnter } from "@/lib/keyboard";
 import type { RetrievalModeId } from "@/lib/ir/retrieval-modes";
 import { cn } from "@/lib/utils";
@@ -29,7 +30,7 @@ export function DatasetComposer({
   disabled?: boolean;
   running?: boolean;
   uploading?: boolean;
-  onSend: (query: string, opts: { retrievalMode: RetrievalModeId }) => void;
+  onSend: (query: string, opts: { retrievalMode: RetrievalModeId; llmModel?: string }) => void;
   onCancel?: () => void;
   onUpload?: (file: File) => void;
   placeholder?: string;
@@ -43,6 +44,7 @@ export function DatasetComposer({
 }) {
   const [query, setQuery] = useState("");
   const [databaseSuggestions, setDatabaseSuggestions] = useState<string[]>([]);
+  const [llmModel, setLlmModel] = useState("");
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -80,7 +82,7 @@ export function DatasetComposer({
   const submit = () => {
     const q = query.trim();
     if (!q || disabled || running) return;
-    onSend(q, { retrievalMode });
+    onSend(q, { retrievalMode, llmModel: llmModel || undefined });
     setQuery("");
   };
 
@@ -130,6 +132,11 @@ export function DatasetComposer({
             onChange={onRetrievalModeChange}
             disabled={disabled || running || uploading}
             size="sm"
+          />
+          <GenerationModelPicker
+            value={llmModel}
+            onChange={setLlmModel}
+            disabled={disabled || running || uploading}
           />
         </div>
         <div className="chat-composer-box !pl-1.5">

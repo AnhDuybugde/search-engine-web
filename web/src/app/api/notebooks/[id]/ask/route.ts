@@ -21,6 +21,7 @@ const bodySchema = z.object({
   generateAnswer: z.boolean().optional(),
   /** Per-request retrieval method; defaults to RETRIEVAL_MODE env. */
   retrievalMode: z.enum(RETRIEVAL_MODE_IDS).optional(),
+  llmModel: z.string().trim().min(1).max(160).optional(),
 });
 
 /** Persist history without blocking the answer stream (log failures). */
@@ -130,6 +131,7 @@ export async function POST(
           documentTopK: parsed.data.documentTopK ?? 10,
           generateAnswer: parsed.data.generateAnswer,
           retrievalMode: parsed.data.retrievalMode,
+          llmModel: parsed.data.llmModel,
           signal,
         },
         emit,

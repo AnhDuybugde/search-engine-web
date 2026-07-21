@@ -487,7 +487,7 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(landing).toContain('href="/"');
   });
 
-  it("website UI chrome is English-only (no VN suggestion chips)", () => {
+  it("website UI chrome stays English while answers follow the user's language", () => {
     const dataset = readSrc("components", "dataset", "DatasetChatLayout.tsx");
     expect(dataset).toContain("Summarize the main points in this corpus");
     expect(dataset).toContain("What are the key concepts?");
@@ -510,15 +510,13 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(layout).toMatch(/subsets:\s*\[\s*"latin"\s*\]/);
 
     const cite = readSrc("lib", "llm", "prompts.ts");
-    expect(cite).toMatch(/English only/i);
-    expect(cite).toMatch(/Do not answer in Vietnamese/i);
-    expect(cite).not.toMatch(/Prefer Vietnamese/i);
-    expect(cite).not.toMatch(/Respond in Vietnamese only/i);
-    expect(cite).not.toMatch(/The user question is in Vietnamese/i);
+    expect(cite).toMatch(/Respond naturally in/i);
+    expect(cite).toMatch(/Preserve technical terms/i);
+    expect(cite).not.toMatch(/Do not answer in Vietnamese/i);
 
     const expand = readSrc("lib", "context", "prompts.ts");
-    expect(expand).toMatch(/English only/i);
-    expect(expand).not.toMatch(/Vietnamese or English/i);
+    expect(expand).toMatch(/user's natural language/i);
+    expect(expand).toMatch(/technical terms/i);
   });
 
   it("PipelineInspector documents hybrid fusion (not cross-encoder rerank)", () => {

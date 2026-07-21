@@ -6,6 +6,7 @@ import {
   Check,
   Loader2,
   MessageSquarePlus,
+  PanelLeft,
   Pencil,
   Plus,
   Trash2,
@@ -38,6 +39,7 @@ export function SearchSidebar({
   onSelect,
   onRename,
   onRequestDelete,
+  onCollapse,
   className,
 }: {
   sessions: SessionSummary[];
@@ -48,6 +50,8 @@ export function SearchSidebar({
   onRename: (id: string, title: string) => Promise<void>;
   /** Opens in-app confirm dialog — does not delete immediately */
   onRequestDelete: (id: string, title: string) => void;
+  /** Desktop-only collapse control for the resizable sessions panel. */
+  onCollapse?: () => void;
   className?: string;
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -78,14 +82,27 @@ export function SearchSidebar({
         </Link>
         <div className="chat-sidebar-header-row">
           <div className="chat-sidebar-heading truncate">Sessions</div>
-          <button
-            type="button"
-            onClick={onNew}
-            className="btn-primary !min-h-8 !gap-1 !px-2.5 !text-xs !shadow-sm"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            New
-          </button>
+          <div className="flex items-center gap-1">
+            {onCollapse && (
+              <button
+                type="button"
+                onClick={onCollapse}
+                className="btn-ghost hidden !min-h-8 !rounded-lg !px-2 xl:inline-flex"
+                aria-label="Collapse sessions panel"
+                title="Collapse sessions"
+              >
+                <PanelLeft className="h-3.5 w-3.5" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onNew}
+              className="btn-primary !min-h-8 !gap-1 !px-2.5 !text-xs !shadow-sm"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              New
+            </button>
+          </div>
         </div>
       </div>
 

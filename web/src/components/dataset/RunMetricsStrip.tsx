@@ -11,8 +11,11 @@ function fmtMs(ms?: number | null) {
 function modeLabel(mode?: string) {
   switch (mode) {
     case "rrf":
+      return "Hybrid RRF";
     case "adaptive_rrf":
-      return "Hybrid RRF (classic)";
+      return "Adaptive RRF";
+    case "sgaf":
+      return "SGAF B5+P3";
     case "legacy_rrf_ce":
       return "SciNCL + RRF + CE";
     case "bm25_fallback":
@@ -75,10 +78,10 @@ export function RunMetricsStrip({
           Retrieval quality
         </p>
         <p className="mt-0.5 text-[10px] leading-relaxed text-[var(--fg-subtle)]">
-          Standard stack: Okapi BM25 (raw) · dense cosine [0,1] · classic RRF
-          k=60 (rank fusion, ~0–0.033). Channels use different units — do not
-          compare raw numbers across channels. Relative = score/best this query
-          (not P(relevant)).
+          Okapi BM25 + dense cosine with mode-specific rank fusion. Legacy uses
+          classic RRF; Adaptive uses a query-dependent BM25 weight. Channels use
+          different units — do not compare raw numbers across channels. Relative
+          = score/best this query (not P(relevant)).
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="inline-flex min-h-12 items-center rounded-lg bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--primary)] ring-1 ring-[var(--primary-border)]">
