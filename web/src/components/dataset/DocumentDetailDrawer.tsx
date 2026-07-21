@@ -14,7 +14,8 @@ type SourceDetail = {
   chunks: { chunkId: string; chunkIndex: number; text: string }[];
 };
 
-function confPct(c: number) {
+function relativePct(doc: { relativeScore?: number; confidence?: number }) {
+  const c = doc.relativeScore ?? doc.confidence ?? 0;
   return Math.round(Math.max(0, Math.min(1, c)) * 100);
 }
 
@@ -122,7 +123,7 @@ export function DocumentDetailDrawer({
 
   if (!open || !document) return null;
 
-  const pct = confPct(document.confidence);
+  const pct = relativePct(document);
   const isRaw =
     source != null && (source.chunks?.length ?? 0) === 0;
   const showingUnit = Boolean(unitText);
@@ -164,32 +165,38 @@ export function DocumentDetailDrawer({
           {/* Score cards — readable grid */}
           <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
             <ScoreCard
-              label="Match strength"
+              label="Relative score"
               value={`${pct}%`}
               accent
               bar={pct}
-              hint="Proxy from this query's retrieval scores — not calibrated ML probability"
+              hint="score / best score in this ranking (RRF ceiling if sole hybrid hit). Not P(relevant)."
             />
             <ScoreCard
-              label="Final score"
-              value={document.finalScore.toFixed(3)}
+              label="RRF (rank fusion)"
+              value={document.finalScore.toFixed(4)}
+              hint="Classic RRF Σ 1/(k+rank), k=60 — typically ~0–0.033. Different unit from BM25/dense."
             />
-            {document.bm25Best != null && (
+            {document.bm25Best != null &&
+              Number.isFinite(document.bm25Best) &&
+              document.bm25Best > 0 && (
               <ScoreCard
-                label="Best BM25"
+                label="BM25 (raw)"
                 value={document.bm25Best.toFixed(3)}
+                hint="Okapi BM25 raw lexical score (≈0–15+). Not comparable to RRF or cosine."
               />
             )}
-            {document.denseBest != null && (
+            {document.denseBest != null &&
+              Number.isFinite(document.denseBest) && (
               <ScoreCard
-                label="Best dense"
+                label="Dense (cosine)"
                 value={document.denseBest.toFixed(3)}
+                hint="Embedding cosine similarity in [0, 1]. Not comparable to BM25 or RRF."
               />
             )}
             <ScoreCard
               label="Retrieval hits"
               value={String(document.chunkHits)}
-              hint="Units that contributed to this rank"
+              hint="Units of this doc in the fused top-K (not full corpus)"
             />
           </div>
         </header>

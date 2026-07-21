@@ -140,8 +140,9 @@ function fmtMs(ms?: number | null) {
 
 function modeLabel(mode?: string) {
   switch (mode) {
+    case "rrf":
     case "adaptive_rrf":
-      return "Hybrid (Adaptive RRF)";
+      return "Hybrid (classic RRF)";
     case "bm25_fallback":
       return "BM25 fallback";
     case "bm25":
@@ -225,7 +226,11 @@ function deriveStepStatus(
     }
     case "fusion": {
       if (legacySteps.retrieve === "running" && !metrics) return "running";
-      if (metrics?.retrievalMode === "adaptive_rrf") return "success";
+      if (
+        metrics?.retrievalMode === "rrf" ||
+        metrics?.retrievalMode === "adaptive_rrf"
+      )
+        return "success";
       if (metrics?.retrievalMode === "bm25" || metrics?.retrievalMode === "bm25_fallback")
         return "success";
       if (legacySteps.retrieve === "success") return "success";
@@ -514,7 +519,7 @@ function MetricsStrip({
   if (!timing && !metrics) {
     return (
       <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--fg-subtle)]">
-        Run a query to inspect retrieval, embedding, fusion, confidence, and
+        Run a query to inspect retrieval, embedding, fusion, relative scores, and
         generation.
       </p>
     );
@@ -535,12 +540,13 @@ function MetricsStrip({
     parts.push(`Gen ${fmtMs(timing.generateMs)}`);
   if (metrics?.retrievalMode)
     parts.push(modeLabel(metrics.retrievalMode));
-  if (metrics?.confidenceMax != null)
-    parts.push(`conf ${(metrics.confidenceMax * 100).toFixed(0)}%`);
+  {
+    const top =
+      metrics?.topScoreStrength ?? metrics?.confidenceMax;
+    if (top != null) parts.push(`top ${(top * 100).toFixed(0)}%`);
+  }
   if (metrics?.scoreMargin != null)
     parts.push(`margin ${(metrics.scoreMargin * 100).toFixed(0)}%`);
-  if (metrics?.bm25Weight != null && Number.isFinite(metrics.bm25Weight))
-    parts.push(`w_BM25=${metrics.bm25Weight.toFixed(2)}`);
 
   return (
     <p className="mt-1.5 font-mono text-[10px] leading-relaxed text-[var(--fg-muted)]">
@@ -620,8 +626,11 @@ function stepShortHint(
           .join(" · ") || "Dense used at query time";
       return metrics.denseSkippedReason || "Dense not used";
     case "fusion":
-      if (metrics?.bm25Weight != null)
-        return `Adaptive RRF · w_BM25=${metrics.bm25Weight.toFixed(2)}`;
+      if (
+        metrics?.retrievalMode === "rrf" ||
+        metrics?.retrievalMode === "adaptive_rrf"
+      )
+        return "Classic RRF · equal weights · k=60";
       if (metrics?.retrievalMode === "bm25") return "No fusion (lexical only)";
       return "RRF merge of rank lists";
     case "pack":
@@ -720,17 +729,20 @@ function StepDetail({
       rows.push({
         k: "Method",
         v:
+          metrics?.retrievalMode === "rrf" ||
           metrics?.retrievalMode === "adaptive_rrf"
-            ? "Adaptive RRF (rank fusion)"
+            ? "Classic RRF (Cormack et al.)"
             : metrics?.retrievalMode === "bm25_fallback"
               ? "BM25 only (dense failed)"
               : "BM25 only",
       });
-      if (metrics?.bm25Weight != null)
-        rows.push({
-          k: "BM25 weight",
-          v: metrics.bm25Weight.toFixed(3),
-        });
+      if (
+        metrics?.retrievalMode === "rrf" ||
+        metrics?.retrievalMode === "adaptive_rrf"
+      ) {
+        rows.push({ k: "List weights", v: "1.0 (BM25) + 1.0 (dense)" });
+        rows.push({ k: "RRF k", v: "60" });
+      }
       rows.push({
         k: "Note",
         v: "Not a cross-encoder reranker — ranks are fused by reciprocal rank.",

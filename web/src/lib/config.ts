@@ -60,8 +60,9 @@ const envSchema = z.object({
   LLM_BASE_URL: z.string().url().default("https://api.groq.com/openai/v1"),
   LLM_API_KEY: z.string().optional(),
   LLM_MODEL: z.string().default("llama-3.1-8b-instant"),
+  // adaptive_rrf kept as env alias → normalized to classic rrf
   RETRIEVAL_MODE: z
-    .enum(["bm25", "adaptive_rrf"])
+    .enum(["bm25", "rrf", "adaptive_rrf"])
     .default("bm25"),
   EMBEDDING_PROVIDER: z
     .enum(["openai", "huggingface", "tei"])
@@ -78,7 +79,9 @@ const envSchema = z.object({
   APP_PASSWORD: z.string().optional(),
 });
 
-export type AppConfig = z.infer<typeof envSchema> & {
+export type AppConfig = Omit<z.infer<typeof envSchema>, "RETRIEVAL_MODE"> & {
+  /** Normalized: adaptive_rrf env alias becomes classic rrf */
+  RETRIEVAL_MODE: "bm25" | "rrf";
   hasLlm: boolean;
   hasSearch: boolean;
   hasEmbedding: boolean;
@@ -123,7 +126,9 @@ export function getConfig(): AppConfig {
         LLM_API_KEY: raw.LLM_API_KEY,
         LLM_MODEL: raw.LLM_MODEL || "llama-3.1-8b-instant",
         RETRIEVAL_MODE:
-          raw.RETRIEVAL_MODE === "adaptive_rrf" ? "adaptive_rrf" : "bm25",
+          raw.RETRIEVAL_MODE === "rrf" || raw.RETRIEVAL_MODE === "adaptive_rrf"
+            ? "rrf"
+            : "bm25",
         EMBEDDING_PROVIDER:
           raw.EMBEDDING_PROVIDER === "openai" ||
           raw.EMBEDDING_PROVIDER === "huggingface" ||
@@ -149,8 +154,11 @@ export function getConfig(): AppConfig {
   const hasSql = Boolean(data.DATABASE_URL);
   const onVercel = process.env.VERCEL === "1" || Boolean(process.env.VERCEL_ENV);
 
+  const retrievalMode = normalizeRetrievalMode(data.RETRIEVAL_MODE);
+
   return {
     ...data,
+    RETRIEVAL_MODE: retrievalMode,
     supabaseUrl,
     hasLlm: Boolean(data.LLM_API_KEY),
     hasSearch: Boolean(data.TAVILY_API_KEY || data.BRAVE_API_KEY),
@@ -202,8 +210,16 @@ export const IR_DEFAULTS = {
   maxChunksPerNotebook: 500,
   denseTopK: 40,
   maxDenseChunks: 160,
+  /** Classic RRF constant k (Cormack et al., typically 60). */
   rrfK: 60,
-  adaptiveRrfScale: 1.0,
-  adaptiveRrfMinBm25Weight: 0.05,
-  adaptiveRrfMaxBm25Weight: 0.9,
+  /** Equal list weight for classic RRF (both BM25 and dense contribute 1/(k+rank)). */
+  rrfListWeight: 1,
 } as const;
+
+/** Normalize env aliases to the active retrieval mode. */
+export function normalizeRetrievalMode(
+  mode: string | undefined | null,
+): "bm25" | "rrf" {
+  if (mode === "rrf" || mode === "adaptive_rrf") return "rrf";
+  return "bm25";
+}

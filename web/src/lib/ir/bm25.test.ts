@@ -123,9 +123,9 @@ describe("retrieveEvidence", () => {
     ];
 
     const result = await retrieveEvidence("alpha", chunks, 2, "adaptive_rrf");
-    expect(result.diagnostics.mode).toBe("adaptive_rrf");
+    expect(result.diagnostics.mode).toBe("rrf");
     expect(result.diagnostics.denseUsed).toBe(true);
     expect(result.results.map((r) => r.chunkId)).toContain("dense");
-    expect(result.results[0].retrievalMode).toBe("adaptive_rrf");
+    expect(result.results[0].retrievalMode).toBe("rrf");
   });
 });

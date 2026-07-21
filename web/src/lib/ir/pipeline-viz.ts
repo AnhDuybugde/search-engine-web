@@ -59,6 +59,9 @@ export type DocumentScoreBar = {
   title: string;
   finalRank: number;
   finalScore: number;
+  /** Relative score (score/max) for UI bars */
+  relativeScore: number;
+  /** @deprecated use relativeScore */
   confidence: number;
   /** Bar width 0–1 relative to max score in the set */
   scoreFraction: number;
@@ -103,7 +106,7 @@ const STAGE_COPY: Record<
   fusion: {
     label: "Hybrid fusion (RRF)",
     explanation:
-      "Reciprocal Rank Fusion merges BM25 and dense rank lists. Adaptive weight tilts toward BM25 when the query has rare, discriminative terms. This is not a cross-encoder reranker.",
+      "Classic Reciprocal Rank Fusion (Cormack et al.) merges BM25 and dense rank lists with equal weights: score = Σ 1/(k + rank), k=60. This is not a cross-encoder reranker.",
   },
   pack: {
     label: "Context pack",
@@ -177,14 +180,14 @@ export function buildStageTimeline(
       explanation: STAGE_COPY.fusion.explanation,
       ms: timing?.fusionMs ?? null,
       outcome:
-        mode === "adaptive_rrf"
+        mode === "rrf" || mode === "adaptive_rrf"
           ? "ran"
           : mode === "bm25" || mode === "bm25_fallback"
             ? "skipped"
             : "idle",
       detail:
-        mode === "adaptive_rrf" && metrics?.bm25Weight != null
-          ? `w_BM25=${metrics.bm25Weight.toFixed(3)} · RRF`
+        mode === "rrf" || mode === "adaptive_rrf"
+          ? "Classic RRF · equal weights · k=60"
           : mode
             ? `No RRF (${mode})`
             : undefined,
@@ -270,7 +273,9 @@ export function buildTimingWaterfall(
       ms: timing.fusionMs ?? 0,
       color: "primary",
       include:
-        metrics?.retrievalMode === "adaptive_rrf" || (timing.fusionMs ?? 0) > 0,
+        metrics?.retrievalMode === "rrf" ||
+          metrics?.retrievalMode === "adaptive_rrf" ||
+          (timing.fusionMs ?? 0) > 0,
     },
     {
       id: "pack",
@@ -344,7 +349,7 @@ export function buildRankTransitions(
 }
 
 /**
- * Horizontal score/confidence series for top documents.
+ * Horizontal score / relative-score series for top documents.
  */
 export function buildDocumentScoreSeries(
   documents: RankedDocument[],
@@ -354,18 +359,22 @@ export function buildDocumentScoreSeries(
     ...documents.map((d) => (Number.isFinite(d.finalScore) ? d.finalScore : 0)),
     1e-9,
   );
-  return documents.map((d) => ({
-    documentId: d.documentId,
-    title: d.title,
-    finalRank: d.finalRank,
-    finalScore: d.finalScore,
-    confidence: d.confidence,
-    scoreFraction: Math.max(0, Math.min(1, d.finalScore / maxScore)),
-    confFraction: Math.max(0, Math.min(1, d.confidence)),
-    bm25Best: d.bm25Best,
-    denseBest: d.denseBest,
-    chunkHits: d.chunkHits,
-  }));
+  return documents.map((d) => {
+    const relativeScore = d.relativeScore ?? d.confidence ?? 0;
+    return {
+      documentId: d.documentId,
+      title: d.title,
+      finalRank: d.finalRank,
+      finalScore: d.finalScore,
+      relativeScore,
+      confidence: relativeScore,
+      scoreFraction: Math.max(0, Math.min(1, d.finalScore / maxScore)),
+      confFraction: Math.max(0, Math.min(1, relativeScore)),
+      bm25Best: d.bm25Best,
+      denseBest: d.denseBest,
+      chunkHits: d.chunkHits,
+    };
+  });
 }
 
 /**

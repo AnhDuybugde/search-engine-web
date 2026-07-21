@@ -10,8 +10,9 @@ function fmtMs(ms?: number | null) {
 
 function modeLabel(mode?: string) {
   switch (mode) {
+    case "rrf":
     case "adaptive_rrf":
-      return "Hybrid RRF";
+      return "Hybrid RRF (classic)";
     case "bm25_fallback":
       return "BM25 fallback";
     case "bm25":
@@ -40,7 +41,7 @@ export function RunMetricsStrip({
           Run metrics appear after a search
         </p>
         <p className="mt-0.5 text-[11px] text-[var(--fg-subtle)]">
-          Latency, retrieval mode, and match strength in one place.
+          Latency, retrieval mode, and relative score in one place.
         </p>
       </div>
     );
@@ -71,45 +72,51 @@ export function RunMetricsStrip({
     });
   }
 
-  const confMax = pct(metrics?.confidenceMax);
-  const confMean = pct(metrics?.confidenceMean);
+  const topStrength = pct(
+    metrics?.topScoreStrength ?? metrics?.confidenceMax,
+  );
+  const relMean = pct(
+    metrics?.relativeScoreMean ?? metrics?.confidenceMean,
+  );
   const margin = pct(metrics?.scoreMargin);
 
   return (
     <div className="space-y-3">
-      {/* Mode + quality — human labels */}
+      {/* Mode + quality — standard IR labels */}
       <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-3">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
           Retrieval quality
         </p>
         <p className="mt-0.5 text-[10px] leading-relaxed text-[var(--fg-subtle)]">
-          Match strength is a score-derived proxy for this query (not calibrated
-          probability).
+          Standard stack: Okapi BM25 (raw) · dense cosine [0,1] · classic RRF
+          k=60 (rank fusion, ~0–0.033). Channels use different units — do not
+          compare raw numbers across channels. Relative = score/best this query
+          (not P(relevant)).
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <span className="inline-flex items-center rounded-lg bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--primary)] ring-1 ring-[var(--primary-border)]">
             {modeLabel(metrics?.retrievalMode)}
           </span>
-          {confMax != null && (
+          {topStrength != null && (
             <QualityPill
-              label="Top match"
-              value={confMax}
+              label="Top strength"
+              value={topStrength}
               strong
-              title="Best document match strength for this query"
+              title="Top hit rank score / dual-list RRF ceiling 2/(k+1). Absolute hybrid quality of #1 — not relative-to-list (which is always 100% for #1)."
             />
           )}
-          {confMean != null && (
+          {relMean != null && (
             <QualityPill
-              label="Mean match"
-              value={confMean}
-              title="Average match strength across ranked documents"
+              label="Mean relative"
+              value={relMean}
+              title="Average of (score_i / best score) across ranked documents"
             />
           )}
           {margin != null && (
             <QualityPill
               label="Score margin"
               value={margin}
-              title="Relative gap between #1 and #2 final scores"
+              title="(top1 − top2) / top1 on rank score"
             />
           )}
           {metrics?.documentsRanked != null && (
@@ -123,12 +130,6 @@ export function RunMetricsStrip({
               label="Units ranked"
               value={String(metrics.chunkCount)}
               title="Ephemeral retrieval units this run — not stored chunk rows"
-            />
-          )}
-          {metrics?.bm25Weight != null && (
-            <QualityPill
-              label="BM25 weight"
-              value={metrics.bm25Weight.toFixed(2)}
             />
           )}
         </div>

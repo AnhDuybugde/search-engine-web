@@ -354,8 +354,9 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(repo).toMatch(/chunkCount:\s*0/);
     expect(repo).not.toContain("chunkDocument");
     expect(repo).not.toContain("embedChunksForStorage");
-    expect(repo).not.toMatch(/from\("chunks"\)\.insert/);
-    expect(repo).not.toMatch(/db\.insert\(chunks\)/);
+    // Optional pre-index may write embedding rows via replaceNotebookChunks;
+    // upload path itself stays raw-sources-only (chunkCount: 0 above).
+    expect(repo).toContain("replaceNotebookChunks");
   });
 
   it("dataset UI copy is source-first raw store (not upload→chunk→embed index)", () => {
@@ -386,7 +387,7 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(drawer).not.toContain("hit chunks");
 
     const docs = readSrc("components", "dataset", "DocumentResultsList.tsx");
-    expect(docs).toContain("Confidence");
+    expect(docs).toContain("Relative score");
     expect(docs).toContain("MetricCell");
     expect(docs).toContain("Hits");
     expect(docs).not.toMatch(/\bchunks\b/);
@@ -396,9 +397,10 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(metrics).toContain("Latency");
     expect(metrics).toContain("Units ranked");
     expect(metrics).toContain("not stored chunk rows");
-    expect(metrics).toContain("Top match");
-    expect(metrics).toContain("score-derived proxy");
-    expect(metrics).toContain("not calibrated");
+    expect(metrics).toContain("Top strength");
+    expect(metrics).toContain("Mean relative");
+    expect(metrics).toContain("P(relevant)");
+    expect(metrics).toContain("classic RRF");
 
     const inspector = readSrc("components", "pipeline", "PipelineInspector.tsx");
     expect(inspector).toContain("Sources ready");

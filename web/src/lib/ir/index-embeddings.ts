@@ -80,7 +80,7 @@ export async function indexNotebookEmbeddings(
         const res = await embedTexts(slice.map((u) => u.text));
         embeddings.push(...res.embeddings);
         model = res.model;
-        provider = res.provider;
+        provider = res.provider as typeof provider;
         lastErr = null;
         break;
       } catch (err) {

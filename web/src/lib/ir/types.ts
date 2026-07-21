@@ -20,7 +20,14 @@ export type RankedChunk = Chunk & {
   finalScore?: number;
   finalRank: number;
   citationId: number;
-  retrievalMode?: "bm25" | "adaptive_rrf" | "bm25_fallback";
+  /**
+   * Retrieval mode used for this hit.
+   * - bm25 / bm25_fallback: Okapi BM25 only
+   * - rrf: classic Reciprocal Rank Fusion (equal list weights)
+   * - adaptive_rrf: legacy alias of rrf (kept for older payloads)
+   */
+  retrievalMode?: "bm25" | "rrf" | "adaptive_rrf" | "bm25_fallback";
+  /** Always 1 for classic RRF (equal list weights). */
   bm25Weight?: number;
 };
 
@@ -31,10 +38,16 @@ export type RankedDocument = {
   finalScore: number;
   finalRank: number;
   /**
-   * Display confidence proxy in [0,1] from this query's ranked scores
-   * (absolute BM25/dense/final + relative margin). Not a calibrated ML probability.
+   * Relative score in [0,1] for UI bars (standard within-list normalization):
+   * multi-hit → finalScore / max(finalScores);
+   * sole RRF-scale hit → finalScore / dual-list RRF ceiling 2/(k+1).
+   * Not a calibrated P(relevant); ranking uses finalScore only.
    */
-  confidence: number;
+  relativeScore: number;
+  /**
+   * @deprecated Use relativeScore. Mirrored for older SSE clients.
+   */
+  confidence?: number;
   bm25Best?: number;
   denseBest?: number;
   chunkHits: number;
@@ -70,19 +83,34 @@ export type Metrics = {
   chunkCount?: number;
   contextCount?: number;
   sourcesUsed?: number;
-  retrievalMode?: "bm25" | "adaptive_rrf" | "bm25_fallback";
+  retrievalMode?: "bm25" | "rrf" | "adaptive_rrf" | "bm25_fallback";
   denseUsed?: boolean;
   denseSkippedReason?: string;
   embeddingProvider?: string;
   embeddingModel?: string;
+  /** Classic RRF list weight for BM25 (always 1). */
   bm25Weight?: number;
   llmUsed?: boolean;
   llmSkippedReason?: string;
   documentsRanked?: number;
   topKDocuments?: number;
+  /**
+   * Absolute strength of the top document’s rank score vs dual-list RRF ceiling
+   * 2/(k+1). Not the same as relativeScoreMax (always ~1 in multi-hit lists).
+   */
+  topScoreStrength?: number;
+  /** Mean relative score (score/max) across ranked documents. */
+  relativeScoreMean?: number;
+  /** Max relative score in the ranked list (usually 1 for multi-hit). */
+  relativeScoreMax?: number;
+  /** @deprecated use relativeScoreMean */
   confidenceMean?: number;
+  /**
+   * Absolute top hit strength (mirrors topScoreStrength).
+   * @deprecated prefer topScoreStrength
+   */
   confidenceMax?: number;
-  /** (top1 - top2) / top1 on finalScore (retrieval signal) */
+  /** (top1 − top2) / top1 on finalScore — standard score margin */
   scoreMargin?: number;
   eval?: {
     dataset?: "scifact" | "scidocs" | string;

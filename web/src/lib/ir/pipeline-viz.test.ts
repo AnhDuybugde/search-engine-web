@@ -40,7 +40,7 @@ const timing: Timing = {
 };
 
 const metricsHybrid: Metrics = {
-  retrievalMode: "adaptive_rrf",
+  retrievalMode: "rrf",
   denseUsed: true,
   embeddingProvider: "tei",
   embeddingModel: "bge",
@@ -49,6 +49,7 @@ const metricsHybrid: Metrics = {
   sourcesUsed: 2,
   llmUsed: true,
   documentsRanked: 2,
+  relativeScoreMax: 0.9,
   confidenceMax: 0.9,
 };
 
@@ -69,7 +70,7 @@ describe("buildStageTimeline", () => {
       expect(s.outcome).toBe("ran");
     }
     expect(stages.find((s) => s.id === "bm25")?.ms).toBe(10);
-    expect(stages.find((s) => s.id === "fusion")?.detail).toContain("0.420");
+    expect(stages.find((s) => s.id === "fusion")?.detail).toMatch(/Classic RRF|RRF/);
   });
 
   it("marks dense/fusion skipped honestly on BM25-only runs", () => {
@@ -145,6 +146,7 @@ describe("buildDocumentScoreSeries", () => {
         title: "A",
         finalScore: 4,
         finalRank: 1,
+        relativeScore: 1,
         confidence: 1,
         chunkHits: 2,
         topChunkIds: ["c1"],
@@ -154,6 +156,7 @@ describe("buildDocumentScoreSeries", () => {
         title: "B",
         finalScore: 2,
         finalRank: 2,
+        relativeScore: 0.4,
         confidence: 0.4,
         chunkHits: 1,
         topChunkIds: ["c2"],
@@ -198,6 +201,7 @@ describe("buildCandidateCompare + buildPipelineVizModel", () => {
           title: "A",
           finalScore: 2,
           finalRank: 1,
+          relativeScore: 0.9,
           confidence: 0.9,
           chunkHits: 1,
           topChunkIds: ["c1"],
