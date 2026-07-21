@@ -43,7 +43,9 @@ export function AppShell({
   const mood =
     pathname === "/search" || pathname.startsWith("/search/")
       ? "web"
-      : "dataset";
+      : pathname === "/"
+        ? "home"
+        : "dataset";
 
   return (
     <div
@@ -52,7 +54,7 @@ export function AppShell({
     >
       <aside className="app-rail" aria-label="Primary">
         <Link
-          href="/notebooks"
+          href="/"
           className="app-rail-brand"
           title="SearchEngine home"
         >
