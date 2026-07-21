@@ -1,8 +1,10 @@
 import { getConfig } from "@/lib/config";
 
+export type EmbeddingProvider = "openai" | "huggingface" | "tei";
+
 export type EmbeddingResult = {
   embeddings: number[][];
-  provider: string;
+  provider: EmbeddingProvider;
   model: string;
 };
 
@@ -144,7 +146,7 @@ export async function embedTexts(texts: string[]): Promise<EmbeddingResult> {
 
   return {
     embeddings: vectors.map(normalizeVector),
-    provider: cfg.EMBEDDING_PROVIDER,
+    provider: cfg.EMBEDDING_PROVIDER as EmbeddingProvider,
     model: cfg.EMBEDDING_MODEL,
   };
 }

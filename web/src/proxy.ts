@@ -3,7 +3,8 @@ import type { NextRequest } from "next/server";
 
 const APP_SESSION_COOKIE = "app_session";
 
-export async function middleware(req: NextRequest) {
+/** Next.js 16+: `middleware` convention renamed to `proxy`. */
+export async function proxy(req: NextRequest) {
   const authDisabled = process.env.AUTH_DISABLED === "1";
   const { pathname } = req.nextUrl;
 
