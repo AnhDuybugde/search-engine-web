@@ -25,7 +25,9 @@ const bodySchema = z.object({
   generateAnswer: z.boolean().optional(),
   enrichThinPages: z.boolean().optional(),
   /** Per-request retrieval method; defaults to RETRIEVAL_MODE env. */
-  retrievalMode: z.enum(["bm25", "adaptive_rrf"]).optional(),
+  retrievalMode: z
+    .enum(["bm25", "adaptive_rrf", "sgaf", "legacy_rrf_ce"])
+    .optional(),
 });
 
 export async function POST(

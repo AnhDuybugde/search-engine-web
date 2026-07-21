@@ -21,6 +21,12 @@ export const RETRIEVAL_MODES = [
     shortLabel: "SGAF",
     description: "Specialist-Generalist Adaptive Fusion with mode-switch + smoothing",
   },
+  {
+    id: "legacy_rrf_ce",
+    label: "SciNCL + RRF + CE",
+    shortLabel: "SciNCL + CE",
+    description: "Legacy BM25 + SciNCL classic RRF with optional Cross-Encoder reranking",
+  },
 ] as const;
 
 export type RetrievalModeId = (typeof RETRIEVAL_MODES)[number]["id"];

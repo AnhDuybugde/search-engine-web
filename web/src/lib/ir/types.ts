@@ -17,10 +17,16 @@ export type RankedChunk = Chunk & {
   bm25Rank: number;
   denseScore?: number;
   denseRank?: number;
+  crossEncoderScore?: number;
   finalScore?: number;
   finalRank: number;
   citationId: number;
-  retrievalMode?: "bm25" | "adaptive_rrf" | "bm25_fallback" | "sgaf";
+  retrievalMode?:
+    | "bm25"
+    | "adaptive_rrf"
+    | "bm25_fallback"
+    | "sgaf"
+    | "legacy_rrf_ce";
   bm25Weight?: number;
   /** SGAF-specific fields */
   b5Mode?: "specialist_safe" | "generalist_fallback";
@@ -81,7 +87,12 @@ export type Metrics = {
   chunkCount?: number;
   contextCount?: number;
   sourcesUsed?: number;
-  retrievalMode?: "bm25" | "adaptive_rrf" | "bm25_fallback" | "sgaf";
+  retrievalMode?:
+    | "bm25"
+    | "adaptive_rrf"
+    | "bm25_fallback"
+    | "sgaf"
+    | "legacy_rrf_ce";
   denseUsed?: boolean;
   denseSkippedReason?: string;
   embeddingProvider?: string;
