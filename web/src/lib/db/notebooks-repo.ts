@@ -869,12 +869,20 @@ export async function addSource(
   if (!notebook) throw new Error("Notebook not found");
 
   const existing = await listSources(params.notebookId);
-  let totalChars = params.text.length;
-  for (const s of existing) totalChars += s.charCount;
+  const usedChars = existing.reduce((n, s) => n + s.charCount, 0);
+  const incoming = params.text.length;
+  const totalChars = usedChars + incoming;
+  const limit = IR_DEFAULTS.maxNotebookChars;
 
-  if (totalChars > IR_DEFAULTS.maxNotebookChars) {
+  if (totalChars > limit) {
+    const room = Math.max(0, limit - usedChars);
     throw new Error(
-      `Notebook text limit exceeded (${IR_DEFAULTS.maxNotebookChars} chars).`,
+      `Notebook text limit exceeded: this file is ${incoming.toLocaleString()} chars, ` +
+        `dataset already has ${usedChars.toLocaleString()}, total would be ` +
+        `${totalChars.toLocaleString()} (max ${limit.toLocaleString()}). ` +
+        (room > 0
+          ? `About ${room.toLocaleString()} chars free — use a smaller file, split into a new dataset, or raise MAX_NOTEBOOK_CHARS.`
+          : `No room left in this dataset — open a new dataset for additional documents, or raise MAX_NOTEBOOK_CHARS.`),
     );
   }
 
