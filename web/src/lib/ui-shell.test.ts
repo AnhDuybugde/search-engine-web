@@ -452,9 +452,21 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(evidence).not.toContain("ranked chunks");
   });
 
-  it("home redirects to notebooks (dataset search primary)", () => {
+  it("home is a landing with Web Search and Document RAG modules", () => {
     const home = readSrc("app", "page.tsx");
-    expect(home).toContain('redirect("/notebooks")');
+    expect(home).toContain("HomeLanding");
+    expect(home).not.toContain("redirect(");
+    const landing = readSrc("components", "HomeLanding.tsx");
+    expect(landing).toContain('href: "/search"');
+    expect(landing).toContain('href: "/notebooks"');
+    expect(landing).toContain("Web Search");
+    expect(landing).toContain("Document RAG");
+    expect(landing).toContain("home-modules");
+    // Exactly two primary product cards
+    expect(landing.match(/href: "\/(search|notebooks)"/g)?.length).toBe(2);
+    const shell = readSrc("components", "AppShell.tsx");
+    expect(shell).toContain('href="/"');
+    expect(shell).toContain('title="SearchEngine home"');
   });
 
   it("website UI chrome is English-only (no VN suggestion chips)", () => {

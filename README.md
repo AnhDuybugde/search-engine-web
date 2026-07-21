@@ -2,6 +2,8 @@
 
 Serverless **Web Search + Dataset Notebooks** app — deploy on **Vercel**, store data in **Supabase Postgres**, free-tier APIs for search / LLM / embeddings.
 
+Try our product here: https://search-engine-web.vercel.app/
+
 | Surface | What it does |
 |--------|----------------|
 | **Web Search** (`/search`) | Multi-turn chat: expand query → Tavily/Brave → retrieve → Groq answer + citations |
@@ -33,6 +35,7 @@ The old Docker stack (upstream [Open Notebook](https://github.com/lfnovo/open-no
 ```text
 Browser ──► Next.js 16 (Vercel / local :3001)
               │
+              ├─ /                         home — choose Web Search or Document RAG
               ├─ /search /search/[sessionId]
               │     multi-turn web sessions (isolated memory per session)
               │
