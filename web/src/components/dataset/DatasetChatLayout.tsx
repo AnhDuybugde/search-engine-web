@@ -37,6 +37,10 @@ import type { ChatMessage } from "@/lib/hooks/use-search-chat";
 import { usePanelLayout } from "@/lib/hooks/use-panel-layout";
 import { useSsePipeline } from "@/lib/hooks/use-sse";
 import { useUploadSse } from "@/lib/hooks/use-upload-sse";
+import {
+  readStoredRetrievalMode,
+  type RetrievalModeId,
+} from "@/lib/ir/retrieval-modes";
 import type { RankedDocument } from "@/lib/ir/types";
 import { cn } from "@/lib/utils";
 
@@ -382,7 +386,10 @@ export function DatasetChatLayout({
     }
   };
 
-  const onSend = async (query: string) => {
+  const onSend = async (
+    query: string,
+    opts?: { retrievalMode?: RetrievalModeId },
+  ) => {
     // Prefer checked datasets; fall back to the open workspace
     const corpus =
       checkedIds.length > 0
@@ -422,12 +429,14 @@ export function DatasetChatLayout({
     setRightTab("evidence");
 
     const extra = corpus.filter((id) => id !== hostId);
+    const retrievalMode = opts?.retrievalMode ?? readStoredRetrievalMode();
     await run(`/api/notebooks/${hostId}/ask`, {
       query,
       generateAnswer: true,
       contextTopK: 4,
       documentTopK: 10,
       retrieveTopK: 40,
+      retrievalMode,
       ...(extra.length ? { notebookIds: extra } : {}),
     });
   };
@@ -718,8 +727,8 @@ export function DatasetChatLayout({
                   </div>
                   <div className="workspace-kpi workspace-kpi--cyan">
                     <span className="workspace-kpi-icon"><FileSearch className="h-4 w-4" /></span>
-                    <span className="workspace-kpi-value">BM25</span>
-                    <span className="workspace-kpi-label">Query-time ranking</span>
+                    <span className="workspace-kpi-value">IR</span>
+                    <span className="workspace-kpi-label">BM25 · Adaptive · SGAF</span>
                   </div>
                   <div className="workspace-kpi workspace-kpi--amber">
                     <span className="workspace-kpi-icon"><Gauge className="h-4 w-4" /></span>
@@ -788,7 +797,7 @@ export function DatasetChatLayout({
             disabled={!notebookId && checkedIds.length === 0}
             running={running}
             uploading={uploading}
-            onSend={(q) => void onSend(q)}
+            onSend={(q, opts) => void onSend(q, opts)}
             onCancel={cancel}
             onUpload={notebookId ? (f) => void onUpload(f) : undefined}
             suggestions={recommendationTitles}

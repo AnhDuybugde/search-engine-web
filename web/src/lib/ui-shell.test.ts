@@ -231,7 +231,19 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(composer).toContain("searchLimit");
     expect(composer).toContain("contextTopK");
     expect(composer).toContain("generateAnswer");
+    expect(composer).toContain("retrievalMode");
+    expect(composer).toContain("RetrievalModePicker");
     expect(composer).toContain("handleSubmitOnEnter");
+  });
+
+  it("DatasetComposer exposes the same retrieval mode picker as web search", () => {
+    const composer = readSrc("components", "dataset", "DatasetComposer.tsx");
+    expect(composer).toContain("RetrievalModePicker");
+    expect(composer).toContain("retrievalMode");
+    expect(composer).toContain("readStoredRetrievalMode");
+    expect(composer).toContain("storeRetrievalMode");
+    const layout = readSrc("components", "dataset", "DatasetChatLayout.tsx");
+    expect(layout).toContain("retrievalMode");
   });
 
   it("Notebooks list uses chat layout shell", () => {
