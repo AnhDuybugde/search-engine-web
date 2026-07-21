@@ -5,7 +5,8 @@ const APP_SESSION_COOKIE = "app_session";
 
 /** Next.js 16+: `middleware` convention renamed to `proxy`. */
 export async function proxy(req: NextRequest) {
-  const authDisabled = process.env.AUTH_DISABLED === "1";
+  // Temporary guest mode. Set AUTH_DISABLED=0 to restore the login gate.
+  const authDisabled = process.env.AUTH_DISABLED !== "0";
   const { pathname } = req.nextUrl;
 
   if (

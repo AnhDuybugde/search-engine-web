@@ -70,7 +70,8 @@ describe("requireAppAuth with user session cookie", () => {
   const prevAuthDisabled = process.env.AUTH_DISABLED;
 
   beforeEach(() => {
-    delete process.env.AUTH_DISABLED;
+    // The application defaults to guest mode; exercise the legacy auth gate here.
+    process.env.AUTH_DISABLED = "0";
   });
 
   afterEach(() => {
