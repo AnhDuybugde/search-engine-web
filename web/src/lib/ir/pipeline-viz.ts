@@ -8,6 +8,7 @@ import type {
   RankedDocument,
   Timing,
 } from "./types";
+import { absoluteRankStrength } from "./document-rank";
 
 export type StageVizId =
   | "query"
@@ -357,13 +358,30 @@ export function buildRankTransitions(
  */
 export function buildDocumentScoreSeries(
   documents: RankedDocument[],
+  retrievalMode?: Metrics["retrievalMode"],
 ): DocumentScoreBar[] {
   if (!documents.length) return [];
+  // The API normally aggregates one row per document. Keep this view
+  // defensive because older/history payloads can contain repeated documentId
+  // entries; never render the same source twice in the score panel.
+  const uniqueDocuments = Array.from(
+    documents.reduce((byId, document) => {
+      const previous = byId.get(document.documentId);
+      if (!previous || document.finalScore > previous.finalScore) {
+        byId.set(document.documentId, document);
+      }
+      return byId;
+    }, new Map<string, RankedDocument>()).values(),
+  ).sort((a, b) => a.finalRank - b.finalRank);
   const maxScore = Math.max(
-    ...documents.map((d) => (Number.isFinite(d.finalScore) ? d.finalScore : 0)),
+    ...uniqueDocuments.map((d) =>
+      Number.isFinite(d.finalScore) ? d.finalScore : 0,
+    ),
     1e-9,
   );
-  return documents.map((d) => {
+  const isRrf =
+    retrievalMode === "adaptive_rrf" || retrievalMode === "legacy_rrf_ce";
+  return uniqueDocuments.map((d) => {
     const relativeScore = d.relativeScore ?? d.confidence ?? 0;
     return {
       documentId: d.documentId,
@@ -372,7 +390,13 @@ export function buildDocumentScoreSeries(
       finalScore: d.finalScore,
       relativeScore,
       confidence: relativeScore,
-      scoreFraction: Math.max(0, Math.min(1, d.finalScore / maxScore)),
+      // RRF score and relative score are different views:
+      // - RRF strength is measured against the dual-list RRF ceiling.
+      // - Relative score is measured against the top result in this run.
+      // Keeping separate denominators prevents two visually identical bars.
+      scoreFraction: isRrf
+        ? absoluteRankStrength(d.finalScore)
+        : Math.max(0, Math.min(1, d.finalScore / maxScore)),
       confFraction: Math.max(0, Math.min(1, relativeScore)),
       bm25Best: d.bm25Best,
       denseBest: d.denseBest,

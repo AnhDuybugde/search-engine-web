@@ -118,10 +118,19 @@ export async function streamAnswer(params: {
   const openai = selected.provider;
   // Force Chat Completions — not /v1/responses
   const model = openai.chat(selected.model);
+  const isReasoningModel = /minimax|deepseek|qwq|reasoning|thinking/i.test(
+    selected.model,
+  );
 
   let workingChunks = shrinkChunks(params.chunks, Math.min(params.chunks.length, 4));
   let maxPerChunk = 700;
   let maxTotal = 3200;
+  // Reasoning models spend output tokens on hidden thinking before the final
+  // answer. Keep the normal Groq budget unchanged, but give those models
+  // enough room to emit visible text after the thinking block.
+  let maxOutputTokens = isReasoningModel
+    ? Math.max(IR_DEFAULTS.maxOutputTokens, 1400)
+    : Math.min(IR_DEFAULTS.maxOutputTokens, 600);
   for (let attempt = 0; attempt < 3; attempt++) {
     if (params.signal?.aborted) {
       const err = new Error("Aborted");
@@ -140,17 +149,19 @@ export async function streamAnswer(params: {
         system,
         prompt,
         temperature: IR_DEFAULTS.temperature,
-        maxOutputTokens: Math.min(IR_DEFAULTS.maxOutputTokens, 600),
+        maxOutputTokens,
         abortSignal: params.signal,
       });
 
       let full = "";
+      let raw = "";
       const visibleParts: string[] = [];
       const thinkingFilter = createThinkingFilter((visible) => {
         full += visible;
         visibleParts.push(visible);
       });
       for await (const part of result.textStream) {
+        raw += part;
         if (params.signal?.aborted) {
           const err = new Error("Aborted");
           err.name = "AbortError";
@@ -167,6 +178,13 @@ export async function streamAnswer(params: {
         await params.onToken(visible);
       }
       if (!full.trim()) {
+        // A reasoning provider can consume its entire output budget inside
+        // <think>...</think>. Retry with a larger budget before surfacing a
+        // false "empty response" error to the user.
+        if (/<think\b/i.test(raw) && attempt < 2) {
+          maxOutputTokens = Math.min(maxOutputTokens * 2, 2800);
+          continue;
+        }
         throw new Error("LLM returned empty response");
       }
       return full;
@@ -179,8 +197,9 @@ export async function streamAnswer(params: {
         /too large|rate_limit|TPM|tokens per minute|413|reduce your message/i.test(
           message,
         );
+      const emptyResponse = message === "LLM returned empty response";
 
-      if (!tooLarge || attempt === 2) {
+      if ((!tooLarge && !emptyResponse) || attempt === 2) {
         throw err instanceof Error ? err : new Error(message);
       }
 

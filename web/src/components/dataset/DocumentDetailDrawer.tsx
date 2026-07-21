@@ -106,18 +106,6 @@ export function DocumentDetailDrawer({
   }, [open, document, notebookId]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const contributing = useMemo(() => {
-    if (!document) return [];
-    const baseId = document.documentId.split("#")[0];
-    return rankedChunks.filter(
-      (c) =>
-        c.documentId === document.documentId ||
-        c.documentId === baseId ||
-        c.documentId.startsWith(`${baseId}#`) ||
-        document.topChunkIds.includes(c.chunkId),
-    );
-  }, [document, rankedChunks]);
-
   /** Prefer the ranked claim/paragraph unit over the whole raw file. */
   const unitText = useMemo(() => {
     if (!document) return null;
@@ -253,62 +241,6 @@ export function DocumentDetailDrawer({
                 </div>
               </section>
 
-              {/* Contributing hits */}
-              {contributing.length > 0 && (
-                <section>
-                  <h3 className="text-sm font-semibold text-[var(--fg)]">
-                    Why it ranked
-                  </h3>
-                  <p className="mt-0.5 mb-3 text-[11px] leading-relaxed text-[var(--fg-subtle)]">
-                    Retrieval units that contributed to this document’s score.
-                    Top hit is highlighted.
-                  </p>
-                  <ul className="space-y-3">
-                    {contributing.map((c, i) => {
-                      const top = document.topChunkIds[0] === c.chunkId;
-                      return (
-                        <li
-                          key={c.chunkId}
-                          className={cn(
-                            "rounded-xl border p-3.5",
-                            top
-                              ? "border-[var(--primary-border)] bg-[var(--primary-soft)] shadow-sm"
-                              : "border-[var(--border)] bg-[var(--bg-elevated)]",
-                          )}
-                        >
-                          <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                            {top && (
-                              <span className="rounded-md bg-[var(--primary)] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                                Top hit
-                              </span>
-                            )}
-                            <span className="rounded-md border border-[var(--border)] bg-[var(--bg-panel)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--fg-muted)]">
-                              Hit {i + 1}
-                            </span>
-                            <span className="rounded-md border border-[var(--border)] bg-[var(--bg-panel)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--fg-muted)]">
-                              Final #{c.finalRank}
-                            </span>
-                            <span className="rounded-md border border-[var(--border)] bg-[var(--bg-panel)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--fg-muted)]">
-                              BM25 #{c.bm25Rank}
-                            </span>
-                            {c.denseRank != null && (
-                              <span className="rounded-md border border-[var(--border)] bg-[var(--bg-panel)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--fg-muted)]">
-                                Dense #{c.denseRank}
-                              </span>
-                            )}
-                            <span className="rounded-md border border-[var(--border)] bg-[var(--bg-panel)] px-1.5 py-0.5 font-mono text-[10px] font-semibold text-[var(--fg)]">
-                              {(c.finalScore ?? c.bm25Score).toFixed(3)}
-                            </span>
-                          </div>
-                          <p className="text-[13px] leading-relaxed text-[var(--fg)]">
-                            {c.text}
-                          </p>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </section>
-              )}
             </div>
           )}
         </div>

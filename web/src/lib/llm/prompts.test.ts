@@ -59,4 +59,27 @@ describe("citation prompts preserve user language and technical terms", () => {
     expect(user).toMatch(/complete evidence set/i);
     expect(user).toMatch(/do not guess/i);
   });
+
+  it("treats document-finding questions as source discovery", () => {
+    const q = "tìm các tài liệu liên quan tới vitamin";
+    const chunks = [
+      chunk({
+        title: "Vitamins E and C in the prevention of prostate cancer",
+        text: "The study evaluates vitamins E and C.",
+        citationId: 1,
+      }),
+      chunk({
+        title: "Vitamins E and C in the prevention of prostate cancer",
+        text: "A randomized controlled study.",
+        citationId: 2,
+      }),
+    ];
+    const system = buildCitationSystemPrompt(q);
+    const user = buildCitationUserPrompt(q, chunks);
+
+    expect(system).toMatch(/source-discovery questions/i);
+    expect(user).toMatch(/Retrieved source titles/i);
+    expect(user).toMatch(/if one or more titles\/snippets directly match/i);
+    expect(user).toContain("Vitamins E and C in the prevention of prostate cancer");
+  });
 });

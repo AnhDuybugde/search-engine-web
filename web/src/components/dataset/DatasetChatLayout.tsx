@@ -118,11 +118,13 @@ export function DatasetChatLayout({
           title: string;
           createdAt: string;
           updatedAt?: string;
+          locked?: boolean;
         }) => ({
           id: n.id,
           title: n.title,
           createdAt: n.createdAt,
           updatedAt: n.updatedAt || n.createdAt,
+          locked: n.locked,
         }),
       );
       setDatasets(items);

@@ -6,6 +6,7 @@ import { IR_DEFAULTS } from "@/lib/config";
 import { assertDurableDb, dbBackend, enrichDbError, getDb, hasDb } from "./client";
 import { chunks, notebooks, sources } from "./schema";
 import { getSupabaseAdmin, sbError, toIso } from "./supabase";
+import { isProtectedDatasetTitle } from "../protected-datasets";
 import {
   memChunks,
   memNotebooks,
@@ -88,10 +89,11 @@ function asIndexStatus(v: unknown): NotebookIndexStatus {
 }
 
 function mapNotebookRow(r: Record<string, unknown>, fallbackNow?: string): NotebookDto {
+  const title = String(r.title);
   return {
     id: String(r.id),
-    title: String(r.title),
-    locked: Boolean(r.locked),
+    title,
+    locked: Boolean(r.locked) || isProtectedDatasetTitle(title),
     indexStatus: asIndexStatus(r.index_status ?? r.indexStatus),
     indexMessage:
       r.index_message != null
@@ -115,7 +117,7 @@ function mapMemNotebook(row: MemNotebook): NotebookDto {
   return {
     id: row.id,
     title: row.title,
-    locked: row.locked,
+    locked: row.locked || isProtectedDatasetTitle(row.title),
     indexStatus: asIndexStatus(row.indexStatus),
     indexMessage: row.indexMessage,
     unitCount: row.unitCount,
@@ -364,8 +366,13 @@ export async function updateNotebook(
     if (clean.length > 200) throw new Error("Title is too long (max 200)");
     nextTitle = clean;
   }
+  // Protected datasets remain locked even if a client attempts to unlock them
+  // or renames them. This keeps the delete guard effective after a rename.
   const nextLocked =
-    patch.locked !== undefined ? Boolean(patch.locked) : existing.locked;
+    existing.locked ||
+    isProtectedDatasetTitle(existing.title) ||
+    isProtectedDatasetTitle(nextTitle) ||
+    Boolean(patch.locked);
 
   if (!hasDb()) {
     const row = memNotebooks.get(id);
@@ -505,7 +512,7 @@ export async function deleteNotebook(id: string) {
   assertDurableDb("Delete notebook");
   const existing = await getNotebook(id);
   if (!existing) return;
-  if (existing.locked) {
+  if (existing.locked || isProtectedDatasetTitle(existing.title)) {
     throw new Error(
       "This dataset is locked. Unlock it first if you really want to delete it.",
     );
