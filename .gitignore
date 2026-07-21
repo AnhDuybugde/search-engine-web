@@ -1,11 +1,28 @@
+# Python / local tooling (do not commit)
 venv/
+.venv/
+env/
+**/__pycache__/
+*.py[cod]
+
+# Design skill submodule / local notes (not part of product)
+ui-ux-pro-max-skill/
+docs-document-management-analysis.md
+plan.md
 
 # Local embedding/reranker model weights. Keep these on disk, but do not push
 # large model binaries to GitHub.
 bge-small-scifact-rrf/**/model.safetensors
 bge-small-scifact-rrf/**/*.bin
 bge-small-scifact-rrf/**/*.onnx
-node_modules
+
+# Node
+node_modules/
+web/node_modules/
+web/.next/
+web/out/
+*.tsbuildinfo
+next-env.d.ts
 
 # Secrets — never commit
 .env
@@ -15,7 +32,19 @@ web/.env
 web/.env.*
 !web/.env.example
 
-env
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs & coverage
+*.log
+npm-debug.log*
+coverage/
+.turbo/
 
 # BEIR raw corpora (large) — seed from scripts/seed-beir-raw.mjs
 web/data/
