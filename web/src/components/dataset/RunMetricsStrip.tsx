@@ -10,9 +10,11 @@ function fmtMs(ms?: number | null) {
 
 function modeLabel(mode?: string) {
   switch (mode) {
+    case "paper":
+      return "Paper (SciNCL+BM25+CE)";
     case "rrf":
     case "adaptive_rrf":
-      return "Hybrid RRF (classic)";
+      return "Paper (legacy Adaptive)";
     case "sgaf":
       return "SGAF B5+P3";
     case "bm25_fallback":

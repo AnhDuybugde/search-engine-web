@@ -68,16 +68,13 @@ Mở http://localhost:3001 (port **3001**).
 
 ## Environment
 
+### Core (bắt buộc trên Vercel)
+
 | Variable | Required | Description |
 |---|---|---|
 | `LLM_API_KEY` | for answers | Groq/OpenRouter/OpenAI key |
 | `LLM_BASE_URL` | no | default Groq OpenAI-compatible URL |
 | `LLM_MODEL` | no | e.g. `llama-3.1-8b-instant` |
-| `RETRIEVAL_MODE` | no | `bm25` default, or `adaptive_rrf` |
-| `EMBEDDING_PROVIDER` | for adaptive RRF | `tei`, `openai`, or `huggingface` |
-| `EMBEDDING_API_URL` | for `tei`/`openai` | embedding endpoint |
-| `EMBEDDING_API_KEY` | often yes | bearer; required for Hugging Face |
-| `EMBEDDING_MODEL` | no | default `BAAI/bge-base-en-v1.5` |
 | `TAVILY_API_KEY` | for web search | or set `BRAVE_API_KEY` |
 | `SUPABASE_URL` | **yes on Vercel** | `https://PROJECT.supabase.co` |
 | `SUPABASE_SECRET_KEY` | **yes on Vercel** | secret / service_role key |
@@ -87,8 +84,49 @@ Mở http://localhost:3001 (port **3001**).
 | `HEALTH_SECRET` | optional | detailed `/api/health` |
 | `ALLOW_MEMORY_DB` | dev only | allow ephemeral DB in prod-like mode |
 
+### Retrieval — Paper mode (thay Adaptive)
+
+Nhập các biến này trong **Vercel → Project → Settings → Environment Variables**
+(Production + Preview), rồi **Redeploy**.
+
+| Variable | Required for Paper | Example / default | Description |
+|---|---|---|---|
+| `RETRIEVAL_MODE` | recommended | `paper` | `bm25` \| `paper` \| `sgaf` (`adaptive_rrf` vẫn map → paper) |
+| `EMBEDDING_PROVIDER` | **yes** | `huggingface` | `huggingface` \| `tei` \| `openai` |
+| `EMBEDDING_API_KEY` | **yes** (HF) | `hf_...` | Hugging Face token (cũng dùng cho SciNCL + CE nếu không set key riêng) |
+| `EMBEDDING_API_URL` | for `tei`/`openai` | TEI URL | endpoint embedding |
+| `EMBEDDING_MODEL` | no | `BAAI/bge-base-en-v1.5` | generalist / index model |
+| `SCINCL_EMBEDDING_MODEL` | no | `malteos/scincl` | dense model cho Paper hybrid |
+| `SCINCL_EMBEDDING_API_URL` | optional | (empty) | endpoint SciNCL riêng; mặc định HF router + key |
+| `RERANK_MODEL` | no | `cross-encoder/ms-marco-MiniLM-L-6-v2` | cross-encoder query↔document |
+| `RERANK_API_KEY` | optional | (empty) | fallback = `EMBEDDING_API_KEY` |
+| `RERANK_API_URL` | optional | (empty) | endpoint rerank riêng (TEI/custom) |
+
+**Checklist paste lên Vercel (Paper đầy đủ):**
+
+```
+RETRIEVAL_MODE=paper
+EMBEDDING_PROVIDER=huggingface
+EMBEDDING_API_KEY=hf_xxxxxxxx
+EMBEDDING_MODEL=BAAI/bge-base-en-v1.5
+SCINCL_EMBEDDING_MODEL=malteos/scincl
+RERANK_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
+```
+
+Thiếu embedding/rerank key → Paper vẫn chạy nhưng fallback BM25 hoặc hybrid không CE (không crash).
+
+### SGAF (optional)
+
+| Variable | Description |
+|---|---|
+| `SPECIALIST_EMBEDDING_MODEL` | specialist embed model (e.g. fine-tuned BGE) |
+| `SPECIALIST_EMBEDDING_API_URL` | optional dedicated endpoint |
+| `SGAF_SHIFT_THRESHOLD` | default `2.0` |
+| `P3_WINDOW` | default `20` |
+| `P3_ALPHA` | default `0.10` |
+
 **Vercel:** history + notebooks cần `SUPABASE_URL` + `SUPABASE_SECRET_KEY`.  
-Hybrid retrieval + auto-index upload cần embedding env; thiếu → index **skipped**, ask vẫn BM25.
+Paper mode cần `EMBEDDING_*` (+ HF key cho SciNCL/CE).
 
 ---
 
@@ -116,8 +154,12 @@ Hoặc paste lần lượt trong Supabase **SQL Editor**.
 ## Deploy to Vercel
 
 1. **Root Directory** = `web`.
-2. Env (Production + Preview): LLM, search, Supabase, session secret, optional embeddings.
-3. Chạy migrations trên Supabase.
+2. Env (Production + Preview) — xem bảng trên. Tối thiểu:
+   - `LLM_API_KEY`, `TAVILY_API_KEY` (hoặc Brave)
+   - `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `APP_SESSION_SECRET`
+   - Paper: `RETRIEVAL_MODE=paper`, `EMBEDDING_PROVIDER=huggingface`, `EMBEDDING_API_KEY`
+   - Optional Paper: `SCINCL_EMBEDDING_MODEL`, `RERANK_MODEL`, `RERANK_API_KEY`
+3. Chạy migrations trên Supabase (gồm `0005_notebook_lock_index.sql` để lock SCIFACT/SCIDOCS).
 4. Redeploy.
 5. Health:
    - Public: `GET /api/health` → `{ ok, status: { search, llm, db } }`

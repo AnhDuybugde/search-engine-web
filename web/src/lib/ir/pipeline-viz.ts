@@ -180,17 +180,19 @@ export function buildStageTimeline(
       explanation: STAGE_COPY.fusion.explanation,
       ms: timing?.fusionMs ?? null,
       outcome:
-        mode === "adaptive_rrf"
+        mode === "paper" || mode === "adaptive_rrf" || mode === "sgaf"
           ? "ran"
           : mode === "bm25" || mode === "bm25_fallback"
             ? "skipped"
             : "idle",
       detail:
-        mode === "adaptive_rrf"
-          ? "Classic RRF · equal weights · k=60"
-          : mode
-            ? `No RRF (${mode})`
-            : undefined,
+        mode === "paper"
+          ? "SciNCL+BM25 RRF then cross-encoder"
+          : mode === "adaptive_rrf"
+            ? "Paper legacy · RRF k=60"
+            : mode
+              ? `No RRF (${mode})`
+              : undefined,
     },
     {
       id: "pack",
@@ -273,8 +275,10 @@ export function buildTimingWaterfall(
       ms: timing.fusionMs ?? 0,
       color: "primary",
       include:
+        metrics?.retrievalMode === "paper" ||
         metrics?.retrievalMode === "adaptive_rrf" ||
-          (timing.fusionMs ?? 0) > 0,
+        metrics?.retrievalMode === "sgaf" ||
+        (timing.fusionMs ?? 0) > 0,
     },
     {
       id: "pack",

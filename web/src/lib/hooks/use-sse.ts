@@ -312,7 +312,9 @@ export function applySseEvent(prev: SseState, event: StreamEvent): SseState {
     case "fusion_completed":
       logs.push(
         `Fusion ${event.method} (${event.ms}ms${
-          event.method === "rrf" || event.method === "adaptive_rrf"
+          event.method === "rrf" ||
+          event.method === "adaptive_rrf" ||
+          event.method === "paper"
             ? " · classic RRF k=60"
             : ""
         })`,

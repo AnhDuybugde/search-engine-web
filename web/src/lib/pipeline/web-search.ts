@@ -132,6 +132,10 @@ export async function runWebSearchPipeline(
   metrics.embeddingProvider = retrieval.diagnostics.embeddingProvider;
   metrics.embeddingModel = retrieval.diagnostics.embeddingModel;
   metrics.bm25Weight = retrieval.diagnostics.bm25Weight;
+  metrics.rerankUsed = retrieval.diagnostics.rerankUsed;
+  metrics.rerankModel = retrieval.diagnostics.rerankModel;
+  metrics.rerankMs = retrieval.diagnostics.rerankMs;
+  metrics.rerankSkippedReason = retrieval.diagnostics.rerankSkippedReason;
   emit({
     type: "retrieve_completed",
     results,

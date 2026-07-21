@@ -71,7 +71,15 @@ function validateEmbeddings(vectors: number[][], expected: number) {
   }
 }
 
-export async function embedTexts(texts: string[]): Promise<EmbeddingResult> {
+export async function embedTexts(
+  texts: string[],
+  options?: {
+    /** Override model (e.g. SciNCL for Paper mode). */
+    model?: string;
+    /** Override API URL (HF model route or TEI endpoint). */
+    apiUrl?: string;
+  },
+): Promise<EmbeddingResult> {
   const cfg = getConfig();
   const input = texts.map((t) => t.trim()).filter(Boolean);
   if (input.length !== texts.length) {
@@ -80,6 +88,9 @@ export async function embedTexts(texts: string[]): Promise<EmbeddingResult> {
   if (!cfg.hasEmbedding) {
     throw new Error("Embedding provider not configured");
   }
+
+  const model = options?.model || cfg.EMBEDDING_MODEL;
+  const apiUrl = options?.apiUrl || cfg.EMBEDDING_API_URL;
 
   let endpoint = "";
   let body: unknown;
@@ -92,16 +103,16 @@ export async function embedTexts(texts: string[]): Promise<EmbeddingResult> {
   }
 
   if (cfg.EMBEDDING_PROVIDER === "openai") {
-    if (!cfg.EMBEDDING_API_URL) throw new Error("EMBEDDING_API_URL is required");
-    endpoint = cfg.EMBEDDING_API_URL.endsWith("/embeddings")
-      ? cfg.EMBEDDING_API_URL
-      : baseUrlJoin(cfg.EMBEDDING_API_URL, "/embeddings");
-    body = { model: cfg.EMBEDDING_MODEL, input };
+    if (!apiUrl) throw new Error("EMBEDDING_API_URL is required");
+    endpoint = apiUrl.endsWith("/embeddings")
+      ? apiUrl
+      : baseUrlJoin(apiUrl, "/embeddings");
+    body = { model, input };
   } else if (cfg.EMBEDDING_PROVIDER === "huggingface") {
     endpoint =
-      cfg.EMBEDDING_API_URL ||
+      apiUrl ||
       `https://router.huggingface.co/hf-inference/models/${encodeURIComponent(
-        cfg.EMBEDDING_MODEL,
+        model,
       )}`;
     body = {
       inputs: input,
@@ -109,8 +120,8 @@ export async function embedTexts(texts: string[]): Promise<EmbeddingResult> {
       truncate: true,
     };
   } else {
-    if (!cfg.EMBEDDING_API_URL) throw new Error("EMBEDDING_API_URL is required");
-    endpoint = cfg.EMBEDDING_API_URL;
+    if (!apiUrl) throw new Error("EMBEDDING_API_URL is required");
+    endpoint = apiUrl;
     body = { inputs: input };
   }
 
@@ -147,7 +158,7 @@ export async function embedTexts(texts: string[]): Promise<EmbeddingResult> {
   return {
     embeddings: vectors.map(normalizeVector),
     provider: cfg.EMBEDDING_PROVIDER as EmbeddingProvider,
-    model: cfg.EMBEDDING_MODEL,
+    model,
   };
 }
 

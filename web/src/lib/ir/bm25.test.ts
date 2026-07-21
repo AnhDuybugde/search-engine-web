@@ -69,7 +69,7 @@ describe("retrieveEvidence", () => {
   it("falls back to BM25 when adaptive retrieval has no embedding provider", async () => {
     delete process.env.EMBEDDING_API_URL;
     delete process.env.EMBEDDING_API_KEY;
-    process.env.RETRIEVAL_MODE = "adaptive_rrf";
+    process.env.RETRIEVAL_MODE = "paper";
 
     const chunks = [
       {
@@ -81,28 +81,37 @@ describe("retrieveEvidence", () => {
       },
     ];
 
-    const result = await retrieveEvidence("quantum", chunks, 1, "adaptive_rrf");
+    const result = await retrieveEvidence("quantum", chunks, 1, "paper");
     expect(result.diagnostics.mode).toBe("bm25_fallback");
     expect(result.results[0].chunkId).toBe("1");
   });
 
-  it("fuses BM25 and dense ranks with adaptive RRF", async () => {
-    process.env.RETRIEVAL_MODE = "adaptive_rrf";
+  it("fuses BM25 and SciNCL ranks then applies Paper (CE optional)", async () => {
+    process.env.RETRIEVAL_MODE = "paper";
     process.env.EMBEDDING_PROVIDER = "tei";
     process.env.EMBEDDING_API_URL = "http://embedding.local/embed";
 
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        json: async () => ({
-          embeddings: [
-            [1, 0],
-            [0.1, 0.9],
-            [0.9, 0.1],
-          ],
-        }),
-      })) as unknown as typeof fetch,
+      vi.fn(async (url: string) => {
+        // Cross-encoder path — return pair scores
+        if (String(url).includes("cross-encoder") || String(url).includes("rerank")) {
+          return {
+            ok: true,
+            json: async () => [0.2, 0.9],
+          };
+        }
+        return {
+          ok: true,
+          json: async () => ({
+            embeddings: [
+              [1, 0],
+              [0.1, 0.9],
+              [0.9, 0.1],
+            ],
+          }),
+        };
+      }) as unknown as typeof fetch,
     );
 
     const chunks = [
@@ -122,10 +131,10 @@ describe("retrieveEvidence", () => {
       },
     ];
 
-    const result = await retrieveEvidence("alpha", chunks, 2, "adaptive_rrf");
-    expect(result.diagnostics.mode).toBe("adaptive_rrf");
+    const result = await retrieveEvidence("alpha", chunks, 2, "paper");
+    expect(result.diagnostics.mode).toBe("paper");
     expect(result.diagnostics.denseUsed).toBe(true);
     expect(result.results.map((r) => r.chunkId)).toContain("dense");
-    expect(result.results[0].retrievalMode).toBe("adaptive_rrf");
+    expect(result.results[0].retrievalMode).toBe("paper");
   });
 });

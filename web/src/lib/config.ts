@@ -61,14 +61,21 @@ const envSchema = z.object({
   LLM_API_KEY: z.string().optional(),
   LLM_MODEL: z.string().default("llama-3.1-8b-instant"),
   RETRIEVAL_MODE: z
-    .enum(["bm25", "adaptive_rrf", "sgaf"])
-    .default("bm25"),
+    .enum(["bm25", "paper", "sgaf", "adaptive_rrf"])
+    .default("paper"),
   EMBEDDING_PROVIDER: z
     .enum(["openai", "huggingface", "tei"])
     .default("tei"),
   EMBEDDING_API_URL: z.string().url().optional(),
   EMBEDDING_API_KEY: z.string().optional(),
   EMBEDDING_MODEL: z.string().default("BAAI/bge-base-en-v1.5"),
+  /** SciNCL dense model used by Paper mode hybrid retrieval */
+  SCINCL_EMBEDDING_MODEL: z.string().default("malteos/scincl"),
+  SCINCL_EMBEDDING_API_URL: z.string().url().optional(),
+  /** Cross-encoder for Paper mode (query, document) rerank */
+  RERANK_MODEL: z.string().default("cross-encoder/ms-marco-MiniLM-L-6-v2"),
+  RERANK_API_URL: z.string().url().optional(),
+  RERANK_API_KEY: z.string().optional(),
   SPECIALIST_EMBEDDING_MODEL: z.string().optional(),
   SPECIALIST_EMBEDDING_API_URL: z.string().url().optional(),
   SGAF_SHIFT_THRESHOLD: z.string().default("2.0"),
@@ -106,6 +113,11 @@ function readRawEnv() {
     EMBEDDING_API_URL: process.env.EMBEDDING_API_URL,
     EMBEDDING_API_KEY: process.env.EMBEDDING_API_KEY,
     EMBEDDING_MODEL: process.env.EMBEDDING_MODEL,
+    SCINCL_EMBEDDING_MODEL: process.env.SCINCL_EMBEDDING_MODEL,
+    SCINCL_EMBEDDING_API_URL: process.env.SCINCL_EMBEDDING_API_URL,
+    RERANK_MODEL: process.env.RERANK_MODEL,
+    RERANK_API_URL: process.env.RERANK_API_URL,
+    RERANK_API_KEY: process.env.RERANK_API_KEY,
     TAVILY_API_KEY: process.env.TAVILY_API_KEY,
     BRAVE_API_KEY: process.env.BRAVE_API_KEY,
     SPECIALIST_EMBEDDING_MODEL: process.env.SPECIALIST_EMBEDDING_MODEL,
@@ -133,9 +145,16 @@ export function getConfig(): AppConfig {
         LLM_API_KEY: raw.LLM_API_KEY,
         LLM_MODEL: raw.LLM_MODEL || "llama-3.1-8b-instant",
         RETRIEVAL_MODE:
-          raw.RETRIEVAL_MODE === "adaptive_rrf" || raw.RETRIEVAL_MODE === "sgaf"
-            ? (raw.RETRIEVAL_MODE as "adaptive_rrf" | "sgaf")
-            : "bm25",
+          raw.RETRIEVAL_MODE === "paper" ||
+          raw.RETRIEVAL_MODE === "sgaf" ||
+          raw.RETRIEVAL_MODE === "adaptive_rrf" ||
+          raw.RETRIEVAL_MODE === "bm25"
+            ? (raw.RETRIEVAL_MODE as
+                | "paper"
+                | "sgaf"
+                | "adaptive_rrf"
+                | "bm25")
+            : "paper",
         EMBEDDING_PROVIDER:
           raw.EMBEDDING_PROVIDER === "openai" ||
           raw.EMBEDDING_PROVIDER === "huggingface" ||
@@ -145,6 +164,12 @@ export function getConfig(): AppConfig {
         EMBEDDING_API_URL: raw.EMBEDDING_API_URL,
         EMBEDDING_API_KEY: raw.EMBEDDING_API_KEY,
         EMBEDDING_MODEL: raw.EMBEDDING_MODEL || "BAAI/bge-base-en-v1.5",
+        SCINCL_EMBEDDING_MODEL: raw.SCINCL_EMBEDDING_MODEL || "malteos/scincl",
+        SCINCL_EMBEDDING_API_URL: raw.SCINCL_EMBEDDING_API_URL,
+        RERANK_MODEL:
+          raw.RERANK_MODEL || "cross-encoder/ms-marco-MiniLM-L-6-v2",
+        RERANK_API_URL: raw.RERANK_API_URL,
+        RERANK_API_KEY: raw.RERANK_API_KEY,
         TAVILY_API_KEY: raw.TAVILY_API_KEY,
         BRAVE_API_KEY: raw.BRAVE_API_KEY,
         SPECIALIST_EMBEDDING_MODEL: raw.SPECIALIST_EMBEDDING_MODEL,
@@ -241,6 +266,10 @@ export const IR_DEFAULTS = {
   adaptiveRrfScale: 1.0,
   adaptiveRrfMinBm25Weight: 0.05,
   adaptiveRrfMaxBm25Weight: 0.9,
+  /** Paper mode: hybrid candidate pool then CE rerank */
+  paperCandidateTopK: 40,
+  paperRerankTopK: 20,
+  crossEncoderBatchSize: 8,
   /** SGAF B5+P3 parameters (from frozen SEG paper) */
   sgafShiftThreshold: 2.0,
   p3Window: 20,

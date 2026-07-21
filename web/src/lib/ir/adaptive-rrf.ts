@@ -1,10 +1,12 @@
-import { IR_DEFAULTS } from "@/lib/config";
+import { getConfig, IR_DEFAULTS } from "@/lib/config";
 import { bm25Retrieve, tokenize } from "./bm25";
+import { crossEncoderScore } from "./cross-encoder";
 import { cosineSimilarity, embedTexts } from "./embedding";
+import { parseRetrievalMode } from "./retrieval-modes";
 import type { Chunk, ChunkWithEmbedding, RankedChunk } from "./types";
 
 export type HybridRetrievalDiagnostics = {
-  mode: "bm25" | "adaptive_rrf" | "sgaf" | "bm25_fallback";
+  mode: "bm25" | "paper" | "adaptive_rrf" | "sgaf" | "bm25_fallback";
   denseUsed: boolean;
   denseSkippedReason?: string;
   embeddingProvider?: string;
@@ -14,6 +16,11 @@ export type HybridRetrievalDiagnostics = {
   denseMs?: number;
   fusionMs?: number;
   bm25Weight?: number;
+  /** Paper mode cross-encoder */
+  rerankUsed?: boolean;
+  rerankModel?: string;
+  rerankMs?: number;
+  rerankSkippedReason?: string;
 };
 
 export type HybridRetrievalResult = {
@@ -68,7 +75,8 @@ function queryMeanIdf(query: string, idf: Map<string, number>, fallback: number)
   return stems.reduce((sum, term) => sum + (idf.get(term) ?? fallback), 0) / stems.length;
 }
 
-function adaptiveBm25Weight(query: string, chunks: Chunk[]) {
+/** Kept for SGAF / diagnostics parity; Paper uses classic equal-weight RRF. */
+export function adaptiveBm25Weight(query: string, chunks: Chunk[]) {
   const idf = buildIdfVocabulary(chunks);
   const fallback = median([...idf.values()]);
   const meanIdf = queryMeanIdf(query, idf, fallback);
@@ -161,24 +169,33 @@ function bm25Fallback(
   };
 }
 
-export async function retrieveEvidence(
+/**
+ * Paper mode: Hybrid (SciNCL + BM25) then cross-encoder rerank (query, document).
+ * Replaces Adaptive RRF in the product UI.
+ */
+async function paperRetrieve(
   query: string,
   chunks: ChunkWithEmbedding[],
   topK: number,
-  mode: "bm25" | "adaptive_rrf" | "sgaf" = "bm25",
 ): Promise<HybridRetrievalResult> {
-  if (mode === "bm25") return bm25Fallback(query, chunks, topK);
   if (chunks.length === 0) {
     return {
       results: [],
-      diagnostics: { mode: "adaptive_rrf", denseUsed: false },
+      diagnostics: { mode: "paper", denseUsed: false },
     };
   }
 
-  const bm25TopK = Math.max(topK, IR_DEFAULTS.denseTopK, IR_DEFAULTS.maxDenseChunks);
+  const cfg = getConfig();
+  const candidateTopK = Math.max(
+    topK,
+    IR_DEFAULTS.paperCandidateTopK,
+    IR_DEFAULTS.denseTopK,
+  );
   const bm25Start = performance.now();
-  const bm25All = bm25Retrieve(query, chunks, bm25TopK);
+  const bm25All = bm25Retrieve(query, chunks, candidateTopK);
   const bm25Ms = Math.round(performance.now() - bm25Start);
+
+  // Cap dense input for latency; prefer BM25 shortlist when corpus is large.
   const selectedIds = new Set(
     bm25All.slice(0, IR_DEFAULTS.maxDenseChunks).map((hit) => hit.chunkId),
   );
@@ -187,77 +204,181 @@ export async function retrieveEvidence(
       ? chunks.filter((chunk) => selectedIds.has(chunk.chunkId))
       : chunks;
   const bm25 = bm25All.filter((hit) => selectedIds.has(hit.chunkId));
-  const byId = new Map(denseInputChunks.map((chunk) => [chunk.chunkId, chunk]));
+  const byId = new Map(denseInputChunks.map((c) => [c.chunkId, c]));
+
+  const scinclModel = cfg.SCINCL_EMBEDDING_MODEL || "malteos/scincl";
+  const scinclUrl = cfg.SCINCL_EMBEDDING_API_URL;
+  const embedOpts = {
+    model: scinclModel,
+    apiUrl: scinclUrl,
+  };
 
   const start = performance.now();
   try {
-    const missing = denseInputChunks.filter(
-      (chunk) => !chunk.embedding || chunk.embedding.length === 0,
+    // Paper uses SciNCL vectors (not generalist BGE). Embed query + candidates
+    // that lack SciNCL (or any) embeddings so cosine is in the same space.
+    const needEmbed = denseInputChunks.filter(
+      (c) =>
+        !c.embedding ||
+        c.embedding.length === 0 ||
+        (c.embeddingModel &&
+          c.embeddingModel !== scinclModel &&
+          !c.embeddingModel.includes("scincl")),
     );
-    let embeddingProvider = "";
-    let embeddingModel = "";
-    let embeddedChunks: ChunkWithEmbedding[] = denseInputChunks;
 
-    // Hot path: pre-indexed corpus → embed query only
-    // Cold path: embed query + only missing corpus units (not re-embed all)
-    if (missing.length > 0) {
-      const response = await embedTexts([
-        formatQueryForEmbedding(query),
-        ...missing.map((chunk) => chunk.text),
-      ]);
-      const [queryEmbedding, ...missingVectors] = response.embeddings;
-      const byMissing = new Map(
-        missing.map((chunk, i) => [chunk.chunkId, missingVectors[i]] as const),
+    let embeddedChunks: ChunkWithEmbedding[] = denseInputChunks;
+    let queryEmbedding: number[];
+    let embeddingProvider = "";
+    let embeddingModel = scinclModel;
+
+    if (needEmbed.length === denseInputChunks.length) {
+      const response = await embedTexts(
+        [formatQueryForEmbedding(query), ...needEmbed.map((c) => c.text)],
+        embedOpts,
       );
-      embeddedChunks = denseInputChunks.map((chunk) => {
-        const filled = byMissing.get(chunk.chunkId);
-        if (filled) {
-          return {
-            ...chunk,
-            embedding: filled,
-            embeddingModel: response.model,
-          };
-        }
-        return chunk;
-      });
+      const [qVec, ...docVecs] = response.embeddings;
+      queryEmbedding = qVec;
       embeddingProvider = response.provider;
       embeddingModel = response.model;
+      const byMissing = new Map(
+        needEmbed.map((c, i) => [c.chunkId, docVecs[i]] as const),
+      );
+      embeddedChunks = denseInputChunks.map((c) => {
+        const filled = byMissing.get(c.chunkId);
+        return filled
+          ? { ...c, embedding: filled, embeddingModel: response.model }
+          : c;
+      });
+    } else if (needEmbed.length > 0) {
+      const response = await embedTexts(
+        [formatQueryForEmbedding(query), ...needEmbed.map((c) => c.text)],
+        embedOpts,
+      );
+      const [qVec, ...docVecs] = response.embeddings;
+      queryEmbedding = qVec;
+      embeddingProvider = response.provider;
+      embeddingModel = response.model;
+      const byMissing = new Map(
+        needEmbed.map((c, i) => [c.chunkId, docVecs[i]] as const),
+      );
+      embeddedChunks = denseInputChunks.map((c) => {
+        const filled = byMissing.get(c.chunkId);
+        return filled
+          ? { ...c, embedding: filled, embeddingModel: response.model }
+          : c;
+      });
+    } else {
+      const response = await embedTexts(
+        [formatQueryForEmbedding(query)],
+        embedOpts,
+      );
+      queryEmbedding = response.embeddings[0];
+      embeddingProvider = response.provider;
+      embeddingModel = response.model;
+    }
 
-      return fuseRuns({
+    const embeddingMs = Math.round(performance.now() - start);
+    const denseStart = performance.now();
+    const dense = denseRetrieve(
+      embeddedChunks,
+      queryEmbedding,
+      Math.max(topK, IR_DEFAULTS.denseTopK),
+    );
+    const denseMs = Math.round(performance.now() - denseStart);
+
+    if (dense.length === 0) {
+      // Still try CE over BM25-only candidates
+      return await applyCrossEncoderRerank({
         query,
-        chunks: embeddedChunks,
-        queryEmbedding,
-        bm25,
-        byId: new Map(embeddedChunks.map((chunk) => [chunk.chunkId, chunk])),
+        hybrid: bm25.slice(0, IR_DEFAULTS.paperRerankTopK).map((hit, i) =>
+          safeRankedChunk(byId.get(hit.chunkId) || hit, {
+            bm25Score: hit.bm25Score,
+            bm25Rank: hit.bm25Rank,
+            finalScore: hit.bm25Score,
+            finalRank: i + 1,
+            retrievalMode: "paper",
+          }),
+        ),
+        byId: new Map(embeddedChunks.map((c) => [c.chunkId, c])),
         topK,
-        embeddingMs: Math.round(performance.now() - start),
-        bm25Ms,
-        embeddingProvider,
-        embeddingModel,
+        diagnosticsBase: {
+          mode: "paper",
+          denseUsed: false,
+          denseSkippedReason: "No SciNCL dense hits",
+          embeddingProvider,
+          embeddingModel,
+          embeddingMs,
+          bm25Ms,
+          denseMs,
+          fusionMs: 0,
+        },
       });
     }
 
-    const response = await embedTexts([formatQueryForEmbedding(query)]);
-    embeddingProvider = response.provider;
-    embeddingModel = response.model;
-    return fuseRuns({
+    // Classic equal-weight RRF for Hybrid (SciNCL + BM25)
+    const fusionStart = performance.now();
+    const scores = new Map<string, number>();
+    const bm25Map = new Map(bm25.map((hit) => [hit.chunkId, hit]));
+    const denseMap = new Map(dense.map((hit) => [hit.chunk.chunkId, hit]));
+    const embById = new Map(embeddedChunks.map((c) => [c.chunkId, c]));
+
+    for (const hit of bm25) {
+      scores.set(
+        hit.chunkId,
+        (scores.get(hit.chunkId) || 0) + 1 / (IR_DEFAULTS.rrfK + hit.bm25Rank),
+      );
+    }
+    for (const hit of dense) {
+      scores.set(
+        hit.chunk.chunkId,
+        (scores.get(hit.chunk.chunkId) || 0) +
+          1 / (IR_DEFAULTS.rrfK + hit.rank),
+      );
+    }
+
+    const hybridPool = [...scores.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, IR_DEFAULTS.paperRerankTopK)
+      .map(([chunkId, rrfScore], i) => {
+        const chunk = embById.get(chunkId);
+        if (!chunk) return null;
+        const bm25Hit = bm25Map.get(chunkId);
+        const denseHit = denseMap.get(chunkId);
+        return safeRankedChunk(chunk, {
+          bm25Score: bm25Hit?.bm25Score ?? 0,
+          bm25Rank: bm25Hit?.bm25Rank ?? 0,
+          denseScore: denseHit?.score,
+          denseRank: denseHit?.rank,
+          finalScore: rrfScore,
+          finalRank: i + 1,
+          retrievalMode: "paper",
+        });
+      })
+      .filter((r): r is RankedChunk => Boolean(r));
+    const fusionMs = Math.round(performance.now() - fusionStart);
+
+    return await applyCrossEncoderRerank({
       query,
-      chunks: embeddedChunks,
-      queryEmbedding: response.embeddings[0],
-      bm25,
-      byId,
+      hybrid: hybridPool,
+      byId: embById,
       topK,
-      embeddingMs: Math.round(performance.now() - start),
-      bm25Ms,
-      embeddingProvider,
-      embeddingModel,
+      diagnosticsBase: {
+        mode: "paper",
+        denseUsed: true,
+        embeddingProvider,
+        embeddingModel,
+        embeddingMs,
+        bm25Ms,
+        denseMs,
+        fusionMs,
+      },
     });
   } catch (err) {
     const fallback = bm25Fallback(
       query,
       chunks,
       topK,
-      err instanceof Error ? err.message : "Dense retrieval failed",
+      err instanceof Error ? err.message : "Paper dense retrieval failed",
     );
     return {
       ...fallback,
@@ -269,88 +390,116 @@ export async function retrieveEvidence(
   }
 }
 
-function fuseRuns(params: {
+async function applyCrossEncoderRerank(params: {
   query: string;
-  chunks: ChunkWithEmbedding[];
-  queryEmbedding: number[];
-  bm25: RankedChunk[];
-  byId: Map<string, ChunkWithEmbedding>;
+  hybrid: RankedChunk[];
+  byId: Map<string, ChunkWithEmbedding | Chunk>;
   topK: number;
-  embeddingMs: number;
-  bm25Ms: number;
-  embeddingProvider: string;
-  embeddingModel: string;
-}): HybridRetrievalResult {
-  const denseStart = performance.now();
-  const dense = denseRetrieve(
-    params.chunks,
-    params.queryEmbedding,
-    Math.max(params.topK, IR_DEFAULTS.denseTopK),
+  diagnosticsBase: HybridRetrievalDiagnostics;
+}): Promise<HybridRetrievalResult> {
+  if (params.hybrid.length === 0) {
+    return {
+      results: [],
+      diagnostics: {
+        ...params.diagnosticsBase,
+        rerankUsed: false,
+        rerankSkippedReason: "Empty hybrid pool",
+      },
+    };
+  }
+
+  const ce = await crossEncoderScore(
+    params.query,
+    params.hybrid.map((h) => ({ id: h.chunkId, text: h.text })),
   );
-  const denseMs = Math.round(performance.now() - denseStart);
-  if (dense.length === 0) {
-    return bm25Fallback(
-      params.query,
-      params.chunks,
-      params.topK,
-      "No dense embeddings available",
-    );
-  }
 
-  const fusionStart = performance.now();
-  const bm25Weight = adaptiveBm25Weight(params.query, params.chunks);
-  const scores = new Map<string, number>();
-  const bm25Map = new Map(params.bm25.map((hit) => [hit.chunkId, hit]));
-  const denseMap = new Map(dense.map((hit) => [hit.chunk.chunkId, hit]));
-
-  for (const hit of params.bm25) {
-    scores.set(
-      hit.chunkId,
-      (scores.get(hit.chunkId) || 0) +
-        bm25Weight / (IR_DEFAULTS.rrfK + hit.bm25Rank),
-    );
-  }
-  for (const hit of dense) {
-    scores.set(
-      hit.chunk.chunkId,
-      (scores.get(hit.chunk.chunkId) || 0) + 1 / (IR_DEFAULTS.rrfK + hit.rank),
-    );
-  }
-
-  const results = [...scores.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, params.topK)
-    .map(([chunkId, finalScore], i) => {
-      const chunk = params.byId.get(chunkId);
-      if (!chunk) return null;
-      const bm25Hit = bm25Map.get(chunkId);
-      const denseHit = denseMap.get(chunkId);
-      return safeRankedChunk(chunk, {
-        bm25Score: bm25Hit?.bm25Score ?? 0,
-        bm25Rank: bm25Hit?.bm25Rank ?? 0,
-        denseScore: denseHit?.score,
-        denseRank: denseHit?.rank,
-        finalScore,
+  if (!ce.used) {
+    // Keep hybrid order when CE unavailable
+    return {
+      results: params.hybrid.slice(0, params.topK).map((r, i) => ({
+        ...r,
         finalRank: i + 1,
-        retrievalMode: "adaptive_rrf",
-        bm25Weight,
-      });
-    })
-    .filter((r): r is RankedChunk => Boolean(r));
-  const fusionMs = Math.round(performance.now() - fusionStart);
+        citationId: i + 1,
+        retrievalMode: "paper",
+      })),
+      diagnostics: {
+        ...params.diagnosticsBase,
+        rerankUsed: false,
+        rerankModel: ce.model,
+        rerankMs: ce.ms,
+        rerankSkippedReason: ce.skippedReason,
+      },
+    };
+  }
+
+  const scoreById = new Map(ce.scores.map((s) => [s.id, s.score]));
+  const reranked = [...params.hybrid]
+    .sort(
+      (a, b) =>
+        (scoreById.get(b.chunkId) ?? Number.NEGATIVE_INFINITY) -
+        (scoreById.get(a.chunkId) ?? Number.NEGATIVE_INFINITY),
+    )
+    .slice(0, params.topK)
+    .map((r, i) => ({
+      ...r,
+      finalScore: scoreById.get(r.chunkId) ?? r.finalScore,
+      finalRank: i + 1,
+      citationId: i + 1,
+      retrievalMode: "paper" as const,
+    }));
 
   return {
-    results,
+    results: reranked,
     diagnostics: {
-      mode: "adaptive_rrf",
-      denseUsed: true,
-      embeddingProvider: params.embeddingProvider,
-      embeddingModel: params.embeddingModel,
-      embeddingMs: params.embeddingMs,
-      bm25Ms: params.bm25Ms,
-      denseMs,
-      fusionMs,
-      bm25Weight,
+      ...params.diagnosticsBase,
+      rerankUsed: true,
+      rerankModel: ce.model,
+      rerankMs: ce.ms,
     },
   };
+}
+
+export async function retrieveEvidence(
+  query: string,
+  chunks: ChunkWithEmbedding[],
+  topK: number,
+  mode: "bm25" | "paper" | "adaptive_rrf" | "sgaf" = "bm25",
+): Promise<HybridRetrievalResult> {
+  const resolved = parseRetrievalMode(
+    mode,
+    mode === "bm25" ? "bm25" : mode === "sgaf" ? "sgaf" : "paper",
+  );
+  if (resolved === "bm25") return bm25Fallback(query, chunks, topK);
+
+  // Paper replaces Adaptive (adaptive_rrf aliases → paper in parseRetrievalMode).
+  // SGAF keeps its own implementation when specialist model is configured.
+  if (resolved === "sgaf") {
+    const cfg = getConfig();
+    const specialist = cfg.SPECIALIST_EMBEDDING_MODEL;
+    if (specialist) {
+      const { sgafRetrieve } = await import("./sgaf");
+      const generalist = cfg.EMBEDDING_MODEL;
+      const result = await sgafRetrieve(
+        query,
+        chunks,
+        topK,
+        async (texts, model) => {
+          const res = await embedTexts(texts, {
+            model: model || generalist,
+          });
+          return res.embeddings;
+        },
+        specialist,
+        generalist,
+      );
+      return {
+        results: result.results,
+        diagnostics: result.diagnostics,
+      };
+    }
+    // No specialist → same hybrid stack as Paper (better than silent BM25).
+    return paperRetrieve(query, chunks, topK);
+  }
+
+  return paperRetrieve(query, chunks, topK);
 }

@@ -533,12 +533,23 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(expand).not.toMatch(/Vietnamese or English/i);
   });
 
-  it("PipelineInspector documents hybrid fusion (not cross-encoder rerank)", () => {
+  it("PipelineInspector documents Paper hybrid + cross-encoder rerank", () => {
     const inspector = readSrc("components", "pipeline", "PipelineInspector.tsx");
     expect(inspector).toContain("Hybrid fusion");
-    expect(inspector).toContain("Adaptive RRF");
+    expect(inspector).toContain("Paper");
     expect(inspector).toContain("cross-encoder");
+    expect(inspector).toContain("SciNCL");
     expect(inspector).toContain("MetricsStrip");
+  });
+
+  it("dataset sidebar supports lock to prevent delete", () => {
+    const sidebar = readSrc("components", "dataset", "DatasetSidebar.tsx");
+    expect(sidebar).toContain("onToggleLock");
+    expect(sidebar).toContain("locked");
+    expect(sidebar).toContain("Lock");
+    const layout = readSrc("components", "dataset", "DatasetChatLayout.tsx");
+    expect(layout).toContain("onToggleLock");
+    expect(layout).toContain("JSON.stringify({ locked })");
   });
 
   it("primary routes mount shared layout components", () => {

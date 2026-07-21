@@ -112,13 +112,13 @@ describe("indexNotebookEmbeddings (pre-store vectors)", () => {
       "vitamin calcium",
       cold,
       5,
-      "adaptive_rrf",
+      "paper",
     );
     const hotRes = await retrieveEvidence(
       "vitamin calcium",
       hot,
       5,
-      "adaptive_rrf",
+      "paper",
     );
 
     expect(coldRes.diagnostics.denseUsed).toBe(true);

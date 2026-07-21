@@ -106,11 +106,16 @@ export async function runNotebookAskPipeline(
   timing.bm25Ms = retrieval.diagnostics.bm25Ms;
   timing.denseMs = retrieval.diagnostics.denseMs;
   timing.fusionMs = retrieval.diagnostics.fusionMs;
+  metrics.rerankUsed = retrieval.diagnostics.rerankUsed;
+  metrics.rerankModel = retrieval.diagnostics.rerankModel;
+  metrics.rerankMs = retrieval.diagnostics.rerankMs;
+  metrics.rerankSkippedReason = retrieval.diagnostics.rerankSkippedReason;
   timing.rankMs =
     (timing.bm25Ms ?? 0) +
     (timing.embeddingMs ?? 0) +
     (timing.denseMs ?? 0) +
-    (timing.fusionMs ?? 0);
+    (timing.fusionMs ?? 0) +
+    (retrieval.diagnostics.rerankMs ?? 0);
 
   emit({
     type: "bm25_completed",

@@ -4,10 +4,11 @@
  */
 export const RETRIEVAL_MODES = [
   {
-    id: "adaptive_rrf",
-    label: "Adaptive",
-    shortLabel: "Adaptive",
-    description: "Hybrid BM25 + dense fusion (RRF)",
+    id: "paper",
+    label: "Paper",
+    shortLabel: "Paper",
+    description:
+      "Hybrid SciNCL + BM25 then cross-encoder rerank (query ↔ document)",
   },
   {
     id: "bm25",
@@ -25,9 +26,16 @@ export const RETRIEVAL_MODES = [
 
 export type RetrievalModeId = (typeof RETRIEVAL_MODES)[number]["id"];
 
-export const DEFAULT_RETRIEVAL_MODE: RetrievalModeId = "adaptive_rrf";
+export const DEFAULT_RETRIEVAL_MODE: RetrievalModeId = "paper";
 
 const MODE_IDS = new Set<string>(RETRIEVAL_MODES.map((m) => m.id));
+
+/** Legacy ids still accepted from env / localStorage / old clients. */
+const MODE_ALIASES: Record<string, RetrievalModeId> = {
+  adaptive_rrf: "paper",
+  rrf: "paper",
+  adaptive: "paper",
+};
 
 export function isRetrievalModeId(value: unknown): value is RetrievalModeId {
   return typeof value === "string" && MODE_IDS.has(value);
@@ -37,10 +45,14 @@ export function parseRetrievalMode(
   value: unknown,
   fallback: RetrievalModeId = DEFAULT_RETRIEVAL_MODE,
 ): RetrievalModeId {
-  return isRetrievalModeId(value) ? value : fallback;
+  if (typeof value !== "string") return fallback;
+  if (isRetrievalModeId(value)) return value;
+  const alias = MODE_ALIASES[value];
+  return alias ?? fallback;
 }
 
 export function retrievalModeLabel(mode?: string | null): string {
+  if (mode === "adaptive_rrf" || mode === "rrf") return "Paper (legacy Adaptive)";
   const found = RETRIEVAL_MODES.find((m) => m.id === mode);
   if (found) return found.label;
   if (mode === "bm25_fallback") return "BM25 fallback";

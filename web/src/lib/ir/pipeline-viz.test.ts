@@ -40,7 +40,7 @@ const timing: Timing = {
 };
 
 const metricsHybrid: Metrics = {
-  retrievalMode: "adaptive_rrf",
+  retrievalMode: "paper",
   denseUsed: true,
   embeddingProvider: "tei",
   embeddingModel: "bge",

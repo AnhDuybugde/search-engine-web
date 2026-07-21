@@ -146,9 +146,53 @@ function isMissingLockColumns(error: unknown) {
   );
 }
 
+/** Demo corpora that should stay locked by default (SCIFACT / SCIDOCS). */
+export function shouldDefaultLockTitle(title: string): boolean {
+  const t = title.trim().toLowerCase();
+  if (!t) return false;
+  // Match SCIFACT / SCIDOCS and common demo labels from seed/migration.
+  return (
+    /\bscifact\b/.test(t) ||
+    /\bscidocs\b/.test(t) ||
+    /\bscifat\b/.test(t) || // common typo
+    /\bscidoc\b/.test(t)
+  );
+}
+
+async function ensureDefaultLocks(list: NotebookDto[]): Promise<NotebookDto[]> {
+  const unlockCandidates = list.filter(
+    (n) => !n.locked && shouldDefaultLockTitle(n.title),
+  );
+  if (unlockCandidates.length === 0) return list;
+
+  await Promise.all(
+    unlockCandidates.map(async (n) => {
+      try {
+        await updateNotebook(n.id, { locked: true });
+      } catch (err) {
+        console.warn(
+          "[notebooks] default lock",
+          n.id,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }),
+  );
+
+  return list.map((n) =>
+    unlockCandidates.some((u) => u.id === n.id) ? { ...n, locked: true } : n,
+  );
+}
+
 export async function listNotebooks(): Promise<NotebookDto[]> {
   assertDurableDb("List notebooks");
   if (!hasDb()) {
+    // In-memory: auto-lock protected titles
+    for (const row of memNotebooks.values()) {
+      if (!row.locked && shouldDefaultLockTitle(row.title)) {
+        row.locked = true;
+      }
+    }
     return Array.from(memNotebooks.values())
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
       .map(mapMemNotebook);
@@ -173,13 +217,16 @@ export async function listNotebooks(): Promise<NotebookDto[]> {
       );
     }
     if (error) throw new Error(`List notebooks failed: ${sbError(error)}`);
-    return (data || []).map((r) => mapNotebookRow(r as Record<string, unknown>));
+    const mapped = (data || []).map((r) =>
+      mapNotebookRow(r as Record<string, unknown>),
+    );
+    return ensureDefaultLocks(mapped);
   }
 
   try {
     const db = getDb();
     const rows = await db.select().from(notebooks).orderBy(desc(notebooks.createdAt));
-    return rows.map((r) =>
+    const mapped = rows.map((r) =>
       mapNotebookRow({
         id: r.id,
         title: r.title,
@@ -193,6 +240,7 @@ export async function listNotebooks(): Promise<NotebookDto[]> {
         updated_at: r.updatedAt,
       }),
     );
+    return ensureDefaultLocks(mapped);
   } catch (err) {
     throw enrichDbError(err, "List notebooks");
   }
@@ -205,12 +253,13 @@ export async function createNotebook(title: string): Promise<NotebookDto> {
 
   const id = randomUUID();
   const now = new Date().toISOString();
+  const locked = shouldDefaultLockTitle(clean);
 
   if (!hasDb()) {
     const row: MemNotebook = {
       id,
       title: clean,
-      locked: false,
+      locked,
       indexStatus: "none",
       indexMessage: null,
       unitCount: 0,
@@ -228,7 +277,7 @@ export async function createNotebook(title: string): Promise<NotebookDto> {
     const payload = {
       id,
       title: clean,
-      locked: false,
+      locked,
       index_status: "none",
       index_message: null,
       unit_count: 0,
@@ -272,7 +321,7 @@ export async function createNotebook(title: string): Promise<NotebookDto> {
     await db.insert(notebooks).values({
       id,
       title: clean,
-      locked: false,
+      locked,
       indexStatus: "none",
       indexMessage: null,
       unitCount: 0,
@@ -288,7 +337,7 @@ export async function createNotebook(title: string): Promise<NotebookDto> {
   return {
     id,
     title: clean,
-    locked: false,
+    locked,
     indexStatus: "none",
     indexMessage: null,
     unitCount: 0,

@@ -35,13 +35,13 @@ const MODULES = [
     title: "Document RAG",
     description:
       "Upload PDFs and notes, index embeddings, then ask over your datasets with hybrid BM25 + dense retrieval and grounded answers.",
-    points: ["Upload & embed", "Adaptive / BM25", "Evidence panels"],
+    points: ["Upload & embed", "Paper / BM25", "Evidence panels"],
     cta: "Open Document RAG",
   },
 ] as const;
 
 const CAPABILITIES = [
-  { icon: Layers, label: "Hybrid IR", detail: "BM25 + Adaptive RRF" },
+  { icon: Layers, label: "Hybrid IR", detail: "SciNCL + BM25 + CE" },
   { icon: FileSearch, label: "Evidence first", detail: "Ranked sources" },
   { icon: Quote, label: "Cited answers", detail: "Grounded LLM" },
   { icon: Zap, label: "Live pipelines", detail: "SSE progress" },

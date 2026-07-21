@@ -64,7 +64,7 @@ const NOTEBOOK_STEPS: StepDef[] = [
   {
     id: "fusion",
     label: "Hybrid fusion",
-    description: "Adaptive RRF merges BM25 + dense ranks (not cross-encoder)",
+    description: "Paper: SciNCL + BM25 hybrid then cross-encoder rerank",
     icon: Layers,
   },
   {
@@ -115,7 +115,7 @@ const WEB_STEPS: StepDef[] = [
   {
     id: "fusion",
     label: "Hybrid fusion",
-    description: "Adaptive RRF merges BM25 + dense ranks",
+    description: "SciNCL + BM25 RRF, then cross-encoder (Paper)",
     icon: Layers,
   },
   {
@@ -140,9 +140,11 @@ function fmtMs(ms?: number | null) {
 
 function modeLabel(mode?: string) {
   switch (mode) {
+    case "paper":
+      return "Paper (SciNCL+BM25+CE)";
     case "rrf":
     case "adaptive_rrf":
-      return "Hybrid (classic RRF)";
+      return "Paper (legacy Adaptive)";
     case "sgaf":
       return "SGAF B5+P3";
     case "bm25_fallback":
@@ -229,7 +231,9 @@ function deriveStepStatus(
     case "fusion": {
       if (legacySteps.retrieve === "running" && !metrics) return "running";
       if (
-        metrics?.retrievalMode === "adaptive_rrf"
+        metrics?.retrievalMode === "paper" ||
+        metrics?.retrievalMode === "adaptive_rrf" ||
+        metrics?.retrievalMode === "sgaf"
       )
         return "success";
       if (metrics?.retrievalMode === "bm25" || metrics?.retrievalMode === "bm25_fallback")
@@ -626,10 +630,12 @@ function stepShortHint(
           .join(" · ") || "Dense used at query time";
       return metrics.denseSkippedReason || "Dense not used";
     case "fusion":
-      if (
-        metrics?.retrievalMode === "adaptive_rrf"
-      )
-        return "Classic RRF · equal weights · k=60";
+      if (metrics?.retrievalMode === "paper")
+        return metrics.rerankUsed
+          ? "Hybrid RRF + cross-encoder (Paper)"
+          : "Hybrid SciNCL+BM25 (CE skipped)";
+      if (metrics?.retrievalMode === "adaptive_rrf")
+        return "Paper legacy · RRF k=60";
       if (metrics?.retrievalMode === "bm25") return "No fusion (lexical only)";
       return "RRF merge of rank lists";
     case "pack":
@@ -728,21 +734,31 @@ function StepDetail({
       rows.push({
         k: "Method",
         v:
-          metrics?.retrievalMode === "adaptive_rrf"
-            ? "Classic RRF (Cormack et al.)"
-            : metrics?.retrievalMode === "bm25_fallback"
-              ? "BM25 only (dense failed)"
-              : "BM25 only",
+          metrics?.retrievalMode === "paper"
+            ? "Paper: SciNCL + BM25 + cross-encoder"
+            : metrics?.retrievalMode === "adaptive_rrf"
+              ? "Paper legacy (was Adaptive RRF)"
+              : metrics?.retrievalMode === "bm25_fallback"
+                ? "BM25 only (dense failed)"
+                : "BM25 only",
       });
       if (
+        metrics?.retrievalMode === "paper" ||
         metrics?.retrievalMode === "adaptive_rrf"
       ) {
-        rows.push({ k: "List weights", v: "1.0 (BM25) + 1.0 (dense)" });
-        rows.push({ k: "RRF k", v: "60" });
+        rows.push({ k: "Hybrid", v: "RRF SciNCL + BM25 · k=60" });
+        rows.push({
+          k: "Cross-encoder",
+          v: metrics.rerankUsed
+            ? metrics.rerankModel || "used"
+            : metrics.rerankSkippedReason || "not used",
+        });
+        if (metrics.rerankMs != null)
+          rows.push({ k: "Rerank ms", v: String(Math.round(metrics.rerankMs)) });
       }
       rows.push({
         k: "Note",
-        v: "Not a cross-encoder reranker — ranks are fused by reciprocal rank.",
+        v: "Paper scores (query, document) pairs after hybrid candidate generation.",
       });
       break;
     case "pack":
