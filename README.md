@@ -35,6 +35,7 @@ The old Docker stack (upstream [Open Notebook](https://github.com/lfnovo/open-no
 ```text
 Browser ──► Next.js 16 (Vercel / local :3001)
               │
+              ├─ /                         home — choose Web Search or Document RAG
               ├─ /search /search/[sessionId]
               │     multi-turn web sessions (isolated memory per session)
               │
