@@ -91,6 +91,10 @@ export type Metrics = {
   rerankModel?: string;
   rerankMs?: number;
   rerankSkippedReason?: string;
+  /** Dense vectors loaded from DB (query-only embed). */
+  usedPreindexedVectors?: boolean;
+  preindexedCount?: number;
+  coldEmbedCount?: number;
   /** SGAF runtime mode */
   b5Mode?: "specialist_safe" | "generalist_fallback";
   llmUsed?: boolean;

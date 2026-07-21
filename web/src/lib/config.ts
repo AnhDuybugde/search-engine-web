@@ -268,7 +268,8 @@ export const IR_DEFAULTS = {
   adaptiveRrfMaxBm25Weight: 0.9,
   /** Paper mode: hybrid candidate pool then CE rerank */
   paperCandidateTopK: 40,
-  paperRerankTopK: 20,
+  /** Keep CE pool small — vectors are pre-indexed; CE is the remaining cost. */
+  paperRerankTopK: 12,
   crossEncoderBatchSize: 8,
   /** SGAF B5+P3 parameters (from frozen SEG paper) */
   sgafShiftThreshold: 2.0,

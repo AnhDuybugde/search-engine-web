@@ -1,7 +1,7 @@
 import { getConfig, IR_DEFAULTS } from "@/lib/config";
 import { bm25Retrieve, tokenize } from "./bm25";
 import { crossEncoderScore } from "./cross-encoder";
-import { cosineSimilarity, embedTexts } from "./embedding";
+import { cosineSimilarity, embedTexts, resolveDenseEmbedOptions } from "./embedding";
 import { parseRetrievalMode } from "./retrieval-modes";
 import type { Chunk, ChunkWithEmbedding, RankedChunk } from "./types";
 
@@ -16,6 +16,10 @@ export type HybridRetrievalDiagnostics = {
   denseMs?: number;
   fusionMs?: number;
   bm25Weight?: number;
+  /** True when corpus vectors came from DB (query-only embed). */
+  usedPreindexedVectors?: boolean;
+  preindexedCount?: number;
+  coldEmbedCount?: number;
   /** Paper mode cross-encoder */
   rerankUsed?: boolean;
   rerankModel?: string;
@@ -112,6 +116,26 @@ function formatQueryForEmbedding(query: string) {
   return `Represent this sentence for searching relevant passages: ${query}`;
 }
 
+/** Most common embeddingModel among units that already have vectors. */
+function majorityEmbeddingModel(
+  chunks: ChunkWithEmbedding[],
+): string | null {
+  const counts = new Map<string, number>();
+  for (const c of chunks) {
+    if (!c.embedding?.length || !c.embeddingModel) continue;
+    counts.set(c.embeddingModel, (counts.get(c.embeddingModel) || 0) + 1);
+  }
+  let best: string | null = null;
+  let bestN = 0;
+  for (const [model, n] of counts) {
+    if (n > bestN) {
+      best = model;
+      bestN = n;
+    }
+  }
+  return best;
+}
+
 function safeRankedChunk(
   chunk: Chunk,
   scores: {
@@ -206,68 +230,26 @@ async function paperRetrieve(
   const bm25 = bm25All.filter((hit) => selectedIds.has(hit.chunkId));
   const byId = new Map(denseInputChunks.map((c) => [c.chunkId, c]));
 
-  const scinclModel = cfg.SCINCL_EMBEDDING_MODEL || "malteos/scincl";
-  const scinclUrl = cfg.SCINCL_EMBEDDING_API_URL;
-  const embedOpts = {
-    model: scinclModel,
-    apiUrl: scinclUrl,
-  };
+  // Hot path: reuse DB vectors; only embed units missing embedding_json.
+  // Cold path: embed shortlist with the dense index model (SciNCL for Paper).
+  const preindexedCount = denseInputChunks.filter(
+    (c) => c.embedding && c.embedding.length > 0,
+  ).length;
+  const needEmbed = denseInputChunks.filter(
+    (c) => !c.embedding || c.embedding.length === 0,
+  );
+  const storedModel = majorityEmbeddingModel(denseInputChunks);
+  const embedOpts = resolveDenseEmbedOptions(cfg, storedModel);
 
   const start = performance.now();
   try {
-    // Paper uses SciNCL vectors (not generalist BGE). Embed query + candidates
-    // that lack SciNCL (or any) embeddings so cosine is in the same space.
-    const needEmbed = denseInputChunks.filter(
-      (c) =>
-        !c.embedding ||
-        c.embedding.length === 0 ||
-        (c.embeddingModel &&
-          c.embeddingModel !== scinclModel &&
-          !c.embeddingModel.includes("scincl")),
-    );
-
     let embeddedChunks: ChunkWithEmbedding[] = denseInputChunks;
     let queryEmbedding: number[];
     let embeddingProvider = "";
-    let embeddingModel = scinclModel;
+    let embeddingModel = embedOpts.model;
 
-    if (needEmbed.length === denseInputChunks.length) {
-      const response = await embedTexts(
-        [formatQueryForEmbedding(query), ...needEmbed.map((c) => c.text)],
-        embedOpts,
-      );
-      const [qVec, ...docVecs] = response.embeddings;
-      queryEmbedding = qVec;
-      embeddingProvider = response.provider;
-      embeddingModel = response.model;
-      const byMissing = new Map(
-        needEmbed.map((c, i) => [c.chunkId, docVecs[i]] as const),
-      );
-      embeddedChunks = denseInputChunks.map((c) => {
-        const filled = byMissing.get(c.chunkId);
-        return filled
-          ? { ...c, embedding: filled, embeddingModel: response.model }
-          : c;
-      });
-    } else if (needEmbed.length > 0) {
-      const response = await embedTexts(
-        [formatQueryForEmbedding(query), ...needEmbed.map((c) => c.text)],
-        embedOpts,
-      );
-      const [qVec, ...docVecs] = response.embeddings;
-      queryEmbedding = qVec;
-      embeddingProvider = response.provider;
-      embeddingModel = response.model;
-      const byMissing = new Map(
-        needEmbed.map((c, i) => [c.chunkId, docVecs[i]] as const),
-      );
-      embeddedChunks = denseInputChunks.map((c) => {
-        const filled = byMissing.get(c.chunkId);
-        return filled
-          ? { ...c, embedding: filled, embeddingModel: response.model }
-          : c;
-      });
-    } else {
+    if (needEmbed.length === 0) {
+      // Index ready — query vector only
       const response = await embedTexts(
         [formatQueryForEmbedding(query)],
         embedOpts,
@@ -275,9 +257,28 @@ async function paperRetrieve(
       queryEmbedding = response.embeddings[0];
       embeddingProvider = response.provider;
       embeddingModel = response.model;
+    } else {
+      const response = await embedTexts(
+        [formatQueryForEmbedding(query), ...needEmbed.map((c) => c.text)],
+        embedOpts,
+      );
+      const [qVec, ...docVecs] = response.embeddings;
+      queryEmbedding = qVec;
+      embeddingProvider = response.provider;
+      embeddingModel = response.model;
+      const byMissing = new Map(
+        needEmbed.map((c, i) => [c.chunkId, docVecs[i]] as const),
+      );
+      embeddedChunks = denseInputChunks.map((c) => {
+        const filled = byMissing.get(c.chunkId);
+        return filled
+          ? { ...c, embedding: filled, embeddingModel: response.model }
+          : c;
+      });
     }
 
     const embeddingMs = Math.round(performance.now() - start);
+    const usedPreindexedVectors = preindexedCount > 0 && needEmbed.length === 0;
     const denseStart = performance.now();
     const dense = denseRetrieve(
       embeddedChunks,
@@ -304,9 +305,12 @@ async function paperRetrieve(
         diagnosticsBase: {
           mode: "paper",
           denseUsed: false,
-          denseSkippedReason: "No SciNCL dense hits",
+          denseSkippedReason: "No dense hits",
           embeddingProvider,
           embeddingModel,
+          usedPreindexedVectors,
+          preindexedCount,
+          coldEmbedCount: needEmbed.length,
           embeddingMs,
           bm25Ms,
           denseMs,
@@ -371,6 +375,9 @@ async function paperRetrieve(
         bm25Ms,
         denseMs,
         fusionMs,
+        usedPreindexedVectors,
+        preindexedCount,
+        coldEmbedCount: needEmbed.length,
       },
     });
   } catch (err) {

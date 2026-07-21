@@ -12,7 +12,10 @@ import { indexNotebookEmbeddings } from "./index-embeddings";
 import { retrieveEvidence } from "./adaptive-rrf";
 
 vi.mock("@/lib/ir/embedding", () => ({
-  embedTexts: async (texts: string[]) => ({
+  embedTexts: async (
+    texts: string[],
+    opts?: { model?: string; apiUrl?: string },
+  ) => ({
     embeddings: texts.map((_, i) => {
       // Deterministic pseudo-vectors
       const v = new Array(8).fill(0).map((__, j) => ((i + 1) * (j + 1)) / 10);
@@ -20,13 +23,17 @@ vi.mock("@/lib/ir/embedding", () => ({
       return v.map((x) => x / norm);
     }),
     provider: "mock",
-    model: "mock-embed",
+    model: opts?.model || "mock-embed",
   }),
   cosineSimilarity: (a: number[], b: number[]) => {
     let dot = 0;
     for (let i = 0; i < Math.min(a.length, b.length); i++) dot += a[i] * b[i];
     return dot;
   },
+  resolveDenseEmbedOptions: () => ({
+    model: "mock-embed",
+    apiUrl: undefined,
+  }),
 }));
 
 function setEnv(key: string, value: string | undefined) {
@@ -123,7 +130,13 @@ describe("indexNotebookEmbeddings (pre-store vectors)", () => {
 
     expect(coldRes.diagnostics.denseUsed).toBe(true);
     expect(hotRes.diagnostics.denseUsed).toBe(true);
-    // Both should return hits; hot uses pre-stored vectors
+    // Hot path reuses DB vectors (query-only embed)
+    expect(hotRes.diagnostics.usedPreindexedVectors).toBe(true);
+    expect(hotRes.diagnostics.coldEmbedCount).toBe(0);
+    expect(hotRes.diagnostics.preindexedCount).toBe(hot.length);
+    // Cold path must embed corpus units at query time
+    expect(coldRes.diagnostics.usedPreindexedVectors).toBeFalsy();
+    expect((coldRes.diagnostics.coldEmbedCount ?? 0)).toBeGreaterThan(0);
     expect(hotRes.results.length).toBeGreaterThan(0);
     expect(coldRes.results.length).toBeGreaterThan(0);
   });

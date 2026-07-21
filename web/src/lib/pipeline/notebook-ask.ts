@@ -110,6 +110,9 @@ export async function runNotebookAskPipeline(
   metrics.rerankModel = retrieval.diagnostics.rerankModel;
   metrics.rerankMs = retrieval.diagnostics.rerankMs;
   metrics.rerankSkippedReason = retrieval.diagnostics.rerankSkippedReason;
+  metrics.usedPreindexedVectors = retrieval.diagnostics.usedPreindexedVectors;
+  metrics.preindexedCount = retrieval.diagnostics.preindexedCount;
+  metrics.coldEmbedCount = retrieval.diagnostics.coldEmbedCount;
   timing.rankMs =
     (timing.bm25Ms ?? 0) +
     (timing.embeddingMs ?? 0) +

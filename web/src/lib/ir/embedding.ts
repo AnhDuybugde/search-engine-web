@@ -1,4 +1,5 @@
-import { getConfig } from "@/lib/config";
+import { getConfig, type AppConfig } from "@/lib/config";
+import { parseRetrievalMode } from "@/lib/ir/retrieval-modes";
 
 export type EmbeddingProvider = "openai" | "huggingface" | "tei";
 
@@ -7,6 +8,40 @@ export type EmbeddingResult = {
   provider: EmbeddingProvider;
   model: string;
 };
+
+/**
+ * Dense model used for notebook pre-index and Paper hybrid query vectors.
+ * Paper/SGAF prefer SciNCL so upload-time index matches query-time cosine space.
+ */
+export function resolveDenseEmbedOptions(
+  cfg: AppConfig = getConfig(),
+  preferredModel?: string | null,
+): { model: string; apiUrl?: string } {
+  if (preferredModel?.trim()) {
+    const m = preferredModel.trim();
+    const scincl = cfg.SCINCL_EMBEDDING_MODEL || "malteos/scincl";
+    const useScincl =
+      m === scincl || m.toLowerCase().includes("scincl");
+    return {
+      model: m,
+      apiUrl: useScincl
+        ? cfg.SCINCL_EMBEDDING_API_URL || cfg.EMBEDDING_API_URL
+        : cfg.EMBEDDING_API_URL,
+    };
+  }
+
+  const mode = parseRetrievalMode(cfg.RETRIEVAL_MODE);
+  if (mode === "paper" || mode === "sgaf") {
+    return {
+      model: cfg.SCINCL_EMBEDDING_MODEL || cfg.EMBEDDING_MODEL,
+      apiUrl: cfg.SCINCL_EMBEDDING_API_URL || cfg.EMBEDDING_API_URL,
+    };
+  }
+  return {
+    model: cfg.EMBEDDING_MODEL,
+    apiUrl: cfg.EMBEDDING_API_URL,
+  };
+}
 
 type OpenAiEmbeddingResponse = {
   data?: Array<{ embedding?: number[] }>;

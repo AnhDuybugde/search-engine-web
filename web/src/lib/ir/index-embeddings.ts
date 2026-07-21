@@ -14,7 +14,7 @@ import {
   type ChunkWriteRow,
 } from "@/lib/db/notebooks-repo";
 import { expandRawSourcesToUnits } from "@/lib/ir/raw-units";
-import { embedTexts } from "@/lib/ir/embedding";
+import { embedTexts, resolveDenseEmbedOptions } from "@/lib/ir/embedding";
 
 const EMBED_BATCH = 16;
 /** Cap stored units per notebook (dense index size). */
@@ -161,18 +161,30 @@ export async function indexNotebookEmbeddings(
       };
     }
 
+    // Paper mode indexes with SciNCL so query path only embeds the user query.
+    const denseOpts = resolveDenseEmbedOptions(cfg);
     const batchSize = opts?.batchSize ?? EMBED_BATCH;
     const embeddings: number[][] = [];
-    let model = cfg.EMBEDDING_MODEL;
+    let model = denseOpts.model;
     let provider: string = cfg.EMBEDDING_PROVIDER;
     const embedStart = performance.now();
+
+    emit?.({
+      type: "index_progress",
+      done: 0,
+      total: units.length,
+      message: `Embedding with ${denseOpts.model}…`,
+    });
 
     for (let i = 0; i < units.length; i += batchSize) {
       const slice = units.slice(i, i + batchSize);
       let lastErr: unknown;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          const res = await embedTexts(slice.map((u) => u.text));
+          const res = await embedTexts(
+            slice.map((u) => u.text),
+            denseOpts,
+          );
           embeddings.push(...res.embeddings);
           model = res.model;
           provider = res.provider;
@@ -190,7 +202,7 @@ export async function indexNotebookEmbeddings(
         type: "index_progress",
         done,
         total: units.length,
-        message: `Embedded ${done}/${units.length} units`,
+        message: `Embedded ${done}/${units.length} units (${model})`,
       });
       process.stdout?.write?.(
         `[index] ${done}/${units.length} embedded\r`,

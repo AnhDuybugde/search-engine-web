@@ -115,6 +115,9 @@ RERANK_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
 
 Thiếu embedding/rerank key → Paper vẫn chạy nhưng fallback BM25 hoặc hybrid không CE (không crash).
 
+**Index sẵn (nhanh khi ask):** mỗi lần upload, app embed toàn corpus bằng `SCINCL_EMBEDDING_MODEL` (Paper) và ghi `chunks.embedding_json`.  
+Ask chỉ embed **query** + RRF + CE. Dataset cũ chưa index → upload lại file hoặc đợi cold embed lần đầu.
+
 ### SGAF (optional)
 
 | Variable | Description |
