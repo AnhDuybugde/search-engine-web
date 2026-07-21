@@ -189,6 +189,19 @@ export function dbSetupHint(cfg: AppConfig = getConfig()): string {
   return "No DB configured — history/notebooks use in-memory store (lost on restart).";
 }
 
+function envPositiveInt(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
+/**
+ * IR / ingest caps.
+ * - maxNotebookChars: sum of all source text in one notebook (raise via MAX_NOTEBOOK_CHARS).
+ * - maxUploadBytes: single file size (raise via MAX_UPLOAD_BYTES).
+ */
 export const IR_DEFAULTS = {
   chunkSizeWords: 280,
   chunkOverlapWords: 40,
@@ -197,13 +210,18 @@ export const IR_DEFAULTS = {
   contextTopK: 4,
   maxOutputTokens: 600,
   temperature: 0.1,
-  maxUploadBytes: 5 * 1024 * 1024,
-  maxNotebookChars: 200_000,
-  maxChunksPerNotebook: 500,
+  /** Default 15 MB per file (PDF extract can still be large). */
+  maxUploadBytes: envPositiveInt("MAX_UPLOAD_BYTES", 15 * 1024 * 1024),
+  /**
+   * Default 2M chars ≈ long multi-doc corpus.
+   * Old hard cap was 200k and blocked real PDFs / multi-source notebooks.
+   */
+  maxNotebookChars: envPositiveInt("MAX_NOTEBOOK_CHARS", 2_000_000),
+  maxChunksPerNotebook: envPositiveInt("MAX_CHUNKS_PER_NOTEBOOK", 2000),
   denseTopK: 40,
   maxDenseChunks: 160,
   rrfK: 60,
   adaptiveRrfScale: 1.0,
   adaptiveRrfMinBm25Weight: 0.05,
   adaptiveRrfMaxBm25Weight: 0.9,
-} as const;
+};
