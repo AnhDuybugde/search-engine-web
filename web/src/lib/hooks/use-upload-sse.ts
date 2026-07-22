@@ -279,7 +279,15 @@ export function useUploadSse() {
         token: string;
         signedUrl: string;
       };
-      if (!initRes.ok) throw new Error(init.error || `Upload initialization failed (${initRes.status})`);
+      if (!initRes.ok) {
+        const detail = init.error || `Upload initialization failed (${initRes.status})`;
+        if (/notebook_uploads|schema cache|PGRST205/i.test(detail)) {
+          throw new Error(
+            "Direct upload storage is not initialized. Run drizzle/0006_notebook_uploads.sql in Supabase SQL Editor.",
+          );
+        }
+        throw new Error(detail);
+      }
 
       const storageRes = await fetch(init.signedUrl, {
         method: "PUT",
