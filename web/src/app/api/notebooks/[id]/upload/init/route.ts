@@ -55,6 +55,7 @@ export async function POST(
           bucket: existing.storageBucket,
           path: existing.storagePath,
           token: signed.token,
+          signedUrl: signed.signedUrl,
           expiresIn: Number(cfg.UPLOAD_SIGNED_URL_TTL_SECONDS) || 900,
           resumed: true,
         }, { status: 200 });
@@ -79,6 +80,7 @@ export async function POST(
       bucket: upload.storageBucket,
       path: upload.storagePath,
       token: signed.token,
+      signedUrl: signed.signedUrl,
       expiresIn: Number(cfg.UPLOAD_SIGNED_URL_TTL_SECONDS) || 900,
     }, { status: 201 });
   } catch (err) {

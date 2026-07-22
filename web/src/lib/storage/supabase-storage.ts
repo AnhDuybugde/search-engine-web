@@ -16,7 +16,7 @@ export async function createSignedStorageUpload(path: string, upsert = false) {
   if (error || !data?.token) {
     throw new Error(error?.message || "Could not create signed upload URL.");
   }
-  return { path, token: data.token };
+  return { path, token: data.token, signedUrl: data.signedUrl };
 }
 
 export async function downloadStorageObject(bucket: string, path: string) {

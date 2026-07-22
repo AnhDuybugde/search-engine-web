@@ -100,7 +100,7 @@ export function DatasetChatLayout({
 
   const { state, run, cancel, reset } = useSsePipeline();
   const uploadSse = useUploadSse();
-  const directStorageUploads = process.env.NEXT_PUBLIC_DIRECT_STORAGE_UPLOADS === "1";
+  const directStorageUploads = process.env.NEXT_PUBLIC_DIRECT_STORAGE_UPLOADS !== "0";
 
   const onRetrievalModeChange = useCallback((mode: RetrievalModeId) => {
     setRetrievalMode(mode);
@@ -405,7 +405,10 @@ export function DatasetChatLayout({
     setUiError(null);
     setRightTab("sources");
     try {
-      if (directStorageUploads) {
+      // Never send large files through a Vercel Function. Older deployments
+      // may not have the public feature flag, so size is a safe second gate.
+      const requiresDirectUpload = directStorageUploads || file.size > 4 * 1024 * 1024;
+      if (requiresDirectUpload) {
         await uploadSse.uploadDirect(`/api/notebooks/${notebookId}/upload`, file);
       } else {
         await uploadSse.upload(`/api/notebooks/${notebookId}/upload`, file);

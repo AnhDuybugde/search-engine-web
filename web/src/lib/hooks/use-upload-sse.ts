@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createClient } from "@supabase/supabase-js";
 import type { Timing, UploadStreamEvent } from "@/lib/ir/types";
 
 export type UploadStepStatus = "pending" | "running" | "success" | "failed";
@@ -47,7 +46,7 @@ const initialSteps: Record<string, UploadStepStatus> = {
 };
 
 function directUploadEnabled() {
-  return process.env.NEXT_PUBLIC_DIRECT_STORAGE_UPLOADS === "1";
+  return process.env.NEXT_PUBLIC_DIRECT_STORAGE_UPLOADS !== "0";
 }
 
 export function useUploadSse() {
@@ -259,11 +258,6 @@ export function useUploadSse() {
       if (!directUploadEnabled()) {
         throw new Error("Direct storage uploads are disabled");
       }
-      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-      const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-      if (!supabaseUrl || !anonKey) {
-        throw new Error("Direct upload requires NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY");
-      }
       const initRes = await fetch(`${url}/init`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -283,18 +277,21 @@ export function useUploadSse() {
         bucket: string;
         path: string;
         token: string;
+        signedUrl: string;
       };
       if (!initRes.ok) throw new Error(init.error || `Upload initialization failed (${initRes.status})`);
 
-      const client = createClient(supabaseUrl, anonKey, {
-        auth: { persistSession: false, autoRefreshToken: false },
+      const storageRes = await fetch(init.signedUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+        signal: controller.signal,
+        cache: "no-store",
       });
-      const { error: storageError } = await client.storage
-        .from(init.bucket)
-        .uploadToSignedUrl(init.path, init.token, file, {
-          contentType: file.type || "application/octet-stream",
-        });
-      if (storageError) throw new Error(storageError.message);
+      if (!storageRes.ok) {
+        const body = await storageRes.text();
+        throw new Error(body || `Storage upload failed (${storageRes.status})`);
+      }
       setState((prev) => ({
         ...prev,
         logs: [...prev.logs, `Uploaded ${file.name} to private storage`],

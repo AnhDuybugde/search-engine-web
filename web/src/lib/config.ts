@@ -90,7 +90,9 @@ const envSchema = z.object({
   SUPABASE_URL: z.string().optional(),
   SUPABASE_PUBLIC_KEY: z.string().optional(),
   SUPABASE_SECRET_KEY: z.string().optional(),
-  DIRECT_STORAGE_UPLOADS: z.enum(["0", "1"]).default("0"),
+  // Direct Storage is the safe default when Supabase REST is configured.
+  // Set DIRECT_STORAGE_UPLOADS=0 to force the legacy multipart path.
+  DIRECT_STORAGE_UPLOADS: z.enum(["0", "1"]).default("1"),
   SUPABASE_STORAGE_BUCKET: z.string().default("notebook-uploads"),
   UPLOAD_SIGNED_URL_TTL_SECONDS: z.string().default("900"),
   APP_PASSWORD: z.string().optional(),
@@ -193,7 +195,7 @@ export function getConfig(): AppConfig {
         SUPABASE_URL: raw.SUPABASE_URL,
         SUPABASE_PUBLIC_KEY: raw.SUPABASE_PUBLIC_KEY,
         SUPABASE_SECRET_KEY: raw.SUPABASE_SECRET_KEY,
-        DIRECT_STORAGE_UPLOADS: raw.DIRECT_STORAGE_UPLOADS === "1" ? "1" : "0",
+        DIRECT_STORAGE_UPLOADS: raw.DIRECT_STORAGE_UPLOADS === "0" ? "0" : "1",
         SUPABASE_STORAGE_BUCKET:
           raw.SUPABASE_STORAGE_BUCKET || "notebook-uploads",
         UPLOAD_SIGNED_URL_TTL_SECONDS:
@@ -219,7 +221,8 @@ export function getConfig(): AppConfig {
         : Boolean(data.EMBEDDING_API_URL),
     hasDb: hasSupabaseRest || hasSql,
     hasSupabaseRest,
-    directStorageUploads: data.DIRECT_STORAGE_UPLOADS === "1",
+    directStorageUploads:
+      data.DIRECT_STORAGE_UPLOADS === "1" && hasSupabaseRest,
     storageBucket: data.SUPABASE_STORAGE_BUCKET,
     onVercel,
   };
