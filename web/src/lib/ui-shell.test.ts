@@ -136,7 +136,6 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
   });
 
   it("uses compact Work Sans + Outfit typography for the dense workspace", () => {
-    const layout = readSrc("app", "layout.tsx");
     const css = readSrc("app", "globals.css");
     expect(css).toContain('"Work Sans"');
     expect(css).toContain('"Outfit"');
