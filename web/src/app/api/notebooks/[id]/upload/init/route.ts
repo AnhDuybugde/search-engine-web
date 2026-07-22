@@ -84,6 +84,18 @@ export async function POST(
       expiresIn: Number(cfg.UPLOAD_SIGNED_URL_TTL_SECONDS) || 900,
     }, { status: 201 });
   } catch (err) {
-    return Response.json({ error: err instanceof Error ? err.message : "Could not initialize upload" }, { status: 400 });
+    const message = err instanceof Error ? err.message : "Could not initialize upload";
+    if (/notebook_uploads|schema cache|PGRST205/i.test(message)) {
+      return Response.json(
+        {
+          error:
+            "Upload storage schema is not initialized. Run drizzle/0006_notebook_uploads.sql in Supabase SQL Editor.",
+          code: "UPLOAD_SCHEMA_MISSING",
+          migration: "drizzle/0006_notebook_uploads.sql",
+        },
+        { status: 503 },
+      );
+    }
+    return Response.json({ error: message }, { status: 400 });
   }
 }

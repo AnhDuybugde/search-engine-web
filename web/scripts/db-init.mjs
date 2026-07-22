@@ -110,6 +110,21 @@ const REQUIRED_COLUMNS = {
     "status",
     "created_at",
   ],
+  notebook_uploads: [
+    "id",
+    "notebook_id",
+    "storage_bucket",
+    "storage_path",
+    "original_filename",
+    "safe_filename",
+    "mime",
+    "byte_size",
+    "status",
+    "stage",
+    "progress",
+    "created_at",
+    "updated_at",
+  ],
 };
 
 try {
@@ -127,6 +142,7 @@ try {
       and table_name in (
         'notebooks', 'sources', 'chunks', 'search_runs',
         'search_sessions', 'search_messages', 'notebook_messages'
+        , 'notebook_uploads'
       )
     order by table_name
   `;

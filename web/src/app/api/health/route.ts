@@ -114,21 +114,58 @@ async function probeDb(backend: ReturnType<typeof dbBackend>) {
   return dbProbe;
 }
 
+async function probeUploadStorage(backend: ReturnType<typeof dbBackend>) {
+  const cfg = getConfig();
+  if (!cfg.directStorageUploads) {
+    return { ok: true, detail: "Direct upload disabled; multipart fallback is active." };
+  }
+  if (backend === "supabase-rest") {
+    try {
+      const result = await getSupabaseAdmin()!
+        .from("notebook_uploads")
+        .select("id")
+        .limit(1);
+      if (result.error) {
+        return {
+          ok: false,
+          detail: `${sbError(result.error)}. Run drizzle/0006_notebook_uploads.sql in Supabase SQL Editor.`,
+        };
+      }
+      return { ok: true, detail: "notebook_uploads reachable via REST" };
+    } catch (err) {
+      return { ok: false, detail: err instanceof Error ? err.message : "upload probe failed" };
+    }
+  }
+  if (backend === "postgres") {
+    try {
+      await getDb().execute(sql`select id from notebook_uploads limit 1`);
+      return { ok: true, detail: "notebook_uploads reachable via Postgres" };
+    } catch (err) {
+      return { ok: false, detail: err instanceof Error ? err.message : "upload probe failed" };
+    }
+  }
+  return { ok: false, detail: "Direct upload requires a durable database." };
+}
+
 export async function GET(req: Request) {
   const cfg = getConfig();
   const backend = dbBackend();
   const authorized = isAuthorized(req);
+  const uploadProbe = await probeUploadStorage(backend);
 
   const status = {
     search: cfg.hasSearch,
     llm: cfg.hasLlm,
     embedding: cfg.RETRIEVAL_MODE === "bm25" || cfg.hasEmbedding,
     db: cfg.hasDb && (backend === "supabase-rest" || backend === "postgres"),
+    upload: uploadProbe.ok,
   };
 
   // Product readiness: search + LLM + durable DB (embedding optional when bm25).
   // Public ok=false → HTTP 503 so load balancers can fail the instance.
-  const ok = Boolean(status.search && status.llm && status.db && status.embedding);
+  const ok = Boolean(
+    status.search && status.llm && status.db && status.embedding && status.upload,
+  );
 
   const publicBody = {
     ok,
@@ -197,6 +234,7 @@ export async function GET(req: Request) {
         hasDatabaseUrl: Boolean(cfg.DATABASE_URL),
         onVercel: cfg.onVercel,
         dbProbe,
+        uploadStorage: uploadProbe,
         missing,
         hint: dbSetupHint(cfg),
       },

@@ -13,7 +13,7 @@ export async function createSignedStorageUpload(path: string, upsert = false) {
   const { data, error } = await sb.storage
     .from(storageBucket())
     .createSignedUploadUrl(path, { upsert });
-  if (error || !data?.token) {
+  if (error || !data?.token || !data.signedUrl) {
     throw new Error(error?.message || "Could not create signed upload URL.");
   }
   return { path, token: data.token, signedUrl: data.signedUrl };
