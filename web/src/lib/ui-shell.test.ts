@@ -135,14 +135,11 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(datasetSidebar).not.toContain("Check to use · open to manage");
   });
 
-  it("uses readable DM Sans + Space Grotesk fonts at 16px body base", () => {
-    const layout = readSrc("app", "layout.tsx");
-    expect(layout).toContain("DM_Sans");
-    expect(layout).toContain("Space_Grotesk");
+  it("uses compact Work Sans + Outfit typography for the dense workspace", () => {
     const css = readSrc("app", "globals.css");
-    expect(css).toContain("--font-dm-sans");
-    expect(css).toContain("--font-space-grotesk");
-    expect(css).toMatch(/--text-base:\s*1rem/);
+    expect(css).toContain('"Work Sans"');
+    expect(css).toContain('"Outfit"');
+    expect(css).toMatch(/--text-base:\s*0\.9375rem/);
     expect(css).toContain("confirm-panel");
   });
 
@@ -510,8 +507,8 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     const layout = readSrc("app", "layout.tsx");
     expect(layout).toContain('lang="en"');
     expect(layout).not.toContain('lang="vi"');
-    // Font subset for UI product language
-    expect(layout).toMatch(/subsets:\s*\[\s*"latin"\s*\]/);
+    // Offline-safe font stack for the UI product language
+    expect(readSrc("app", "globals.css")).toContain('"Work Sans"');
 
     const cite = readSrc("lib", "llm", "prompts.ts");
     expect(cite).toMatch(/Respond naturally in/i);

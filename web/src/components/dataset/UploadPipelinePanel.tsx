@@ -5,7 +5,7 @@ import type { UploadSseState } from "@/lib/hooks/use-upload-sse";
 import { cn } from "@/lib/utils";
 
 const STEP_META: { id: string; label: string; hint: string }[] = [
-  { id: "receive", label: "Receive file", hint: "Upload received by server" },
+  { id: "receive", label: "Receive file", hint: "Upload received by server or private storage" },
   { id: "extract", label: "Extract text", hint: "PDF / plain text extraction" },
   {
     id: "store",

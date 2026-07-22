@@ -90,6 +90,9 @@ const envSchema = z.object({
   SUPABASE_URL: z.string().optional(),
   SUPABASE_PUBLIC_KEY: z.string().optional(),
   SUPABASE_SECRET_KEY: z.string().optional(),
+  DIRECT_STORAGE_UPLOADS: z.enum(["0", "1"]).default("0"),
+  SUPABASE_STORAGE_BUCKET: z.string().default("notebook-uploads"),
+  UPLOAD_SIGNED_URL_TTL_SECONDS: z.string().default("900"),
   APP_PASSWORD: z.string().optional(),
 });
 
@@ -99,6 +102,8 @@ export type AppConfig = z.infer<typeof envSchema> & {
   hasEmbedding: boolean;
   hasDb: boolean;
   hasSupabaseRest: boolean;
+  directStorageUploads: boolean;
+  storageBucket: string;
   supabaseUrl?: string;
   onVercel: boolean;
 };
@@ -136,6 +141,9 @@ function readRawEnv() {
     SUPABASE_PUBLIC_KEY:
       process.env.SUPABASE_PUBLIC_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     SUPABASE_SECRET_KEY,
+    DIRECT_STORAGE_UPLOADS: process.env.DIRECT_STORAGE_UPLOADS,
+    SUPABASE_STORAGE_BUCKET: process.env.SUPABASE_STORAGE_BUCKET,
+    UPLOAD_SIGNED_URL_TTL_SECONDS: process.env.UPLOAD_SIGNED_URL_TTL_SECONDS,
     APP_PASSWORD: process.env.APP_PASSWORD,
   };
 }
@@ -185,6 +193,11 @@ export function getConfig(): AppConfig {
         SUPABASE_URL: raw.SUPABASE_URL,
         SUPABASE_PUBLIC_KEY: raw.SUPABASE_PUBLIC_KEY,
         SUPABASE_SECRET_KEY: raw.SUPABASE_SECRET_KEY,
+        DIRECT_STORAGE_UPLOADS: raw.DIRECT_STORAGE_UPLOADS === "1" ? "1" : "0",
+        SUPABASE_STORAGE_BUCKET:
+          raw.SUPABASE_STORAGE_BUCKET || "notebook-uploads",
+        UPLOAD_SIGNED_URL_TTL_SECONDS:
+          raw.UPLOAD_SIGNED_URL_TTL_SECONDS || "900",
         APP_PASSWORD: raw.APP_PASSWORD,
       };
 
@@ -206,6 +219,8 @@ export function getConfig(): AppConfig {
         : Boolean(data.EMBEDDING_API_URL),
     hasDb: hasSupabaseRest || hasSql,
     hasSupabaseRest,
+    directStorageUploads: data.DIRECT_STORAGE_UPLOADS === "1",
+    storageBucket: data.SUPABASE_STORAGE_BUCKET,
     onVercel,
   };
 }

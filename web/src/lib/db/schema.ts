@@ -43,6 +43,28 @@ export const sources = pgTable("sources", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
+export const notebookUploads = pgTable("notebook_uploads", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  notebookId: varchar("notebook_id", { length: 36 }).notNull(),
+  storageBucket: text("storage_bucket").notNull(),
+  storagePath: text("storage_path").notNull(),
+  originalFilename: text("original_filename").notNull(),
+  safeFilename: text("safe_filename").notNull(),
+  mime: text("mime"),
+  byteSize: integer("byte_size").notNull(),
+  checksum: text("checksum"),
+  status: text("status").notNull().default("pending"),
+  stage: text("stage").notNull().default("created"),
+  progress: integer("progress").notNull().default(0),
+  sourceId: varchar("source_id", { length: 36 }),
+  errorMessage: text("error_message"),
+  retryCount: integer("retry_count").notNull().default(0),
+  idempotencyKey: text("idempotency_key"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
 export const chunks = pgTable("chunks", {
   id: varchar("id", { length: 36 }).primaryKey(),
   sourceId: varchar("source_id", { length: 36 }).notNull(),
