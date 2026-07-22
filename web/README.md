@@ -84,8 +84,8 @@ Mở http://localhost:3001 (port **3001**).
 | `SUPABASE_STORAGE_BUCKET` | for large uploads | private Storage bucket, default `notebook-uploads` |
 | `NEXT_PUBLIC_SUPABASE_URL` | for direct uploads | public project URL exposed to the browser |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | for direct uploads | public anon/publishable key only |
-| `DIRECT_STORAGE_UPLOADS` | no | server flag: `0` keeps multipart fallback, `1` enables Storage uploads |
-| `NEXT_PUBLIC_DIRECT_STORAGE_UPLOADS` | no | client flag; keep equal to the server flag |
+| `DIRECT_STORAGE_UPLOADS` | no | server flag: direct Storage defaults on when Supabase REST is configured; `0` keeps multipart fallback |
+| `NEXT_PUBLIC_DIRECT_STORAGE_UPLOADS` | no | optional client override; `0` disables direct upload selection |
 | `DATABASE_URL` | optional | SQL fallback; prefer pooler `:6543` |
 | `APP_SESSION_SECRET` | prod multi-user | HMAC for session cookies |
 | `APP_PASSWORD` | optional | ops / health |
@@ -124,8 +124,7 @@ Hoặc paste lần lượt trong Supabase **SQL Editor**.
 2. Env (Production + Preview): LLM, search, Supabase, session secret, optional embeddings.
 3. Chạy migrations trên Supabase, bao gồm `drizzle/0006_notebook_uploads.sql`.
 4. Tạo private Supabase Storage bucket trùng với `SUPABASE_STORAGE_BUCKET`.
-5. Giữ `DIRECT_STORAGE_UPLOADS=0` và `NEXT_PUBLIC_DIRECT_STORAGE_UPLOADS=0` trong lần deploy đầu để rollback-safe.
-6. Sau khi kiểm thử signed upload trên Preview, bật cả hai biến thành `1` rồi redeploy.
+5. Direct upload tự bật khi Supabase REST và bucket đã sẵn sàng; đặt cả hai biến thành `0` chỉ khi cần rollback về multipart.
 4. Redeploy.
 5. Health:
    - Public: `GET /api/health` → `{ ok, status: { search, llm, db } }`
