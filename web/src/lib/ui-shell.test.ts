@@ -398,6 +398,17 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
     expect(repo).toContain("replaceNotebookChunks");
   });
 
+  it("routes large uploads around the Vercel function payload limit", () => {
+    const layout = readSrc("components", "dataset", "DatasetChatLayout.tsx");
+    expect(layout).toContain("file.size > 4 * 1024 * 1024");
+    expect(layout).toContain("uploadSse.uploadDirect");
+    const hook = readSrc("lib", "hooks", "use-upload-sse.ts");
+    expect(hook).toContain("init.signedUrl");
+    expect(hook).toContain('method: "PUT"');
+    const init = readSrc("app", "api", "notebooks", "[id]", "upload", "init", "route.ts");
+    expect(init).toContain("signedUrl: signed.signedUrl");
+  });
+
   it("dataset UI copy is source-first raw store (not upload→chunk→embed index)", () => {
     const layout = readSrc("components", "dataset", "DatasetChatLayout.tsx");
     expect(layout).toContain("Storing raw document");
