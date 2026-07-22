@@ -407,7 +407,9 @@ export function DatasetChatLayout({
     try {
       // Never send large files through a Vercel Function. Older deployments
       // may not have the public feature flag, so size is a safe second gate.
-      const requiresDirectUpload = directStorageUploads || file.size > 4 * 1024 * 1024;
+      // Leave headroom for multipart overhead and platform-side request
+      // limits. Any file at or above 1 MiB must bypass the Vercel Function.
+      const requiresDirectUpload = directStorageUploads || file.size >= 1 * 1024 * 1024;
       if (requiresDirectUpload) {
         await uploadSse.uploadDirect(`/api/notebooks/${notebookId}/upload`, file);
       } else {

@@ -400,7 +400,7 @@ describe("UI redesign — shared shell & tokens (shipped sources)", () => {
 
   it("routes large uploads around the Vercel function payload limit", () => {
     const layout = readSrc("components", "dataset", "DatasetChatLayout.tsx");
-    expect(layout).toContain("file.size > 4 * 1024 * 1024");
+    expect(layout).toContain("file.size >= 1 * 1024 * 1024");
     expect(layout).toContain("uploadSse.uploadDirect");
     const hook = readSrc("lib", "hooks", "use-upload-sse.ts");
     expect(hook).toContain("init.signedUrl");
