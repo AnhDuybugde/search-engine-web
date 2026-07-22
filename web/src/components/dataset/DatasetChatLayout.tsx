@@ -100,6 +100,7 @@ export function DatasetChatLayout({
 
   const { state, run, cancel, reset } = useSsePipeline();
   const uploadSse = useUploadSse();
+  const directStorageUploads = process.env.NEXT_PUBLIC_DIRECT_STORAGE_UPLOADS === "1";
 
   const onRetrievalModeChange = useCallback((mode: RetrievalModeId) => {
     setRetrievalMode(mode);
@@ -404,7 +405,11 @@ export function DatasetChatLayout({
     setUiError(null);
     setRightTab("sources");
     try {
-      await uploadSse.upload(`/api/notebooks/${notebookId}/upload`, file);
+      if (directStorageUploads) {
+        await uploadSse.uploadDirect(`/api/notebooks/${notebookId}/upload`, file);
+      } else {
+        await uploadSse.upload(`/api/notebooks/${notebookId}/upload`, file);
+      }
       await loadNotebook(notebookId);
       await loadDatasets();
     } catch (err) {
