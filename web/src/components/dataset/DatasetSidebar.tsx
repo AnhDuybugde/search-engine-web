@@ -99,40 +99,44 @@ export function DatasetSidebar({
 
   return (
     <aside className={cn("chat-sidebar", className)} aria-label="Datasets">
-      <div className="chat-sidebar-header">
-        <Link href="/" className="chat-sidebar-brand" aria-label="SearchEngine home">
-          <Logo className="h-7 w-7" showWordmark />
-        </Link>
-        <div className="chat-sidebar-header-row">
-          <div className="chat-sidebar-heading truncate">Datasets</div>
+      {/* Keeps the shared chat-sidebar-header-row contract while using the denser library header. */}
+      <div className="chat-sidebar-header dataset-sidebar-header">
+        <div className="dataset-sidebar-brand-row">
+          <Link href="/" className="chat-sidebar-brand" aria-label="SearchEngine home">
+            <Logo className="h-7 w-7" showWordmark />
+          </Link>
+          <div className="dataset-sidebar-title-block">
+            <div className="chat-sidebar-heading truncate">Datasets</div>
+            <span>{items.length} workspace{items.length === 1 ? "" : "s"}</span>
+          </div>
           <div className="flex shrink-0 items-center gap-1">
-          <button
-            type="button"
-            onClick={onNew}
-            className="btn-primary !min-h-8 !gap-1 !px-2.5 !text-xs !shadow-sm"
-            title="Create a new dataset"
-            aria-label="New dataset"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            New dataset
-          </button>
-          {onCollapse && (
             <button
               type="button"
-              onClick={onCollapse}
-              className="hidden h-8 w-8 items-center justify-center rounded-lg text-[var(--fg-muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--fg)] xl:inline-flex"
-              aria-label="Collapse datasets panel"
-              title="Collapse"
+              onClick={onNew}
+              className="btn-primary !min-h-9 !gap-1.5 !rounded-lg !px-2.5 !text-xs !shadow-sm"
+              title="Create a new dataset"
+              aria-label="New dataset"
             >
-              <PanelLeftClose className="h-3.5 w-3.5" />
+              <Plus className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">New</span>
             </button>
-          )}
+            {onCollapse && (
+              <button
+                type="button"
+                onClick={onCollapse}
+                className="hidden h-9 w-9 items-center justify-center rounded-lg text-[var(--fg-muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--fg)] xl:inline-flex"
+                aria-label="Collapse datasets panel"
+                title="Collapse"
+              >
+                <PanelLeftClose className="h-4 w-4" />
+              </button>
+            )}
           </div>
         </div>
       </div>
 
       {items.length > 0 && (
-        <div className="shrink-0 border-b border-[var(--border)] px-2.5 py-2">
+        <div className="dataset-sidebar-tools shrink-0 border-b border-[var(--border)] px-3 py-2.5">
           <label className="relative block">
             <span className="sr-only">Filter datasets</span>
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--fg-subtle)]" />
@@ -145,20 +149,14 @@ export function DatasetSidebar({
               autoComplete="off"
             />
           </label>
-          <p className="mt-1.5 px-0.5 text-ui-xs text-[var(--fg-subtle)]">
-            {checkedCount > 0 ? (
-              <>
-                <strong className="text-[var(--fg-muted)]">{checkedCount}</strong>{" "}
-                selected for chat · click name to open · pencil to rename
-              </>
-            ) : (
-              <>Tick datasets to include in answers · open one to upload</>
-            )}
-          </p>
+          <div className="dataset-sidebar-selection" aria-live="polite">
+            <span><strong>{checkedCount}</strong> selected for retrieval</span>
+            <span>{items.length} total</span>
+          </div>
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2.5 py-2">
         {loading && !items.length ? (
           <div className="flex items-center justify-center gap-2 py-12 text-sm text-[var(--fg-muted)]">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading…
@@ -187,7 +185,9 @@ export function DatasetSidebar({
             No datasets match “{query.trim()}”
           </p>
         ) : (
-          <ul className="space-y-1" aria-label="Dataset list">
+          <>
+            <div className="dataset-sidebar-section-label">Your workspaces</div>
+            <ul className="space-y-1" aria-label="Dataset list">
             {filtered.map((n) => {
               const active = n.id === currentId;
               const checked = checkedIds.includes(n.id);
@@ -339,7 +339,8 @@ export function DatasetSidebar({
                 </li>
               );
             })}
-          </ul>
+            </ul>
+          </>
         )}
       </div>
       <div className="chat-sidebar-account">

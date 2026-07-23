@@ -279,6 +279,16 @@ export function applySseEvent(prev: SseState, event: StreamEvent): SseState {
   const steps = { ...prev.steps };
 
   switch (event.type) {
+    case "corpus_loading":
+      logs.push("Loading retrieval corpus…");
+      steps.corpus = "running";
+      return { ...prev, logs, steps };
+    case "corpus_loaded":
+      logs.push(
+        `Corpus ready (${event.chunks} chunks, load ${event.loadMs}ms, merge ${event.mergeMs}ms)`,
+      );
+      steps.corpus = "success";
+      return { ...prev, logs, steps };
     case "query_started":
       logs.push(`Query: ${event.query}`);
       steps.query = "running";
@@ -303,7 +313,7 @@ export function applySseEvent(prev: SseState, event: StreamEvent): SseState {
     case "embedding_completed":
       logs.push(
         event.denseUsed
-          ? `Embedding done (${event.ms}ms${event.model ? ` · ${event.model}` : ""})`
+          ? `Embedding done (${event.ms}ms${event.inputCount != null ? ` · ${event.inputCount} input${event.inputCount === 1 ? "" : "s"}` : ""}${event.model ? ` · ${event.model}` : ""})`
           : `Embedding skipped (${event.reason || "BM25 only"})`,
       );
       steps.embedding = "success";

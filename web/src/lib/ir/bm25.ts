@@ -10,6 +10,40 @@ export function tokenize(text: string): string[] {
     .filter((t) => t.length > 1);
 }
 
+type Bm25CorpusIndex = {
+  docs: string[][];
+  documentFrequency: Map<string, number>;
+  averageDocumentLength: number;
+};
+
+// loadChunks keeps immutable corpus arrays hot between requests. Reuse the
+// exact BM25 tokenization/DF statistics for those arrays without changing the
+// scoring formula or ranking order.
+const corpusIndexCache = new WeakMap<Chunk[], Bm25CorpusIndex>();
+
+function getCorpusIndex(chunks: Chunk[]): Bm25CorpusIndex {
+  const cached = corpusIndexCache.get(chunks);
+  if (cached) return cached;
+
+  const docs = chunks.map((c) => tokenize(`${c.title} ${c.text}`));
+  const documentFrequency = new Map<string, number>();
+  for (const doc of docs) {
+    const unique = new Set(doc);
+    for (const term of unique) {
+      documentFrequency.set(term, (documentFrequency.get(term) || 0) + 1);
+    }
+  }
+
+  const index = {
+    docs,
+    documentFrequency,
+    averageDocumentLength:
+      docs.reduce((sum, doc) => sum + doc.length, 0) / Math.max(docs.length, 1),
+  };
+  corpusIndexCache.set(chunks, index);
+  return index;
+}
+
 /**
  * Classic BM25 (Okapi) over in-memory chunks.
  * Pure TypeScript — safe for Vercel serverless cold starts.
@@ -36,15 +70,10 @@ export function bm25Retrieve(
 
   // Include source titles: scientific chunks often put the entity/model name
   // in the title while the body starts mid-section after PDF extraction.
-  const docs = chunks.map((c) => tokenize(`${c.title} ${c.text}`));
+  const corpusIndex = getCorpusIndex(chunks);
+  const { docs, documentFrequency: df } = corpusIndex;
   const N = docs.length;
-  const avgdl = docs.reduce((s, d) => s + d.length, 0) / Math.max(N, 1);
-
-  const df = new Map<string, number>();
-  for (const doc of docs) {
-    const unique = new Set(doc);
-    for (const t of unique) df.set(t, (df.get(t) || 0) + 1);
-  }
+  const avgdl = corpusIndex.averageDocumentLength;
 
   const idf = (term: string) => {
     const n = df.get(term) || 0;

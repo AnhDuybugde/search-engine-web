@@ -11,6 +11,7 @@ import type {
 import { absoluteRankStrength } from "./document-rank";
 
 export type StageVizId =
+  | "corpus"
   | "query"
   | "bm25"
   | "embedding"
@@ -89,6 +90,11 @@ const STAGE_COPY: Record<
   Exclude<StageVizId, "total">,
   { label: string; explanation: string }
 > = {
+  corpus: {
+    label: "Corpus load",
+    explanation:
+      "Load retrieval units and assemble selected datasets before ranking. This cost is measured outside the ranking pipeline so slow database reads remain visible.",
+  },
   query: {
     label: "Query prep",
     explanation:
@@ -231,6 +237,25 @@ export function buildStageTimeline(
     },
   ];
 
+  const corpusMs =
+    (timing?.notebookLookupMs ?? 0) +
+    (timing?.corpusLoadMs ?? 0) +
+    (timing?.corpusMergeMs ?? 0);
+  if (
+    timing?.notebookLookupMs != null ||
+    timing?.corpusLoadMs != null ||
+    timing?.corpusMergeMs != null
+  ) {
+    rows.unshift({
+      id: "corpus",
+      label: STAGE_COPY.corpus.label,
+      explanation: STAGE_COPY.corpus.explanation,
+      ms: corpusMs,
+      outcome: "ran",
+      detail: "notebook lookup + corpus load + merge",
+    });
+  }
+
   return rows;
 }
 
@@ -297,6 +322,24 @@ export function buildTimingWaterfall(
       include: Boolean(metrics?.llmUsed) || (timing.generateMs ?? 0) > 0,
     },
   ];
+
+  const corpusMs =
+    (timing.notebookLookupMs ?? 0) +
+    (timing.corpusLoadMs ?? 0) +
+    (timing.corpusMergeMs ?? 0);
+  if (
+    timing.notebookLookupMs != null ||
+    timing.corpusLoadMs != null ||
+    timing.corpusMergeMs != null
+  ) {
+    stages.unshift({
+      id: "corpus",
+      label: "Corpus",
+      ms: corpusMs,
+      color: "muted",
+      include: true,
+    });
+  }
 
   const active = stages.filter((s) => s.include && (s.ms > 0 || s.id === "bm25" || s.id === "pack" || s.id === "query"));
   const sumParts = active.reduce((a, s) => a + Math.max(0, s.ms), 0);

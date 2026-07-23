@@ -60,6 +60,58 @@ describe("citation prompts preserve user language and technical terms", () => {
     expect(user).toMatch(/do not guess/i);
   });
 
+  it("asks for complete academic and quantitative answers", () => {
+    const q = "Compare AP and mAP@0.5 for all models and explain the differences.";
+    const system = buildCitationSystemPrompt(q);
+    const user = buildCitationUserPrompt(q, [
+      chunk({
+        text: "Model A achieved AP 72.4% and mAP@0.5 68.5% on Dataset X.",
+        citationId: 1,
+      }),
+      chunk({
+        text: "Model B achieved AP 65.1% and mAP@0.5 61.2% on Dataset X.",
+        citationId: 2,
+      }),
+    ]);
+
+    expect(system).toMatch(/academic, analytical/i);
+    expect(system).toMatch(/multiple parts of the question/i);
+    expect(system).toMatch(/quantitative detail/i);
+    expect(user).toMatch(/400-900 words/i);
+    expect(user).toMatch(/Markdown table/i);
+    expect(user).toMatch(/exact reported values/i);
+    expect(system).toMatch(/Do not conflate metrics, datasets, experiments, or units/i);
+    expect(user).toMatch(/Do not merge values from different datasets or experiments/i);
+    expect(user).toMatch(/complete table rows/i);
+    expect(user).not.toMatch(/under 250 words/i);
+  });
+
+  it("selects a quantitative answer contract for metric questions", () => {
+    const prompt = buildCitationUserPrompt(
+      "What are the AP and mAP@0.5 values?",
+      [chunk({ text: "AP 72.4%; mAP@0.5 68.5%", citationId: 1 })],
+    );
+
+    expect(prompt).toMatch(/Answer mode: quantitative extraction/i);
+    expect(prompt).toMatch(/exact reported values and units/i);
+  });
+
+  it("applies the scholarly-only policy to web answers", () => {
+    const system = buildCitationSystemPrompt("What does this paper report?", {
+      sourceScope: "web-scholarly",
+    });
+    const user = buildCitationUserPrompt(
+      "What does this paper report?",
+      [chunk({ text: "The paper reports a measured improvement.", citationId: 1 })],
+      { sourceScope: "web-scholarly" },
+    );
+
+    expect(system).toMatch(/public scholarly papers/i);
+    expect(system).toMatch(/Never cite or recommend a blog/i);
+    expect(user).toMatch(/public scholarly paper pages/i);
+    expect(user).toMatch(/Treat preprints as non-peer-reviewed/i);
+  });
+
   it("treats document-finding questions as source discovery", () => {
     const q = "tìm các tài liệu liên quan tới vitamin";
     const chunks = [

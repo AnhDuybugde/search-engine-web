@@ -93,6 +93,38 @@ function shiftScore(features: number[]): number {
   );
 }
 
+type SgafCorpusStats = {
+  idf: Map<string, number>;
+  medianIdf: number;
+};
+
+const sgafCorpusStatsCache = new WeakMap<ChunkWithEmbedding[], SgafCorpusStats>();
+
+function getSgafCorpusStats(chunks: ChunkWithEmbedding[]): SgafCorpusStats {
+  const cached = sgafCorpusStatsCache.get(chunks);
+  if (cached) return cached;
+
+  const df = new Map<string, number>();
+  for (const c of chunks) {
+    const terms = new Set(
+      tokenize(c.text)
+        .map(porterStem)
+        .filter((t) => t.length >= 3),
+    );
+    for (const t of terms) df.set(t, (df.get(t) || 0) + 1);
+  }
+  const N = chunks.length;
+  const idf = new Map<string, number>();
+  for (const [term, count] of df) idf.set(term, Math.log(N / count));
+  const values = [...idf.values()].sort((a, b) => a - b);
+  const stats = {
+    idf,
+    medianIdf: values.length > 0 ? values[Math.floor(values.length / 2)] : 0,
+  };
+  sgafCorpusStatsCache.set(chunks, stats);
+  return stats;
+}
+
 /**
  * P3 rank-window smoothing.
  * Only applied in generalist-fallback mode.
@@ -175,24 +207,8 @@ export async function sgafRetrieve(
     };
   }
 
-  // ---- Build IDF vocabulary for adaptive weighting ----
-  const df = new Map<string, number>();
-  for (const c of chunks) {
-    const terms = new Set(
-      tokenize(c.text)
-        .map(porterStem)
-        .filter((t) => t.length >= 3),
-    );
-    for (const t of terms) df.set(t, (df.get(t) || 0) + 1);
-  }
   const N = chunks.length;
-  const idf = new Map<string, number>();
-  for (const [term, count] of df) idf.set(term, Math.log(N / count));
-  const idfValues = Array.from(idf.values());
-  const medianIdf =
-    idfValues.length > 0
-      ? [...idfValues].sort((a, b) => a - b)[Math.floor(idfValues.length / 2)]
-      : 0;
+  const { idf, medianIdf } = getSgafCorpusStats(chunks);
 
   // ---- BM25 pre-filter ----
   const bm25TopK = Math.max(topK, IR_DEFAULTS.maxDenseChunks);
@@ -317,6 +333,7 @@ function fuseDense(
   k: number,
 ): RankedChunk[] {
   const dense = denseRetrieve(candidates, queryEmb, topK);
+  const denseById = new Map(dense.map((x) => [x.chunk.chunkId, x]));
 
   // Adaptive BM25 weight
   const stems = tokenize(query)
@@ -341,7 +358,7 @@ function fuseDense(
 
   return bm25
     .map((h) => {
-      const d = dense.find((x) => x.chunk.chunkId === h.chunkId);
+      const d = denseById.get(h.chunkId);
       return {
         ...h,
         ...d?.chunk,

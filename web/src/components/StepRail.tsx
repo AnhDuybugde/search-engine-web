@@ -88,6 +88,12 @@ export function StepRail({
 function stepDuration(step: string, timing?: Timing | null) {
   if (!timing) return undefined;
   switch (step) {
+    case "corpus":
+      return (
+        (timing.notebookLookupMs ?? 0) +
+        (timing.corpusLoadMs ?? 0) +
+        (timing.corpusMergeMs ?? 0)
+      );
     case "search":
       return timing.searchMs;
     case "fetch":

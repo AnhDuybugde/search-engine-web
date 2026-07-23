@@ -111,6 +111,7 @@ export async function streamAnswer(params: {
   query: string;
   chunks: RankedChunk[];
   model?: string;
+  sourceScope?: "notebook" | "web-scholarly";
   onToken: (token: string) => void | Promise<void>;
   signal?: AbortSignal;
 }): Promise<string> {
@@ -123,24 +124,27 @@ export async function streamAnswer(params: {
   );
 
   let workingChunks = shrinkChunks(params.chunks, Math.min(params.chunks.length, 4));
-  let maxPerChunk = 700;
-  let maxTotal = 3200;
+  let maxPerChunk = IR_DEFAULTS.llmMaxCharsPerChunk;
+  let maxTotal = IR_DEFAULTS.llmMaxContextChars;
   // Reasoning models spend output tokens on hidden thinking before the final
-  // answer. Keep the normal Groq budget unchanged, but give those models
-  // enough room to emit visible text after the thinking block.
+  // answer. Give them a larger budget so the visible academic answer is not
+  // starved after the reasoning block.
   let maxOutputTokens = isReasoningModel
-    ? Math.max(IR_DEFAULTS.maxOutputTokens, 1400)
-    : Math.min(IR_DEFAULTS.maxOutputTokens, 600);
+    ? Math.max(IR_DEFAULTS.maxOutputTokens, 2200)
+    : Math.max(IR_DEFAULTS.maxOutputTokens, 1200);
   for (let attempt = 0; attempt < 3; attempt++) {
     if (params.signal?.aborted) {
       const err = new Error("Aborted");
       err.name = "AbortError";
       throw err;
     }
-    const system = buildCitationSystemPrompt(params.query);
+    const system = buildCitationSystemPrompt(params.query, {
+      sourceScope: params.sourceScope,
+    });
     const prompt = buildCitationUserPrompt(params.query, workingChunks, {
       maxCharsPerChunk: maxPerChunk,
       maxTotalChars: maxTotal,
+      sourceScope: params.sourceScope,
     });
 
     try {

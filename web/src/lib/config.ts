@@ -291,7 +291,11 @@ export const IR_DEFAULTS = {
   searchLimit: 6,
   retrieveTopK: 12,
   contextTopK: 4,
-  maxOutputTokens: 600,
+  /** Enough visible budget for academic comparisons and quantitative detail. */
+  maxOutputTokens: envPositiveInt("LLM_MAX_OUTPUT_TOKENS", 1200),
+  /** LLM evidence window; kept configurable for provider TPM/context limits. */
+  llmMaxCharsPerChunk: envPositiveInt("LLM_MAX_CHARS_PER_CHUNK", 1100),
+  llmMaxContextChars: envPositiveInt("LLM_MAX_CONTEXT_CHARS", 6500),
   temperature: 0.1,
   /** Default 15 MB per file (PDF extract can still be large). */
   maxUploadBytes: envPositiveInt("MAX_UPLOAD_BYTES", 15 * 1024 * 1024),

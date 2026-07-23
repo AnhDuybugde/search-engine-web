@@ -75,6 +75,7 @@ export async function runWebSearchPipeline(
   assertNotAborted(signal);
   timing.searchMs = elapsed(searchStart);
   metrics.resultCount = hits.length;
+  metrics.sourcePolicy = "public_scholarly_only";
   emit({ type: "search_completed", count: hits.length, ms: timing.searchMs });
 
   // 2) Optional enrich thin content via Jina (capped concurrency)
@@ -90,7 +91,10 @@ export async function runWebSearchPipeline(
       }
       return {
         documentId: `web-${i}-${randomUUID().slice(0, 8)}`,
-        title: hit.title,
+        title:
+          hit.scholarlyKind === "preprint"
+            ? `${hit.title} [Preprint]`
+            : hit.title,
         url: hit.url,
         text,
       };
@@ -120,12 +124,23 @@ export async function runWebSearchPipeline(
     chunks,
     retrieveTopK,
     retrievalMode,
+    { signal },
   );
   assertNotAborted(signal);
   const candidates = retrieval.results;
+  const packStart = nowMs();
   const results = packContext(candidates, contextTopK, 2);
+  timing.packMs = elapsed(packStart);
   timing.retrieveMs = elapsed(retrieveStart);
   timing.embeddingMs = retrieval.diagnostics.embeddingMs;
+  timing.bm25Ms = retrieval.diagnostics.bm25Ms;
+  timing.denseMs = retrieval.diagnostics.denseMs;
+  timing.fusionMs = retrieval.diagnostics.fusionMs;
+  timing.rankMs =
+    (timing.bm25Ms ?? 0) +
+    (timing.embeddingMs ?? 0) +
+    (timing.denseMs ?? 0) +
+    (timing.fusionMs ?? 0);
   metrics.contextCount = results.length;
   metrics.sourcesUsed = new Set(results.map((r) => r.documentId)).size;
   metrics.retrievalMode = retrieval.diagnostics.mode;
@@ -133,6 +148,7 @@ export async function runWebSearchPipeline(
   metrics.denseSkippedReason = retrieval.diagnostics.denseSkippedReason;
   metrics.embeddingProvider = retrieval.diagnostics.embeddingProvider;
   metrics.embeddingModel = retrieval.diagnostics.embeddingModel;
+  metrics.embeddingInputCount = retrieval.diagnostics.embeddingInputCount;
   metrics.bm25Weight = retrieval.diagnostics.bm25Weight;
   emit({
     type: "retrieve_completed",
@@ -163,6 +179,7 @@ export async function runWebSearchPipeline(
         query,
         chunks: results,
         model: input.llmModel,
+        sourceScope: "web-scholarly",
         signal,
         onToken: async (token) => emit({ type: "generation_token", token }),
       });
