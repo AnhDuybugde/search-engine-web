@@ -5,11 +5,32 @@ export function storageBucket(): string {
   return getConfig().storageBucket;
 }
 
+export async function ensureStorageBucket() {
+  const sb = getSupabaseAdmin();
+  if (!sb) {
+    throw new Error("Supabase Storage requires SUPABASE_URL and SUPABASE_SECRET_KEY.");
+  }
+  const bucket = storageBucket();
+  const existing = await sb.storage.getBucket(bucket);
+  if (!existing.error) return;
+
+  const missing =
+    Number(existing.error.statusCode) === 404 ||
+    /not found|does not exist/i.test(existing.error.message || "");
+  if (!missing) throw new Error(existing.error.message || "Could not inspect Storage bucket.");
+
+  const created = await sb.storage.createBucket(bucket, { public: false });
+  if (created.error && Number(created.error.statusCode) !== 409) {
+    throw new Error(created.error.message || "Could not create Storage bucket.");
+  }
+}
+
 export async function createSignedStorageUpload(path: string, upsert = false) {
   const sb = getSupabaseAdmin();
   if (!sb) {
     throw new Error("Supabase Storage requires SUPABASE_URL and SUPABASE_SECRET_KEY.");
   }
+  await ensureStorageBucket();
   const { data, error } = await sb.storage
     .from(storageBucket())
     .createSignedUploadUrl(path, { upsert });
