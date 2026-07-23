@@ -115,6 +115,35 @@ export function RunMetricsStrip({
         </div>
       </div>
 
+      {/* Accuracy evaluation section (LLM-as-a-judge) */}
+      {(metrics?.faithfulness != null || metrics?.answerRelevancy != null || metrics?.contextRelevancy != null) && (
+        <div>
+          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
+            Generation Accuracy
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            <AccuracyCard
+              label="Faithfulness"
+              value={pct(metrics?.faithfulness)}
+              score={metrics?.faithfulness ?? 0}
+              reason={metrics?.faithfulnessReason}
+            />
+            <AccuracyCard
+              label="Answer Relevancy"
+              value={pct(metrics?.answerRelevancy)}
+              score={metrics?.answerRelevancy ?? 0}
+              reason={metrics?.answerRelevancyReason}
+            />
+            <AccuracyCard
+              label="Context Relevancy"
+              value={pct(metrics?.contextRelevancy)}
+              score={metrics?.contextRelevancy ?? 0}
+              reason={metrics?.contextRelevancyReason}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Latency grid */}
       <div>
         <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
@@ -137,6 +166,56 @@ export function RunMetricsStrip({
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+function AccuracyCard({
+  label,
+  value,
+  score,
+  reason,
+}: {
+  label: string;
+  value: string;
+  score: number;
+  reason?: string;
+}) {
+  let themeClass = "border-[var(--border)] bg-[var(--bg-elevated)] text-[var(--fg)]";
+  let dotClass = "bg-gray-400";
+  let scoreColor = "text-[var(--fg)]";
+  
+  if (score >= 0.85) {
+    themeClass = "border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10 hover:border-emerald-500/40 transition-all";
+    dotClass = "bg-emerald-500";
+    scoreColor = "text-emerald-500";
+  } else if (score >= 0.70) {
+    themeClass = "border-amber-500/20 bg-amber-500/5 hover:bg-amber-500/10 hover:border-amber-500/40 transition-all";
+    dotClass = "bg-amber-500";
+    scoreColor = "text-amber-500";
+  } else if (score > 0) {
+    themeClass = "border-rose-500/20 bg-rose-500/5 hover:bg-rose-500/10 hover:border-rose-500/40 transition-all";
+    dotClass = "bg-rose-500";
+    scoreColor = "text-rose-500";
+  }
+
+  return (
+    <div
+      title={reason || `${label}: ${value}`}
+      className={`relative rounded-xl border p-2.5 text-center flex flex-col justify-between min-h-[76px] cursor-help ${themeClass}`}
+    >
+      <div className="flex items-center justify-center gap-1 text-[9px] font-semibold uppercase tracking-wider text-[var(--fg-subtle)]">
+        <span className={`h-1.5 w-1.5 rounded-full ${dotClass}`} />
+        {label}
+      </div>
+      <div className={`mt-0.5 font-mono text-[14px] font-bold tabular-nums ${scoreColor}`}>
+        {value}
+      </div>
+      {reason && (
+        <div className="mt-1 text-[8.5px] leading-tight text-[var(--fg-subtle)] line-clamp-2 overflow-hidden text-ellipsis">
+          {reason}
+        </div>
+      )}
     </div>
   );
 }

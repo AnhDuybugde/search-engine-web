@@ -536,6 +536,8 @@ export function DatasetChatLayout({
     beginResize,
   } = panel;
 
+  const activeMsg = messages.find((m) => m.id === activeAssistantId);
+
   return (
     <AppShell fill>
       <LoadingOverlay
@@ -715,6 +717,12 @@ export function DatasetChatLayout({
             onSelectAssistant={(id) => {
               setActiveAssistantId(id);
               setRightTab("evidence");
+            }}
+            messageType="notebook"
+            onUpdateMessage={(msgId, update) => {
+              setMessages((prev) =>
+                prev.map((msg) => (msg.id === msgId ? { ...msg, ...update } : msg))
+              );
             }}
             empty={
               <div className="chat-empty workspace-empty workspace-empty--dataset anim-enter">
@@ -998,8 +1006,8 @@ export function DatasetChatLayout({
                     </h3>
                     <div className="mt-2">
                       <RunMetricsStrip
-                        timing={state.timing}
-                        metrics={state.metrics}
+                        timing={state.timing || activeMsg?.timing || null}
+                        metrics={state.metrics || activeMsg?.metrics || null}
                       />
                     </div>
                   </div>

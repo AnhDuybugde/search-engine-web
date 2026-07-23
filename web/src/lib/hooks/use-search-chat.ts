@@ -23,6 +23,8 @@ export type ChatMessage = {
   createdAt?: string;
   /** True while assistant is streaming */
   streaming?: boolean;
+  evaluationStatus?: "idle" | "evaluating" | "completed" | "declined";
+  evaluationMs?: number;
 };
 
 export type SessionSummary = {
@@ -249,6 +251,8 @@ export function useSearchChat(sessionId: string | null) {
           metrics: m.metrics,
           status: m.status,
           createdAt: m.createdAt,
+          evaluationStatus: m.metrics?.faithfulness != null ? ("completed" as const) : undefined,
+          evaluationMs: m.metrics?.evaluationMs,
         }),
       );
 
@@ -559,6 +563,7 @@ export function useSearchChat(sessionId: string | null) {
     lastExpanded,
     send,
     cancel,
+    setMessages,
     reload: () => (sessionId ? load(sessionId) : Promise.resolve()),
   };
 }

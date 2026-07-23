@@ -608,4 +608,76 @@ export async function addMessage(params: {
   return row;
 }
 
+export async function updateSearchMessageMetrics(
+  id: string,
+  metrics: Metrics,
+): Promise<SearchMessageDto | null> {
+  assertDurableDb('Update message metrics');
+  
+  if (!hasDb()) {
+    const existing = memMessages.get(id);
+    if (!existing) return null;
+    const next = { ...existing, metrics };
+    memMessages.set(id, next);
+    return next;
+  }
+
+  const sb = getSupabaseAdmin();
+  if (sb) {
+    const { data, error: getErr } = await sb.from("search_messages").select("*").eq("id", id).maybeSingle();
+    if (getErr || !data) return null;
+    
+    const { error } = await sb
+      .from("search_messages")
+      .update({ metrics_json: metrics })
+      .eq("id", id);
+    if (error) {
+      throw new Error(`Update search message metrics failed: ${sbError(error)}`);
+    }
+    
+    return {
+      id: data.id,
+      sessionId: data.session_id,
+      role: data.role as "user" | "assistant",
+      content: data.content,
+      expandedQuery: data.expanded_query,
+      results: data.results_json as RankedChunk[] | null,
+      timing: data.timing_json as Timing | null,
+      metrics,
+      status: data.status,
+      createdAt: toIso(data.created_at),
+    };
+  }
+
+  try {
+    const db = getDb();
+    const existing = await db
+      .select()
+      .from(searchMessages)
+      .where(eq(searchMessages.id, id))
+      .then((rows) => rows[0]);
+    if (!existing) return null;
+
+    await db
+      .update(searchMessages)
+      .set({ metricsJson: metrics })
+      .where(eq(searchMessages.id, id));
+
+    return {
+      id: existing.id,
+      sessionId: existing.sessionId,
+      role: existing.role as "user" | "assistant",
+      content: existing.content,
+      expandedQuery: existing.expandedQuery,
+      results: existing.resultsJson as RankedChunk[] | null,
+      timing: existing.timingJson as Timing | null,
+      metrics,
+      status: existing.status,
+      createdAt: existing.createdAt.toISOString(),
+    };
+  } catch (err) {
+    throw enrichDbError(err, "Update search message metrics");
+  }
+}
+
 export { titleFromQuery };

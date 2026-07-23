@@ -125,6 +125,14 @@ export type Metrics = {
   confidenceMax?: number;
   /** (top1 - top2) / top1 on finalScore (retrieval signal) */
   scoreMargin?: number;
+  /** Accuracy Evaluation Metrics */
+  faithfulness?: number;
+  faithfulnessReason?: string;
+  answerRelevancy?: number;
+  answerRelevancyReason?: string;
+  contextRelevancy?: number;
+  contextRelevancyReason?: string;
+  evaluationMs?: number;
   eval?: {
     dataset?: "scifact" | "scidocs" | string;
     recallAt10?: number;

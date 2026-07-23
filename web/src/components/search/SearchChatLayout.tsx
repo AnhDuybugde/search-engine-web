@@ -22,6 +22,7 @@ import { EvidenceList } from "@/components/EvidenceList";
 import { ModeSwitcher } from "@/components/ModeSwitcher";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { StepRail } from "@/components/StepRail";
+import { RunMetricsStrip } from "@/components/dataset/RunMetricsStrip";
 import { ChatComposer } from "@/components/search/ChatComposer";
 import { ChatThread } from "@/components/search/ChatThread";
 import { SearchSidebar } from "@/components/search/SearchSidebar";
@@ -248,6 +249,7 @@ export function SearchChatLayout({
     (chat.activeEvidence.length > 0 || chat.status === "running");
 
   const bannerError = uiError || chat.error || sessionsError;
+  const activeMsg = chat.messages.find((m) => m.id === chat.activeAssistantId);
   const {
     leftOpen,
     leftWidth,
@@ -404,6 +406,12 @@ export function SearchChatLayout({
             messages={chat.messages}
             activeAssistantId={chat.activeAssistantId}
             onSelectAssistant={chat.setActiveAssistantId}
+            messageType="search"
+            onUpdateMessage={(msgId, update) => {
+              chat.setMessages((prev) =>
+                prev.map((msg) => (msg.id === msgId ? { ...msg, ...update } : msg))
+              );
+            }}
             empty={
               <div className="chat-empty workspace-empty workspace-empty--web anim-enter">
                 <div className="workspace-empty-head">
@@ -500,6 +508,14 @@ export function SearchChatLayout({
               )}
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
+              {activeMsg?.metrics && (
+                <div className="mb-4">
+                  <RunMetricsStrip
+                    timing={activeMsg?.timing || null}
+                    metrics={activeMsg.metrics}
+                  />
+                </div>
+              )}
               <EvidenceList
                 results={chat.activeEvidence}
                 activeId={activeCitation}
@@ -538,7 +554,13 @@ export function SearchChatLayout({
           <summary className="cursor-pointer text-sm font-semibold">
             Evidence ({chat.activeEvidence.length})
           </summary>
-          <div className="mt-3 max-h-48 overflow-y-auto">
+          <div className="mt-3 max-h-48 overflow-y-auto space-y-3">
+            {activeMsg?.metrics && (
+              <RunMetricsStrip
+                timing={activeMsg?.timing || null}
+                metrics={activeMsg.metrics}
+              />
+            )}
             <EvidenceList
               results={chat.activeEvidence}
               activeId={activeCitation}

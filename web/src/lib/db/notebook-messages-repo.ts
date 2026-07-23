@@ -332,3 +332,77 @@ export async function addNotebookMessage(params: {
       "Configure DATABASE_URL with migrations, or SUPABASE notebook_messages table.",
   );
 }
+
+export async function updateNotebookMessageMetrics(
+  id: string,
+  metrics: Metrics,
+): Promise<NotebookMessageDto | null> {
+  assertDurableDb("Update notebook message metrics");
+
+  if (!hasDb()) {
+    const existing = memNotebookMessages.get(id);
+    if (!existing) return null;
+    const next = { ...existing, metrics };
+    memNotebookMessages.set(id, next);
+    return memToDto(next);
+  }
+
+  const sb = getSupabaseAdmin();
+  if (sb) {
+    const { data, error: getErr } = await sb.from("notebook_messages").select("*").eq("id", id).maybeSingle();
+    if (getErr || !data) return null;
+
+    const { error } = await sb
+      .from("notebook_messages")
+      .update({ metrics_json: metrics })
+      .eq("id", id);
+    if (error) {
+      throw new Error(`Update notebook message metrics failed: ${sbError(error)}`);
+    }
+
+    return {
+      id: data.id,
+      notebookId: data.notebook_id,
+      userId: data.user_id,
+      role: data.role as "user" | "assistant",
+      content: data.content,
+      results: data.results_json as RankedChunk[] | null,
+      timing: data.timing_json as Timing | null,
+      metrics,
+      documents: data.documents_json as RankedDocument[] | null,
+      status: data.status,
+      createdAt: toIso(data.created_at),
+    };
+  }
+
+  try {
+    const db = getDb();
+    const existing = await db
+      .select()
+      .from(notebookMessages)
+      .where(eq(notebookMessages.id, id))
+      .then((rows) => rows[0]);
+    if (!existing) return null;
+
+    await db
+      .update(notebookMessages)
+      .set({ metricsJson: metrics })
+      .where(eq(notebookMessages.id, id));
+
+    return {
+      id: existing.id,
+      notebookId: existing.notebookId,
+      userId: existing.userId,
+      role: existing.role as "user" | "assistant",
+      content: existing.content,
+      results: existing.resultsJson as RankedChunk[] | null,
+      timing: existing.timingJson as Timing | null,
+      metrics,
+      documents: existing.documentsJson as RankedDocument[] | null,
+      status: existing.status,
+      createdAt: existing.createdAt.toISOString(),
+    };
+  } catch (err) {
+    throw enrichDbError(err, "Update notebook message metrics");
+  }
+}
