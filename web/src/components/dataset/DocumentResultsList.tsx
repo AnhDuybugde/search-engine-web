@@ -42,7 +42,7 @@ export function DocumentResultsList({
               type="button"
               onClick={() => onSelect(doc)}
               className={cn(
-                "group flex w-full items-stretch gap-0 overflow-hidden rounded-xl border text-left transition-all",
+                "group flex min-w-0 w-full items-stretch gap-0 overflow-hidden rounded-xl border text-left transition-all",
                 active
                   ? "border-[var(--accent-border)] bg-[var(--accent-soft)] shadow-sm ring-1 ring-[var(--accent-border)]"
                   : "border-[var(--border)] bg-[var(--bg-elevated)] hover:border-[var(--border-strong)] hover:bg-[var(--surface-hover)]",

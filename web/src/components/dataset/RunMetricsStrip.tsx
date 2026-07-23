@@ -71,7 +71,7 @@ export function RunMetricsStrip({
   const margin = pct(metrics?.scoreMargin);
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 space-y-3">
       {/* Mode + quality — standard IR labels */}
       <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-3">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
@@ -83,7 +83,7 @@ export function RunMetricsStrip({
           different units — do not compare raw numbers across channels. Relative
           = score/best this query (not P(relevant)).
         </p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
           <span className="inline-flex min-h-12 items-center rounded-lg bg-[var(--primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--primary)] ring-1 ring-[var(--primary-border)]">
             {modeLabel(metrics?.retrievalMode)}
           </span>

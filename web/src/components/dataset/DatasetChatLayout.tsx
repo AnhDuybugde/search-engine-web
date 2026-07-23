@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
@@ -551,7 +551,7 @@ export function DatasetChatLayout({
         }
       />
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 min-w-0 flex-1">
         {/* Mobile datasets drawer backdrop */}
         {mobileSidebarOpen && (
           <button
@@ -580,7 +580,7 @@ export function DatasetChatLayout({
         {/* Datasets sidebar — resizable + collapsible on xl; drawer on mobile */}
         <div
           className={cn(
-            "panel-shell z-50 bg-[var(--bg-elevated)]",
+            "dataset-sidebar-panel panel-shell z-50 bg-[var(--bg-elevated)]",
             "fixed inset-y-0 left-0 pt-14 transition-transform xl:static xl:pt-0",
             mobileSidebarOpen
               ? "translate-x-0"
@@ -842,9 +842,18 @@ export function DatasetChatLayout({
                     : "Ask about your stored sources…"
             }
           />
-        </div>
+      </div>
 
-        {/* Collapsed right rail — reopen Sources / Evidence / Process */}
+      {showWorkspaceInspector && rightOpen && (
+        <button
+          type="button"
+          className="fixed inset-0 z-40 bg-slate-900/35 xl:hidden"
+          aria-label="Close inspector"
+          onClick={closeRight}
+        />
+      )}
+
+      {/* Collapsed right rail — reopen Sources / Evidence / Process */}
         {showWorkspaceInspector && !rightOpen && (
           <div
             className="panel-rail panel-rail--right hidden xl:flex"
@@ -866,10 +875,13 @@ export function DatasetChatLayout({
         {showWorkspaceInspector && (
           <aside
             className={cn(
-              "chat-panel panel-shell relative hidden shrink-0 xl:flex",
+              "dataset-inspector chat-panel panel-shell shrink-0 xl:relative",
+              rightOpen
+                ? "fixed bottom-0 left-[var(--rail-w)] right-0 z-50 flex h-[min(82dvh,44rem)] w-auto rounded-t-2xl shadow-[var(--shadow-lg)] xl:static xl:inset-auto xl:h-full xl:w-auto xl:rounded-none xl:shadow-none"
+                : "hidden xl:flex",
               !rightOpen && "is-collapsed",
             )}
-            style={{ width: rightWidth }}
+            style={{ "--inspector-width": `${rightWidth}px` } as CSSProperties}
             aria-hidden={!rightOpen}
           >
             {rightOpen && (
@@ -879,39 +891,59 @@ export function DatasetChatLayout({
                 onResizeStart={(e) => beginResize("right", e)}
               />
             )}
-            <div className="chat-panel-tabs">
-              {(
-                [
-                  ["sources", "Sources"],
-                  ["evidence", "Evidence"],
-                  ["process", "Process"],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setRightTab(id)}
-                  className={cn(
-                    "chat-panel-tab",
-                    rightTab === id && "chat-panel-tab--active",
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
+            <div className="dataset-inspector-header">
+              <div className="min-w-0">
+                <span className="dataset-inspector-kicker">Workspace inspector</span>
+                <strong className="dataset-inspector-title truncate">
+                  {notebookId ? title || "Dataset workspace" : "Selected corpus"}
+                </strong>
+              </div>
+              <span className={cn(
+                "dataset-inspector-status",
+                running ? "dataset-inspector-status--running" : "dataset-inspector-status--ready",
+              )}>
+                <span aria-hidden />
+                {running ? "Running" : "Ready"}
+              </span>
               <button
                 type="button"
-                className="ml-auto rounded-lg p-1.5 text-[var(--fg-subtle)] hover:bg-[var(--surface-hover)]"
+                className="dataset-inspector-close"
                 onClick={closeRight}
-                aria-label="Collapse panel"
-                title="Collapse panel"
+                aria-label="Close inspector"
+                title="Close inspector"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+            <div className="chat-panel-tabs">
+              {(
+                [
+                  ["sources", "Sources", Database, sources.length],
+                  ["evidence", "Evidence", FileSearch, state.documents.length],
+                  ["process", "Process", Workflow, null],
+                ] as const
+              ).map(([id, label, Icon, count]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setRightTab(id)}
+                  role="tab"
+                  aria-selected={rightTab === id}
+                  aria-controls={`inspector-panel-${id}`}
+                  className={cn(
+                    "chat-panel-tab dataset-inspector-tab",
+                    rightTab === id && "chat-panel-tab--active",
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5" aria-hidden />
+                  <span>{label}</span>
+                  {count !== null && <em>{count}</em>}
+                </button>
+              ))}
+            </div>
+            <div className="dataset-inspector-body min-h-0 flex-1 overflow-y-auto p-3">
               {rightTab === "sources" && (
-                <div className="space-y-3">
+                <div id="inspector-panel-sources" role="tabpanel" className="space-y-3">
                   <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-panel)] px-2.5 py-2">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
                       {notebookId ? "Corpus" : "Selected corpus"}
@@ -959,7 +991,7 @@ export function DatasetChatLayout({
                 </div>
               )}
               {rightTab === "evidence" && (
-                <div className="space-y-5">
+                <div id="inspector-panel-evidence" role="tabpanel" className="space-y-5">
                   <div>
                     <h3 className="text-[11px] font-semibold uppercase tracking-wide text-[var(--fg-subtle)]">
                       Run overview
@@ -990,7 +1022,7 @@ export function DatasetChatLayout({
                 </div>
               )}
               {rightTab === "process" && (
-                <div className="space-y-4">
+                <div id="inspector-panel-process" role="tabpanel" className="space-y-4">
                   <PipelineInspector
                     variant="notebook"
                     runStatus={state.status}

@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { FileText, Loader2, X } from "lucide-react";
 import type { RankedChunk, RankedDocument } from "@/lib/ir/types";
 import { cn } from "@/lib/utils";
+import { useDialogFocus } from "@/lib/use-dialog-focus";
 
 type SourceDetail = {
   id: string;
@@ -55,6 +56,20 @@ export function DocumentDetailDrawer({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [source, setSource] = useState<SourceDetail | null>(null);
+  const drawerRef = useRef<HTMLElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const titleId = useId();
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useDialogFocus({
+    open,
+    containerRef: drawerRef,
+    initialFocusRef: closeRef,
+    onEscape: () => onCloseRef.current(),
+  });
 
   /* eslint-disable react-hooks/set-state-in-effect -- reset/fetch state follows drawer selection. */
   useEffect(() => {
@@ -130,14 +145,21 @@ export function DocumentDetailDrawer({
   const showingUnit = Boolean(unitText);
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal>
+    <div className="fixed inset-0 z-50 flex justify-end" role="presentation">
       <button
         type="button"
         className="absolute inset-0 bg-slate-900/35 backdrop-blur-[2px]"
         aria-label="Close document detail"
         onClick={onClose}
       />
-      <aside className="relative flex h-full w-full max-w-2xl flex-col border-l border-[var(--border)] bg-[var(--bg-elevated)] shadow-[var(--shadow-md)]">
+      <aside
+        ref={drawerRef}
+        tabIndex={-1}
+        className="relative flex h-full w-full max-w-2xl flex-col border-l border-[var(--border)] bg-[var(--bg-elevated)] shadow-[var(--shadow-md)]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+      >
         {/* Header */}
         <header className="shrink-0 border-b border-[var(--border)] px-5 py-4">
           <div className="flex items-start justify-between gap-3">
@@ -145,7 +167,7 @@ export function DocumentDetailDrawer({
               <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--fg-subtle)]">
                 Ranked document · #{document.finalRank}
               </p>
-              <h2 className="mt-1 flex items-start gap-2 text-lg font-semibold leading-snug tracking-tight text-[var(--fg)]">
+              <h2 id={titleId} className="mt-1 flex items-start gap-2 text-lg font-semibold leading-snug tracking-tight text-[var(--fg)]">
                 <FileText
                   className="mt-0.5 h-5 w-5 shrink-0 text-[var(--primary)]"
                   aria-hidden
@@ -155,6 +177,7 @@ export function DocumentDetailDrawer({
             </div>
             <button
               type="button"
+              ref={closeRef}
               onClick={onClose}
               className="btn-ghost !min-h-9 !rounded-lg !px-2"
               aria-label="Close"
