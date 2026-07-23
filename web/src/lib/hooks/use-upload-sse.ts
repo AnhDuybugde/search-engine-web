@@ -45,6 +45,10 @@ const initialSteps: Record<string, UploadStepStatus> = {
   persist: "pending",
 };
 
+function directUploadEnabled() {
+  return process.env.NEXT_PUBLIC_DIRECT_STORAGE_UPLOADS !== "0";
+}
+
 export function useUploadSse() {
   const abortRef = useRef<AbortController | null>(null);
   const [state, setState] = useState<UploadSseState>({
@@ -80,6 +84,128 @@ export function useUploadSse() {
       result: null,
       metrics: null,
     });
+  }, []);
+
+  const uploadDirect = useCallback(async (url: string, file: File) => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setState({
+      status: "running",
+      filename: file.name,
+      error: null,
+      logs: [`Preparing direct upload for ${file.name}…`],
+      timing: null,
+      elapsedMs: 0,
+      startedAt: Date.now(),
+      steps: { ...initialSteps, receive: "running" },
+      stepMs: {},
+      indexPercent: null,
+      indexMessage: "Uploading directly to Supabase Storage…",
+      result: null,
+      metrics: null,
+    });
+
+    try {
+      if (!directUploadEnabled()) throw new Error("Direct storage uploads are disabled");
+      const initRes = await fetch(`${url}/init`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          mime: file.type || null,
+          size: file.size,
+          idempotencyKey: crypto.randomUUID(),
+        }),
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      const initText = await initRes.text();
+      let init: {
+        error?: string;
+        uploadId: string;
+        signedUrl: string;
+      };
+      try {
+        init = JSON.parse(initText) as typeof init;
+      } catch {
+        throw new Error(initText || `Upload initialization failed (${initRes.status})`);
+      }
+      if (!initRes.ok) throw new Error(init.error || `Upload initialization failed (${initRes.status})`);
+
+      const storageRes = await fetch(init.signedUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+        body: file,
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      if (!storageRes.ok) {
+        const body = await storageRes.text();
+        throw new Error(body || `Storage upload failed (${storageRes.status})`);
+      }
+      setState((prev) => ({
+        ...prev,
+        logs: [...prev.logs, `Uploaded ${file.name} to private storage`],
+        steps: { ...prev.steps, receive: "success", extract: "running" },
+        indexMessage: "Upload complete. Starting document processing…",
+      }));
+
+      const completeRes = await fetch(`${url}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uploadId: init.uploadId }),
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      if (!completeRes.ok) {
+        const body = await completeRes.text();
+        throw new Error(body || `Upload finalization failed (${completeRes.status})`);
+      }
+
+      const processUrl = url.replace(/\/upload$/, `/uploads/${init.uploadId}/process`);
+      const processRes = await fetch(processUrl, {
+        method: "POST",
+        headers: { Accept: "text/event-stream", "x-upload-stream": "1" },
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      if (!processRes.ok) {
+        const body = await processRes.text();
+        throw new Error(body || `Document processing failed (${processRes.status})`);
+      }
+      if (!processRes.body) throw new Error("No processing stream body");
+      const reader = processRes.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+        for (const part of parts) {
+          const line = part.split("\n").map((l) => l.trim()).find((l) => l.startsWith("data:"));
+          if (!line) continue;
+          try {
+            const event = JSON.parse(line.slice(5).trim()) as UploadStreamEvent;
+            setState((prev) => applyUploadEvent(prev, event));
+          } catch {
+            /* Ignore malformed stream chunks. */
+          }
+        }
+      }
+      return init.uploadId;
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return null;
+      setState((prev) => ({
+        ...prev,
+        status: "failed",
+        error: err instanceof Error ? err.message : "Direct upload failed",
+        logs: [...prev.logs, `Error: ${err instanceof Error ? err.message : "failed"}`],
+      }));
+      throw err;
+    }
   }, []);
 
   const upload = useCallback(async (url: string, file: File) => {
@@ -242,7 +368,7 @@ export function useUploadSse() {
     return () => window.clearInterval(timer);
   }, [state.status, state.startedAt]);
 
-  return { state, upload, reset };
+  return { state, upload, uploadDirect, reset };
 }
 
 function applyUploadEvent(
