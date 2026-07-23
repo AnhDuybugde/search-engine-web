@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "vitest run",
     "db:init": "node scripts/db-init.mjs",
+    "setup:supabase": "node scripts/setup-supabase.mjs",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "seed:beir": "node scripts/seed-beir-raw.mjs --all --max-docs 400 --replace",
