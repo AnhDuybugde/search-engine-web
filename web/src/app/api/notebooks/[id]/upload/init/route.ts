@@ -84,6 +84,25 @@ export async function POST(
       expiresIn: Number(cfg.UPLOAD_SIGNED_URL_TTL_SECONDS) || 900,
     }, { status: 201 });
   } catch (err) {
-    return Response.json({ error: err instanceof Error ? err.message : "Could not initialize upload" }, { status: 400 });
+    const message = err instanceof Error ? err.message : "";
+    // The tracking table is optional for the actual file path. If an older
+    // deployment has not run migration 0006 yet, keep uploads working with a
+    // scoped, stateless Storage path and process metadata from the client.
+    if (/PGRST205|notebook_uploads|relation .* does not exist|schema cache/i.test(message)) {
+      const { safeFilename } = validateUploadMetadata(parsed.data);
+      const uploadId = crypto.randomUUID();
+      const path = `notebooks/${notebookId}/uploads/${uploadId}/${safeFilename}`;
+      const signed = await createSignedStorageUpload(path);
+      return Response.json({
+        uploadId,
+        bucket: storageBucket(),
+        path,
+        token: signed.token,
+        signedUrl: signed.signedUrl,
+        expiresIn: Number(cfg.UPLOAD_SIGNED_URL_TTL_SECONDS) || 900,
+        stateless: true,
+      }, { status: 201 });
+    }
+    return Response.json({ error: message || "Could not initialize upload" }, { status: 400 });
   }
 }

@@ -1,7 +1,8 @@
 import { requireUserId } from "@/lib/auth";
 import { getConfig } from "@/lib/config";
 import { createUploadSseResponse } from "@/lib/sse";
-import { processNotebookUpload } from "@/lib/uploads/process-upload";
+import { processNotebookUpload, processStatelessNotebookUpload } from "@/lib/uploads/process-upload";
+import { statelessUploadSchema } from "@/lib/uploads/upload-types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,6 +19,12 @@ export async function POST(
   }
   const { id, uploadId } = await ctx.params;
   return createUploadSseResponse(async (emit) => {
+    const body = await req.clone().json().catch(() => null);
+    const parsed = statelessUploadSchema.safeParse(body);
+    if (parsed.success && parsed.data.uploadId === uploadId) {
+      await processStatelessNotebookUpload(id, parsed.data, emit);
+      return;
+    }
     await processNotebookUpload(id, uploadId, emit);
   }, req);
 }

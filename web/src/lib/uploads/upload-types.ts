@@ -11,7 +11,23 @@ export const uploadMetadataSchema = z.object({
 
 export const uploadCompleteSchema = z.object({
   uploadId: z.string().uuid(),
+  stateless: z.boolean().optional().default(false),
+  bucket: z.string().trim().min(1).max(120).optional(),
+  path: z.string().trim().min(1).max(500).optional(),
+  filename: z.string().trim().min(1).max(240).optional(),
+  mime: z.string().trim().max(160).nullable().optional(),
+  size: z.number().int().positive().optional(),
 });
+
+export const statelessUploadSchema = uploadCompleteSchema.extend({
+  stateless: z.literal(true),
+  bucket: z.string().trim().min(1).max(120),
+  path: z.string().trim().min(1).max(500),
+  filename: z.string().trim().min(1).max(240),
+  size: z.number().int().positive(),
+});
+
+export type StatelessUpload = z.infer<typeof statelessUploadSchema>;
 
 const ALLOWED_EXTENSIONS = new Set([".pdf", ".txt", ".md", ".csv", ".json"]);
 

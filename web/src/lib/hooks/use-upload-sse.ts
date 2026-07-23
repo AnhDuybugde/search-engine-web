@@ -127,6 +127,9 @@ export function useUploadSse() {
       let init: {
         error?: string;
         uploadId: string;
+        stateless?: boolean;
+        bucket: string;
+        path: string;
         signedUrl: string;
       };
       try {
@@ -154,10 +157,19 @@ export function useUploadSse() {
         indexMessage: "Upload complete. Starting document processing…",
       }));
 
+      const processPayload = {
+        uploadId: init.uploadId,
+        stateless: Boolean(init.stateless),
+        bucket: init.bucket,
+        path: init.path,
+        filename: file.name,
+        mime: file.type || null,
+        size: file.size,
+      };
       const completeRes = await fetch(`${url}/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uploadId: init.uploadId }),
+        body: JSON.stringify(processPayload),
         signal: controller.signal,
         cache: "no-store",
       });
@@ -169,7 +181,12 @@ export function useUploadSse() {
       const processUrl = url.replace(/\/upload$/, `/uploads/${init.uploadId}/process`);
       const processRes = await fetch(processUrl, {
         method: "POST",
-        headers: { Accept: "text/event-stream", "x-upload-stream": "1" },
+        headers: {
+          Accept: "text/event-stream",
+          "Content-Type": "application/json",
+          "x-upload-stream": "1",
+        },
+        body: JSON.stringify(processPayload),
         signal: controller.signal,
         cache: "no-store",
       });

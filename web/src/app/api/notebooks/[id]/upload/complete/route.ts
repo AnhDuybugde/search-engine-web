@@ -2,7 +2,7 @@ import { requireUserId } from "@/lib/auth";
 import { getConfig } from "@/lib/config";
 import { findNotebookUpload, updateNotebookUpload } from "@/lib/db/notebook-uploads-repo";
 import { getStorageObjectMetadata } from "@/lib/storage/supabase-storage";
-import { uploadCompleteSchema } from "@/lib/uploads/upload-types";
+import { statelessUploadSchema, uploadCompleteSchema } from "@/lib/uploads/upload-types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +20,29 @@ export async function POST(
   const parsed = uploadCompleteSchema.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "uploadId is required" }, { status: 400 });
   try {
+    if (parsed.data.stateless) {
+      const stateless = statelessUploadSchema.parse(parsed.data);
+      const expectedPrefix = `notebooks/${notebookId}/uploads/${stateless.uploadId}/`;
+      const relativePath = stateless.path.startsWith(expectedPrefix)
+        ? stateless.path.slice(expectedPrefix.length)
+        : "";
+      if (
+        stateless.bucket !== getConfig().storageBucket ||
+        !relativePath ||
+        relativePath.includes("/") ||
+        relativePath.includes("..")
+      ) {
+        return Response.json({ error: "Invalid upload storage path" }, { status: 400 });
+      }
+      const metadata = await getStorageObjectMetadata(stateless.bucket, stateless.path);
+      if (!metadata) {
+        return Response.json({ error: "Uploaded object was not found in Storage" }, { status: 400 });
+      }
+      if (metadata.size != null && metadata.size !== stateless.size) {
+        return Response.json({ error: "Uploaded object size does not match the declared size" }, { status: 400 });
+      }
+      return Response.json({ uploadId: stateless.uploadId, status: "uploaded", stateless: true }, { status: 202 });
+    }
     const upload = await findNotebookUpload(notebookId, parsed.data.uploadId);
     if (!upload) return Response.json({ error: "Upload not found" }, { status: 404 });
     if (!["pending", "uploading", "failed"].includes(upload.status)) {
