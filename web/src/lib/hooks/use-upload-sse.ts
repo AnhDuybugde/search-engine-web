@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Timing, UploadStreamEvent } from "@/lib/ir/types";
+import { UPLOAD_DEFAULTS } from "@/lib/upload-config";
 
 export type UploadStepStatus = "pending" | "running" | "success" | "failed";
 
@@ -46,7 +47,9 @@ const initialSteps: Record<string, UploadStepStatus> = {
 };
 
 function directUploadEnabled() {
-  return process.env.NEXT_PUBLIC_DIRECT_STORAGE_UPLOADS !== "0";
+  return process.env.NEXT_PUBLIC_DIRECT_STORAGE_UPLOADS === "0"
+    ? false
+    : UPLOAD_DEFAULTS.directStorageUploads;
 }
 
 export function useUploadSse() {

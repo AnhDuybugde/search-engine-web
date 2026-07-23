@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { UPLOAD_DEFAULTS } from "@/lib/upload-config";
 
 /**
  * Supabase docs often show password as [YOUR-PASSWORD].
@@ -90,9 +91,13 @@ const envSchema = z.object({
   SUPABASE_URL: z.string().optional(),
   SUPABASE_PUBLIC_KEY: z.string().optional(),
   SUPABASE_SECRET_KEY: z.string().optional(),
-  DIRECT_STORAGE_UPLOADS: z.enum(["0", "1"]).default("1"),
-  SUPABASE_STORAGE_BUCKET: z.string().default("notebook-uploads"),
-  UPLOAD_SIGNED_URL_TTL_SECONDS: z.string().default("900"),
+  DIRECT_STORAGE_UPLOADS: z
+    .enum(["0", "1"])
+    .default(UPLOAD_DEFAULTS.directStorageUploads ? "1" : "0"),
+  SUPABASE_STORAGE_BUCKET: z.string().default(UPLOAD_DEFAULTS.storageBucket),
+  UPLOAD_SIGNED_URL_TTL_SECONDS: z
+    .string()
+    .default(String(UPLOAD_DEFAULTS.signedUrlTtlSeconds)),
   APP_PASSWORD: z.string().optional(),
 });
 
@@ -194,8 +199,11 @@ export function getConfig(): AppConfig {
         SUPABASE_PUBLIC_KEY: raw.SUPABASE_PUBLIC_KEY,
         SUPABASE_SECRET_KEY: raw.SUPABASE_SECRET_KEY,
         DIRECT_STORAGE_UPLOADS: raw.DIRECT_STORAGE_UPLOADS === "0" ? "0" : "1",
-        SUPABASE_STORAGE_BUCKET: raw.SUPABASE_STORAGE_BUCKET || "notebook-uploads",
-        UPLOAD_SIGNED_URL_TTL_SECONDS: raw.UPLOAD_SIGNED_URL_TTL_SECONDS || "900",
+        SUPABASE_STORAGE_BUCKET:
+          raw.SUPABASE_STORAGE_BUCKET || UPLOAD_DEFAULTS.storageBucket,
+        UPLOAD_SIGNED_URL_TTL_SECONDS:
+          raw.UPLOAD_SIGNED_URL_TTL_SECONDS ||
+          String(UPLOAD_DEFAULTS.signedUrlTtlSeconds),
         APP_PASSWORD: raw.APP_PASSWORD,
       };
 

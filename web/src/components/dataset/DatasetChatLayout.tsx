@@ -44,6 +44,7 @@ import { useSsePipeline } from "@/lib/hooks/use-sse";
 import { useUploadSse } from "@/lib/hooks/use-upload-sse";
 import type { RankedDocument } from "@/lib/ir/types";
 import { cn } from "@/lib/utils";
+import { UPLOAD_DEFAULTS } from "@/lib/upload-config";
 
 type Source = {
   id: string;
@@ -103,7 +104,10 @@ export function DatasetChatLayout({
   // Only use direct Storage for all files when explicitly enabled. The size
   // gate below still protects Vercel for large files when the public flag is
   // missing, while small local uploads keep the legacy fallback path.
-  const directStorageUploads = process.env.NEXT_PUBLIC_DIRECT_STORAGE_UPLOADS === "1";
+  const directStorageUploads =
+    process.env.NEXT_PUBLIC_DIRECT_STORAGE_UPLOADS === "0"
+      ? false
+      : UPLOAD_DEFAULTS.directStorageUploads;
 
   const onRetrievalModeChange = useCallback((mode: RetrievalModeId) => {
     setRetrievalMode(mode);
@@ -409,7 +413,9 @@ export function DatasetChatLayout({
     setRightTab("sources");
     try {
       // Keep large files out of the Vercel Function request body.
-      const requiresDirectUpload = directStorageUploads || file.size > 4 * 1024 * 1024;
+      const requiresDirectUpload =
+        directStorageUploads ||
+        file.size > UPLOAD_DEFAULTS.directUploadThresholdBytes;
       if (requiresDirectUpload) {
         await uploadSse.uploadDirect(`/api/notebooks/${notebookId}/upload`, file);
       } else {
