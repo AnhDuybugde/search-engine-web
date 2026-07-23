@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useId, useRef } from "react";
 import { AlertTriangle, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useDialogFocus } from "@/lib/use-dialog-focus";
 
 export type ConfirmDialogProps = {
   open: boolean;
@@ -38,24 +39,16 @@ export function ConfirmDialog({
   const titleId = useId();
   const descId = useId();
   const cancelRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.activeElement as HTMLElement | null;
-    const t = window.setTimeout(() => cancelRef.current?.focus(), 0);
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !busy) onCancel();
-    };
-    document.addEventListener("keydown", onKey);
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.clearTimeout(t);
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = overflow;
-      prev?.focus?.();
-    };
-  }, [open, busy, onCancel]);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const onEscape = () => {
+    if (!busy) onCancel();
+  };
+  useDialogFocus({
+    open,
+    containerRef: panelRef,
+    initialFocusRef: cancelRef,
+    onEscape,
+  });
 
   if (!open) return null;
 
@@ -71,6 +64,8 @@ export function ConfirmDialog({
         }}
       />
       <div
+        ref={panelRef}
+        tabIndex={-1}
         role="alertdialog"
         aria-modal="true"
         aria-labelledby={titleId}

@@ -57,6 +57,10 @@ export type Timing = {
   searchMs?: number;
   fetchMs?: number;
   chunkMs?: number;
+  /** Time spent loading and assembling notebook retrieval units before ranking. */
+  notebookLookupMs?: number;
+  corpusLoadMs?: number;
+  corpusMergeMs?: number;
   embeddingMs?: number;
   retrieveMs?: number;
   generateMs?: number;
@@ -85,6 +89,8 @@ export type Timing = {
 
 export type Metrics = {
   resultCount?: number;
+  /** Web search trust policy applied before retrieval. */
+  sourcePolicy?: "public_scholarly_only";
   pageCount?: number;
   chunkCount?: number;
   contextCount?: number;
@@ -99,6 +105,7 @@ export type Metrics = {
   denseSkippedReason?: string;
   embeddingProvider?: string;
   embeddingModel?: string;
+  embeddingInputCount?: number;
   llmModel?: string;
   bm25Weight?: number;
   /** SGAF runtime mode */
@@ -139,6 +146,8 @@ export type StreamEvent =
   | { type: "search_completed"; count: number; ms: number }
   | { type: "fetch_completed"; pages: number; ms: number }
   | { type: "chunk_completed"; chunks: number; ms: number }
+  | { type: "corpus_loading" }
+  | { type: "corpus_loaded"; chunks: number; loadMs: number; mergeMs: number }
   /** Notebook-native query path */
   | { type: "query_started"; query: string }
   | { type: "query_processed"; query: string; ms: number }
@@ -151,6 +160,7 @@ export type StreamEvent =
   | {
       type: "embedding_completed";
       ms: number;
+      inputCount?: number;
       denseUsed: boolean;
       reason?: string;
       provider?: string;

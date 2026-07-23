@@ -4,4 +4,5 @@ export type SearchHit = {
   snippet: string;
   content?: string;
   score?: number;
+  scholarlyKind?: "journal" | "public-index" | "preprint" | "conference-paper";
 };

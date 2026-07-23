@@ -73,6 +73,14 @@ describe("buildStageTimeline", () => {
     expect(stages.find((s) => s.id === "fusion")?.detail).toMatch(/Classic RRF|RRF/);
   });
 
+  it("shows route-level corpus load cost when it is measured", () => {
+    const measured = buildStageTimeline(
+      { notebookLookupMs: 20, corpusLoadMs: 80, corpusMergeMs: 3, totalMs: 110 },
+      { retrievalMode: "bm25", denseUsed: false },
+    );
+    expect(measured[0]).toMatchObject({ id: "corpus", ms: 103, outcome: "ran" });
+  });
+
   it("marks dense/fusion skipped honestly on BM25-only runs", () => {
     const stages = buildStageTimeline(
       { queryProcessMs: 0, bm25Ms: 5, packMs: 1, totalMs: 8 },

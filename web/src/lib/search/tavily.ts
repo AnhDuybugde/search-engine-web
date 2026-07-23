@@ -1,5 +1,9 @@
 import { normalizeUrl } from "@/lib/utils";
 import type { SearchHit } from "./types";
+import {
+  filterScholarlySources,
+  SCHOLARLY_SEARCH_DOMAINS,
+} from "./scholarly-sources";
 
 type TavilyResult = {
   title?: string;
@@ -30,6 +34,7 @@ export async function searchTavily(
       // multi-second latency on the realtime search path with little gain.
       include_raw_content: false,
       search_depth: "basic",
+      include_domains: SCHOLARLY_SEARCH_DOMAINS,
     }),
   });
 
@@ -112,11 +117,23 @@ export async function searchWeb(
   opts: { tavilyKey?: string; braveKey?: string; limit?: number },
 ): Promise<SearchHit[]> {
   const limit = opts.limit ?? 8;
-  if (opts.tavilyKey) return searchTavily(query, opts.tavilyKey, limit);
-  if (opts.braveKey) return searchBrave(query, opts.braveKey, limit);
-  throw new Error(
-    "No search provider configured. Set TAVILY_API_KEY or BRAVE_API_KEY.",
-  );
+  // Brave has no equivalent include_domains parameter. Ask for a wider
+  // candidate set, then apply the same local trust gate and return the limit.
+  const providerLimit = Math.min(Math.max(limit * 3, limit), 30);
+  let hits: SearchHit[];
+  if (opts.tavilyKey) {
+    hits = await searchTavily(query, opts.tavilyKey, providerLimit);
+  } else if (opts.braveKey) {
+    hits = await searchBrave(query, opts.braveKey, providerLimit);
+  } else {
+    throw new Error(
+      "No search provider configured. Set TAVILY_API_KEY or BRAVE_API_KEY.",
+    );
+  }
+
+  // Search providers are discovery mechanisms, not trust boundaries. Enforce
+  // the policy locally before retrieval and before the LLM sees any content.
+  return filterScholarlySources(hits).slice(0, limit);
 }
 
 /** Optional full-page text via Jina Reader when snippets are thin. */

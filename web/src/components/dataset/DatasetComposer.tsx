@@ -5,6 +5,7 @@ import {
   CornerDownLeft,
   Loader2,
   Paperclip,
+  Search,
   Square,
 } from "lucide-react";
 import { RetrievalModePicker } from "@/components/RetrievalModePicker";
@@ -221,7 +222,7 @@ export function DatasetComposer({
                 onClick={() => setQuery(suggestion)}
               >
                 <span className="dataset-composer-suggestion-icon" aria-hidden>
-                  ⌕
+                  <Search className="h-3.5 w-3.5" />
                 </span>
                 <span className="truncate">{suggestion}</span>
               </button>

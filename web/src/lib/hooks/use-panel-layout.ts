@@ -56,12 +56,12 @@ function readStoredBool(key: string, fallback: boolean): boolean {
 export function usePanelLayout(opts: PanelLayoutOptions) {
   const {
     storageKey,
-    defaultLeftWidth = 260,
-    defaultRightWidth = 340,
-    minLeft = 200,
-    maxLeft = 420,
-    minRight = 280,
-    maxRight = 560,
+    defaultLeftWidth = 300,
+    defaultRightWidth = 360,
+    minLeft = 280,
+    maxLeft = 360,
+    minRight = 320,
+    maxRight = 440,
     defaultLeftOpen = true,
     defaultRightOpen = true,
   } = opts;

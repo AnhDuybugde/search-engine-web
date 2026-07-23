@@ -50,6 +50,68 @@ type ChunkRow = {
   embedding_model?: string | null;
 };
 
+export type LoadChunksOptions = {
+  /** BM25-only and legacy retrieval do not need stored vectors. */
+  includeEmbeddings?: boolean;
+};
+
+type RetrievalCacheEntry = {
+  chunks: ChunkWithEmbedding[];
+  expiresAt: number;
+};
+
+const RETRIEVAL_CACHE_TTL_MS = 5 * 60 * 1000;
+const RETRIEVAL_CACHE_MAX_ENTRIES = 4;
+const globalForRetrievalCache = globalThis as unknown as {
+  __notebookRetrievalCache?: Map<string, RetrievalCacheEntry>;
+};
+const notebookRetrievalCache =
+  globalForRetrievalCache.__notebookRetrievalCache ??
+  new Map<string, RetrievalCacheEntry>();
+globalForRetrievalCache.__notebookRetrievalCache = notebookRetrievalCache;
+
+function retrievalCacheKey(
+  notebookId: string,
+  sourceIds: string[] | undefined,
+  includeEmbeddings: boolean,
+) {
+  const scope = sourceIds?.length ? [...new Set(sourceIds)].sort().join(",") : "*";
+  return `${notebookId}:${includeEmbeddings ? "vectors" : "text"}:${scope}`;
+}
+
+function getCachedRetrievalUnits(key: string) {
+  const entry = notebookRetrievalCache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    notebookRetrievalCache.delete(key);
+    return null;
+  }
+  // Refresh insertion order for a small LRU cache.
+  notebookRetrievalCache.delete(key);
+  notebookRetrievalCache.set(key, entry);
+  return entry.chunks;
+}
+
+function setCachedRetrievalUnits(key: string, chunks: ChunkWithEmbedding[]) {
+  notebookRetrievalCache.delete(key);
+  notebookRetrievalCache.set(key, {
+    chunks,
+    expiresAt: Date.now() + RETRIEVAL_CACHE_TTL_MS,
+  });
+  while (notebookRetrievalCache.size > RETRIEVAL_CACHE_MAX_ENTRIES) {
+    const oldest = notebookRetrievalCache.keys().next().value as string | undefined;
+    if (!oldest) break;
+    notebookRetrievalCache.delete(oldest);
+  }
+}
+
+/** Invalidate all retrieval variants after source/index mutations. */
+export function invalidateNotebookRetrievalCache(notebookId: string): void {
+  for (const key of notebookRetrievalCache.keys()) {
+    if (key.startsWith(`${notebookId}:`)) notebookRetrievalCache.delete(key);
+  }
+}
+
 export type NotebookIndexStatus =
   | "none"
   | "indexing"
@@ -526,6 +588,7 @@ export async function deleteNotebook(id: string) {
     for (const [cid, c] of memChunks) {
       if (c.notebookId === id) memChunks.delete(cid);
     }
+    invalidateNotebookRetrievalCache(id);
     return;
   }
 
@@ -547,6 +610,7 @@ export async function deleteNotebook(id: string) {
     void messagesRes; // ignore missing notebook_messages
     const { error } = await sb.from("notebooks").delete().eq("id", id);
     if (error) throw new Error(`Delete notebook failed: ${sbError(error)}`);
+    invalidateNotebookRetrievalCache(id);
     return;
   }
 
@@ -556,6 +620,7 @@ export async function deleteNotebook(id: string) {
     db.delete(sources).where(eq(sources.notebookId, id)),
   ]);
   await db.delete(notebooks).where(eq(notebooks.id, id));
+  invalidateNotebookRetrievalCache(id);
 }
 
 /** Full source text for indexing (not the lightweight listSources DTO). */
@@ -643,6 +708,7 @@ export async function replaceNotebookChunks(
         embeddingModel: r.embeddingModel,
       });
     }
+    invalidateNotebookRetrievalCache(notebookId);
     return;
   }
 
@@ -653,7 +719,10 @@ export async function replaceNotebookChunks(
       .delete()
       .eq("notebook_id", notebookId);
     if (delErr) throw new Error(`Clear chunks failed: ${sbError(delErr)}`);
-    if (!rows.length) return;
+    if (!rows.length) {
+      invalidateNotebookRetrievalCache(notebookId);
+      return;
+    }
 
     const payload = rows.map((r) => ({
       id: r.id,
@@ -686,12 +755,16 @@ export async function replaceNotebookChunks(
         }
       }
     }
+    invalidateNotebookRetrievalCache(notebookId);
     return;
   }
 
   const db = getDb();
   await db.delete(chunks).where(eq(chunks.notebookId, notebookId));
-  if (!rows.length) return;
+  if (!rows.length) {
+    invalidateNotebookRetrievalCache(notebookId);
+    return;
+  }
   await db.insert(chunks).values(
     rows.map((r) => ({
       id: r.id,
@@ -703,6 +776,7 @@ export async function replaceNotebookChunks(
       embeddingModel: r.embeddingModel,
     })),
   );
+  invalidateNotebookRetrievalCache(notebookId);
 }
 
 export async function listSources(notebookId: string) {
@@ -908,6 +982,7 @@ export async function addSource(
     };
     memSources.set(sourceId, source);
     // deliberately no memChunks writes
+    invalidateNotebookRetrievalCache(params.notebookId);
     const storeMs = Date.now() - storeStart;
     onProgress?.({ stage: "store", ms: storeMs });
     return {
@@ -933,6 +1008,7 @@ export async function addSource(
     });
     if (sErr) throw new Error(`Save source failed: ${sbError(sErr)}`);
 
+    invalidateNotebookRetrievalCache(params.notebookId);
     const storeMs = Date.now() - storeStart;
     onProgress?.({ stage: "store", ms: storeMs });
     return {
@@ -956,6 +1032,7 @@ export async function addSource(
     createdAt: new Date(now),
   });
 
+  invalidateNotebookRetrievalCache(params.notebookId);
   const storeMs = Date.now() - storeStart;
   onProgress?.({ stage: "store", ms: storeMs });
   return {
@@ -986,6 +1063,7 @@ export async function renameSource(
     if (!source || source.notebookId !== notebookId) return null;
     source.title = clean;
     memSources.set(sourceId, source);
+    invalidateNotebookRetrievalCache(notebookId);
     return {
       id: source.id,
       notebookId: source.notebookId,
@@ -1008,6 +1086,7 @@ export async function renameSource(
       .maybeSingle();
     if (error) throw new Error(`Rename source failed: ${sbError(error)}`);
     if (!data) return null;
+    invalidateNotebookRetrievalCache(notebookId);
     return {
       id: data.id as string,
       notebookId: data.notebook_id as string,
@@ -1025,6 +1104,7 @@ export async function renameSource(
     .where(eq(sources.id, sourceId))
     .returning();
   if (!updated || updated.notebookId !== notebookId) return null;
+  invalidateNotebookRetrievalCache(notebookId);
   return {
     id: updated.id,
     notebookId: updated.notebookId,
@@ -1049,6 +1129,7 @@ export async function deleteSource(notebookId: string, sourceId: string) {
         memChunks.delete(chunkId);
       }
     }
+    invalidateNotebookRetrievalCache(notebookId);
     return true;
   }
 
@@ -1072,6 +1153,7 @@ export async function deleteSource(notebookId: string, sourceId: string) {
     if (sourceResult.error) {
       throw new Error(`Delete source failed: ${sbError(sourceResult.error)}`);
     }
+    invalidateNotebookRetrievalCache(notebookId);
     return Boolean(sourceResult.data);
   }
 
@@ -1083,6 +1165,7 @@ export async function deleteSource(notebookId: string, sourceId: string) {
     .delete(sources)
     .where(and(eq(sources.id, sourceId), eq(sources.notebookId, notebookId)))
     .returning({ id: sources.id, notebookId: sources.notebookId });
+  invalidateNotebookRetrievalCache(notebookId);
   return deleted[0]?.notebookId === notebookId;
 }
 
@@ -1120,8 +1203,27 @@ export async function countChunks(notebookId: string) {
 export async function loadChunks(
   notebookId: string,
   sourceIds?: string[],
+  options: LoadChunksOptions = {},
+): Promise<ChunkWithEmbedding[]> {
+  const includeEmbeddings = options.includeEmbeddings !== false;
+  const key = retrievalCacheKey(notebookId, sourceIds, includeEmbeddings);
+  const cached = getCachedRetrievalUnits(key);
+  if (cached) return cached;
+
+  const chunks = await loadChunksUncached(notebookId, sourceIds, {
+    includeEmbeddings,
+  });
+  setCachedRetrievalUnits(key, chunks);
+  return chunks;
+}
+
+async function loadChunksUncached(
+  notebookId: string,
+  sourceIds?: string[],
+  options: LoadChunksOptions = {},
 ): Promise<ChunkWithEmbedding[]> {
   assertDurableDb('Load chunks');
+  const includeEmbeddings = options.includeEmbeddings !== false;
   if (!hasDb()) {
     let rows = Array.from(memChunks.values()).filter((c) => c.notebookId === notebookId);
     if (sourceIds?.length) {
@@ -1173,16 +1275,19 @@ export async function loadChunks(
 
   const sb = getSupabaseAdmin();
   if (sb) {
+    const chunkSelect = includeEmbeddings
+      ? "id,source_id,chunk_index,text,embedding_json,embedding_model"
+      : "id,source_id,chunk_index,text";
     let q = sb
       .from("chunks")
-      .select("id,source_id,chunk_index,text,embedding_json,embedding_model")
+      .select(chunkSelect)
       .eq("notebook_id", notebookId);
     if (sourceIds?.length) q = q.in("source_id", sourceIds);
     const selected = await q;
     let chunkRows = selected.data as ChunkRow[] | null;
     let error = selected.error;
-    let hasEmbeddingColumns = true;
-    if (error && isMissingEmbeddingColumn(error)) {
+    let hasEmbeddingColumns = includeEmbeddings;
+    if (includeEmbeddings && error && isMissingEmbeddingColumn(error)) {
       hasEmbeddingColumns = false;
       let legacyQuery = sb
         .from("chunks")
@@ -1253,16 +1358,30 @@ export async function loadChunks(
   }
 
   const db = getDb();
-  let rows;
-  if (sourceIds?.length) {
-    rows = await db
-      .select()
-      .from(chunks)
-      .where(eq(chunks.notebookId, notebookId))
-      .then((all) => all.filter((r) => sourceIds.includes(r.sourceId)));
-  } else {
-    rows = await db.select().from(chunks).where(eq(chunks.notebookId, notebookId));
-  }
+  const rowFilter = sourceIds?.length
+    ? and(eq(chunks.notebookId, notebookId), inArray(chunks.sourceId, sourceIds))
+    : eq(chunks.notebookId, notebookId);
+  const rows = options.includeEmbeddings === false
+    ? await db
+        .select({
+          id: chunks.id,
+          sourceId: chunks.sourceId,
+          chunkIndex: chunks.chunkIndex,
+          text: chunks.text,
+        })
+        .from(chunks)
+        .where(rowFilter)
+    : await db
+        .select({
+          id: chunks.id,
+          sourceId: chunks.sourceId,
+          chunkIndex: chunks.chunkIndex,
+          text: chunks.text,
+          embeddingJson: chunks.embeddingJson,
+          embeddingModel: chunks.embeddingModel,
+        })
+        .from(chunks)
+        .where(rowFilter);
 
   if (rows.length > 0) {
     const sourceIdsNeeded = [...new Set(rows.map((r) => r.sourceId))];
@@ -1288,8 +1407,12 @@ export async function loadChunks(
         title: multi ? `${baseTitle} · #${c.chunkIndex + 1}` : baseTitle,
         text: c.text,
         chunkIndex: c.chunkIndex,
-        embedding: vectorOrNull(c.embeddingJson),
-        embeddingModel: c.embeddingModel,
+        embedding: includeEmbeddings
+          ? vectorOrNull((c as { embeddingJson?: unknown }).embeddingJson)
+          : null,
+        embeddingModel: includeEmbeddings
+          ? ((c as { embeddingModel?: string | null }).embeddingModel ?? null)
+          : null,
       };
     });
   }

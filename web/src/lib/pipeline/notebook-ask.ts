@@ -40,6 +40,10 @@ export async function runNotebookAskPipeline(
     /** Per-request override; falls back to RETRIEVAL_MODE env. */
     retrievalMode?: RetrievalModeId;
     llmModel?: string;
+    /** Optional route-level timings measured before the pipeline starts. */
+    notebookLookupMs?: number;
+    corpusLoadMs?: number;
+    corpusMergeMs?: number;
     /** Client disconnect / cancel — checked between stages and passed to LLM */
     signal?: AbortSignal;
   },
@@ -70,8 +74,16 @@ export async function runNotebookAskPipeline(
     parseRetrievalMode(cfg.RETRIEVAL_MODE),
   );
 
-  const totalStart = nowMs();
-  const timing: Timing = {};
+  const notebookLookupMs = input.notebookLookupMs ?? 0;
+  const corpusLoadMs = input.corpusLoadMs ?? 0;
+  const corpusMergeMs = input.corpusMergeMs ?? 0;
+  const totalStart =
+    nowMs() - notebookLookupMs - corpusLoadMs - corpusMergeMs;
+  const timing: Timing = {
+    ...(input.notebookLookupMs != null ? { notebookLookupMs } : {}),
+    ...(input.corpusLoadMs != null ? { corpusLoadMs } : {}),
+    ...(input.corpusMergeMs != null ? { corpusMergeMs } : {}),
+  };
   const metrics: Metrics = {
     chunkCount: input.chunks.length,
     llmModel: resolveLlmModel(input.llmModel, cfg),
@@ -102,6 +114,7 @@ export async function runNotebookAskPipeline(
     input.chunks,
     retrieveTopK,
     retrievalMode,
+    { signal },
   );
   assertNotAborted(signal);
   const candidates = retrieval.results;
@@ -124,6 +137,7 @@ export async function runNotebookAskPipeline(
   emit({
     type: "embedding_completed",
     ms: timing.embeddingMs ?? 0,
+    inputCount: retrieval.diagnostics.embeddingInputCount,
     denseUsed: Boolean(retrieval.diagnostics.denseUsed),
     reason: retrieval.diagnostics.denseSkippedReason,
     provider: retrieval.diagnostics.embeddingProvider,
@@ -171,6 +185,7 @@ export async function runNotebookAskPipeline(
   metrics.denseSkippedReason = retrieval.diagnostics.denseSkippedReason;
   metrics.embeddingProvider = retrieval.diagnostics.embeddingProvider;
   metrics.embeddingModel = retrieval.diagnostics.embeddingModel;
+  metrics.embeddingInputCount = retrieval.diagnostics.embeddingInputCount;
   metrics.bm25Weight = retrieval.diagnostics.bm25Weight;
   metrics.b5Mode = retrieval.diagnostics.b5Mode;
   metrics.b5ShiftScore = retrieval.diagnostics.b5ShiftScore;

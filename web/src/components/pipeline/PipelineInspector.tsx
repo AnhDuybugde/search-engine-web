@@ -266,6 +266,12 @@ function stepMs(
 ): number | null {
   if (!timing) return null;
   switch (id) {
+    case "corpus":
+      return (
+        (timing.notebookLookupMs ?? 0) +
+        (timing.corpusLoadMs ?? 0) +
+        (timing.corpusMergeMs ?? 0)
+      );
     case "search":
       return timing.searchMs ?? null;
     case "fetch":

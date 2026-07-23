@@ -13,6 +13,31 @@ type OpenAiEmbeddingResponse = {
   error?: { message?: string } | string;
 };
 
+const DEFAULT_EMBEDDING_TIMEOUT_MS = 10_000;
+const EMBEDDING_CIRCUIT_OPEN_MS = 30_000;
+
+type EmbeddingCircuit = { openUntil: number };
+const globalForEmbedding = globalThis as unknown as {
+  __embeddingCircuits?: Map<string, EmbeddingCircuit>;
+};
+const embeddingCircuits =
+  globalForEmbedding.__embeddingCircuits ?? new Map<string, EmbeddingCircuit>();
+globalForEmbedding.__embeddingCircuits = embeddingCircuits;
+
+function resolveEmbeddingTimeout(timeoutMs?: number) {
+  if (timeoutMs != null && Number.isFinite(timeoutMs) && timeoutMs > 0) {
+    return Math.floor(timeoutMs);
+  }
+  const configured = Number(process.env.EMBEDDING_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0
+    ? Math.floor(configured)
+    : DEFAULT_EMBEDDING_TIMEOUT_MS;
+}
+
+function embeddingCircuitKey(endpoint: string, model: string) {
+  return `${endpoint}::${model}`;
+}
+
 function baseUrlJoin(base: string, path: string) {
   return `${base.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
 }
@@ -73,7 +98,7 @@ function validateEmbeddings(vectors: number[][], expected: number) {
 
 export async function embedTexts(
   texts: string[],
-  options?: { model?: string },
+  options?: { model?: string; signal?: AbortSignal; timeoutMs?: number },
 ): Promise<EmbeddingResult> {
   const cfg = getConfig();
   const model = options?.model?.trim() || cfg.EMBEDDING_MODEL;
@@ -118,18 +143,66 @@ export async function embedTexts(
     body = { inputs: input };
   }
 
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Embedding error ${res.status}: ${text.slice(0, 200)}`);
+  if (options?.signal?.aborted) {
+    throw Object.assign(new Error("Aborted"), { name: "AbortError" });
   }
 
-  const data = await res.json();
+  const timeoutMs = resolveEmbeddingTimeout(options?.timeoutMs);
+  const circuitKey = embeddingCircuitKey(endpoint, model);
+  const circuit = embeddingCircuits.get(circuitKey);
+  if (circuit && circuit.openUntil > Date.now()) {
+    throw new Error(
+      `Embedding provider temporarily unavailable; retrying in ${
+        circuit.openUntil - Date.now()
+      }ms`,
+    );
+  }
+  if (circuit) embeddingCircuits.delete(circuitKey);
+
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const onAbort = () => controller.abort();
+  options?.signal?.addEventListener("abort", onAbort, { once: true });
+
+  let data: unknown;
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Embedding error ${res.status}: ${text.slice(0, 200)}`);
+    }
+
+    data = await res.json();
+  } catch (err) {
+    if (timedOut) {
+      embeddingCircuits.set(circuitKey, {
+        openUntil: Date.now() + EMBEDDING_CIRCUIT_OPEN_MS,
+      });
+      throw new Error(`Embedding request timed out after ${timeoutMs}ms`);
+    }
+    if (options?.signal?.aborted) {
+      throw Object.assign(new Error("Aborted"), { name: "AbortError" });
+    }
+    if (err instanceof TypeError) {
+      embeddingCircuits.set(circuitKey, {
+        openUntil: Date.now() + EMBEDDING_CIRCUIT_OPEN_MS,
+      });
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    options?.signal?.removeEventListener("abort", onAbort);
+  }
   let vectors: number[][];
 
   if (cfg.EMBEDDING_PROVIDER === "openai") {
@@ -143,10 +216,13 @@ export async function embedTexts(
   } else if (cfg.EMBEDDING_PROVIDER === "huggingface") {
     vectors = parseHuggingFaceVectors(data);
   } else {
-    vectors = Array.isArray(data) ? (data as number[][]) : (data.embeddings as number[][]);
+    vectors = Array.isArray(data)
+      ? (data as number[][])
+      : ((data as { embeddings?: number[][] }).embeddings || []);
   }
 
   validateEmbeddings(vectors, input.length);
+  embeddingCircuits.delete(circuitKey);
 
   return {
     embeddings: vectors.map(normalizeVector),

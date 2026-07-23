@@ -224,7 +224,12 @@ export async function indexNotebookEmbeddings(
       let lastErr: unknown;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
-          const res = await embedTexts(slice.map((u) => u.text));
+          // Indexing can process larger batches than query-time retrieval.
+          // Keep a generous timeout here; query-time calls use a shorter budget
+          // and fall back to BM25 when the provider is slow.
+          const res = await embedTexts(slice.map((u) => u.text), {
+            timeoutMs: 30_000,
+          });
           embeddings.push(...res.embeddings);
           model = res.model;
           provider = res.provider;

@@ -16,6 +16,7 @@ export type HybridRetrievalDiagnostics = {
   embeddingProvider?: string;
   embeddingModel?: string;
   embeddingMs?: number;
+  embeddingInputCount?: number;
   bm25Ms?: number;
   denseMs?: number;
   fusionMs?: number;
@@ -70,6 +71,22 @@ function buildIdfVocabulary(chunks: Chunk[], minDf = 1) {
   return idf;
 }
 
+type AdaptiveCorpusStats = {
+  idf: Map<string, number>;
+  medianIdf: number;
+};
+
+const adaptiveCorpusStatsCache = new WeakMap<Chunk[], AdaptiveCorpusStats>();
+
+function getAdaptiveCorpusStats(chunks: Chunk[]): AdaptiveCorpusStats {
+  const cached = adaptiveCorpusStatsCache.get(chunks);
+  if (cached) return cached;
+  const idf = buildIdfVocabulary(chunks);
+  const stats = { idf, medianIdf: median([...idf.values()]) };
+  adaptiveCorpusStatsCache.set(chunks, stats);
+  return stats;
+}
+
 function queryMeanIdf(query: string, idf: Map<string, number>, fallback: number) {
   const stems = tokenize(query)
     .map(porterStem)
@@ -79,8 +96,7 @@ function queryMeanIdf(query: string, idf: Map<string, number>, fallback: number)
 }
 
 function adaptiveBm25Weight(query: string, chunks: Chunk[]) {
-  const idf = buildIdfVocabulary(chunks);
-  const fallback = median([...idf.values()]);
+  const { idf, medianIdf: fallback } = getAdaptiveCorpusStats(chunks);
   const meanIdf = queryMeanIdf(query, idf, fallback);
   const logit = IR_DEFAULTS.adaptiveRrfScale * (meanIdf - fallback);
   const sigmoid = 1 / (1 + Math.exp(-logit));
@@ -178,10 +194,11 @@ export async function retrieveEvidence(
   chunks: ChunkWithEmbedding[],
   topK: number,
   mode: "bm25" | "adaptive_rrf" | "sgaf" | "legacy_rrf_ce" = "bm25",
+  options?: { signal?: AbortSignal },
 ): Promise<HybridRetrievalResult> {
   if (mode === "bm25") return bm25Fallback(query, chunks, topK);
   if (mode === "legacy_rrf_ce") {
-    return legacyRrfCeRetrieve(query, chunks, topK);
+    return legacyRrfCeRetrieve(query, chunks, topK, options);
   }
   if (mode === "sgaf") {
     const cfg = getConfig();
@@ -194,7 +211,13 @@ export async function retrieveEvidence(
         chunks,
         topK,
         async (texts, model) =>
-          (await embedTexts(texts, { model })).embeddings,
+          (
+            await embedTexts(texts, {
+              model,
+              signal: options?.signal,
+              timeoutMs: 5_000,
+            })
+          ).embeddings,
         specialistModel,
         generalistModel,
       );
@@ -204,6 +227,7 @@ export async function retrieveEvidence(
           ...sgaf.diagnostics,
           embeddingProvider: cfg.EMBEDDING_PROVIDER,
           embeddingModel: generalistModel,
+          embeddingInputCount: 2,
         },
       };
     } catch (err) {
@@ -248,10 +272,10 @@ export async function retrieveEvidence(
     // Hot path: pre-indexed corpus → embed query only
     // Cold path: embed query + only missing corpus units (not re-embed all)
     if (missing.length > 0) {
-      const response = await embedTexts([
-        formatQueryForEmbedding(query),
-        ...missing.map((chunk) => chunk.text),
-      ]);
+      const response = await embedTexts(
+        [formatQueryForEmbedding(query), ...missing.map((chunk) => chunk.text)],
+        { signal: options?.signal, timeoutMs: 5_000 },
+      );
       const [queryEmbedding, ...missingVectors] = response.embeddings;
       const byMissing = new Map(
         missing.map((chunk, i) => [chunk.chunkId, missingVectors[i]] as const),
@@ -278,13 +302,17 @@ export async function retrieveEvidence(
         byId: new Map(embeddedChunks.map((chunk) => [chunk.chunkId, chunk])),
         topK,
         embeddingMs: Math.round(performance.now() - start),
+        embeddingInputCount: response.embeddings.length,
         bm25Ms,
         embeddingProvider,
         embeddingModel,
       });
     }
 
-    const response = await embedTexts([formatQueryForEmbedding(query)]);
+    const response = await embedTexts(
+      [formatQueryForEmbedding(query)],
+      { signal: options?.signal, timeoutMs: 5_000 },
+    );
     embeddingProvider = response.provider;
     embeddingModel = response.model;
     return fuseRuns({
@@ -295,6 +323,7 @@ export async function retrieveEvidence(
       byId,
       topK,
       embeddingMs: Math.round(performance.now() - start),
+      embeddingInputCount: response.embeddings.length,
       bm25Ms,
       embeddingProvider,
       embeddingModel,
@@ -339,6 +368,7 @@ async function legacyRrfCeRetrieve(
   query: string,
   chunks: ChunkWithEmbedding[],
   topK: number,
+  options?: { signal?: AbortSignal },
 ): Promise<HybridRetrievalResult> {
   const cfg = getConfig();
   if (chunks.length === 0) {
@@ -361,7 +391,11 @@ async function legacyRrfCeRetrieve(
   try {
     const embedding = await embedTexts(
       [formatQueryForEmbedding(query), ...denseInput.map((chunk) => chunk.text)],
-      { model: cfg.LEGACY_DENSE_MODEL },
+      {
+        model: cfg.LEGACY_DENSE_MODEL,
+        signal: options?.signal,
+        timeoutMs: 5_000,
+      },
     );
     const [queryEmbedding, ...chunkEmbeddings] = embedding.embeddings;
     const denseStart = performance.now();
@@ -420,6 +454,7 @@ async function legacyRrfCeRetrieve(
         embeddingProvider: embedding.provider,
         embeddingModel: embedding.model,
         embeddingMs,
+        embeddingInputCount: embedding.embeddings.length,
         bm25Ms,
         denseMs,
         fusionMs,
@@ -523,6 +558,7 @@ function fuseRuns(params: {
   byId: Map<string, ChunkWithEmbedding>;
   topK: number;
   embeddingMs: number;
+  embeddingInputCount: number;
   bm25Ms: number;
   embeddingProvider: string;
   embeddingModel: string;
@@ -593,6 +629,7 @@ function fuseRuns(params: {
       embeddingProvider: params.embeddingProvider,
       embeddingModel: params.embeddingModel,
       embeddingMs: params.embeddingMs,
+      embeddingInputCount: params.embeddingInputCount,
       bm25Ms: params.bm25Ms,
       denseMs,
       fusionMs,
