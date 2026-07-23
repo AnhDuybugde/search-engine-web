@@ -90,7 +90,9 @@ const envSchema = z.object({
   DATABASE_URL: z.string().optional(),
   SUPABASE_URL: z.string().optional(),
   SUPABASE_PUBLIC_KEY: z.string().optional(),
+  SUPABASE_PUBLISHABLE_KEY: z.string().optional(),
   SUPABASE_SECRET_KEY: z.string().optional(),
+  SUPABASE_JWKS_URL: z.string().url().optional(),
   DIRECT_STORAGE_UPLOADS: z
     .enum(["0", "1"])
     .default(UPLOAD_DEFAULTS.directStorageUploads ? "1" : "0"),
@@ -144,8 +146,12 @@ function readRawEnv() {
     DATABASE_URL,
     SUPABASE_URL,
     SUPABASE_PUBLIC_KEY:
-      process.env.SUPABASE_PUBLIC_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      process.env.SUPABASE_PUBLIC_KEY ||
+      process.env.SUPABASE_PUBLISHABLE_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    SUPABASE_PUBLISHABLE_KEY: process.env.SUPABASE_PUBLISHABLE_KEY,
     SUPABASE_SECRET_KEY,
+    SUPABASE_JWKS_URL: process.env.SUPABASE_JWKS_URL,
     DIRECT_STORAGE_UPLOADS: process.env.DIRECT_STORAGE_UPLOADS,
     SUPABASE_STORAGE_BUCKET: process.env.SUPABASE_STORAGE_BUCKET,
     UPLOAD_SIGNED_URL_TTL_SECONDS: process.env.UPLOAD_SIGNED_URL_TTL_SECONDS,
@@ -197,7 +203,9 @@ export function getConfig(): AppConfig {
         DATABASE_URL: raw.DATABASE_URL,
         SUPABASE_URL: raw.SUPABASE_URL,
         SUPABASE_PUBLIC_KEY: raw.SUPABASE_PUBLIC_KEY,
+        SUPABASE_PUBLISHABLE_KEY: raw.SUPABASE_PUBLISHABLE_KEY,
         SUPABASE_SECRET_KEY: raw.SUPABASE_SECRET_KEY,
+        SUPABASE_JWKS_URL: raw.SUPABASE_JWKS_URL,
         DIRECT_STORAGE_UPLOADS: raw.DIRECT_STORAGE_UPLOADS === "0" ? "0" : "1",
         SUPABASE_STORAGE_BUCKET:
           raw.SUPABASE_STORAGE_BUCKET || UPLOAD_DEFAULTS.storageBucket,
