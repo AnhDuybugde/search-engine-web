@@ -1,16 +1,27 @@
+import { IR_DEFAULTS } from "@/lib/config";
 import type { RankedChunk } from "@/lib/ir/types";
 import {
   detectResponseLanguage,
   isSourceDiscoveryQuery,
 } from "@/lib/ir/query-expansion";
 
-/** Hard caps so free-tier Groq TPM (often ~6k/min) is not blown by long pages. */
-const MAX_CHARS_PER_CHUNK = 700;
-const MAX_TOTAL_CONTEXT_CHARS = 3500;
+function classifyQuestion(query: string): string {
+  if (/\b(compare|comparison|versus|vs\.?|difference|better|worse|so sánh|khác nhau|hơn|kém hơn)\b/i.test(query)) {
+    return "comparison: cover every requested model/method, metric, dataset, and direction of difference";
+  }
+  if (/\b(how many|how much|what value|percentage|percent|metric|score|bao nhiêu|số liệu|giá trị|chỉ số|kết quả)\b|\d/i.test(query)) {
+    return "quantitative extraction: preserve exact values, units, ranges, and metric names";
+  }
+  if (/\b(how|why|explain|method|process|cách|tại sao|giải thích|quy trình|phương pháp)\b/i.test(query)) {
+    return "technical explanation: explain the mechanism or procedure step by step when supported";
+  }
+  return "evidence synthesis: connect the relevant claims and distinguish evidence from limitations";
+}
 
 export function buildCitationSystemPrompt(query?: string): string {
   const language = detectResponseLanguage(query || "");
   const sourceDiscovery = isSourceDiscoveryQuery(query || "");
+  const questionMode = classifyQuestion(query || "");
   return [
     "You are a professional, careful research assistant for a document search product.",
     "Treat the retrieved context below as the only authoritative knowledge available for this answer.",
@@ -26,7 +37,14 @@ export function buildCitationSystemPrompt(query?: string): string {
     `Respond naturally in ${language}. If the question is mixed-language, use its dominant natural language.`,
     "Preserve technical terms exactly when they are distinctive: model names, acronyms, dataset names, metric names, API names, code identifiers, equations, symbols, and citations.",
     "Do not translate or alter a technical term when doing so could make it ambiguous; you may briefly explain it in the user's language while keeping the original term.",
-    "Use a professional, concise, structured, and evidence-first tone.",
+    "Use an academic, analytical, structured, and evidence-first tone.",
+    "Do not be lazy or prematurely stop: when the evidence supports multiple parts of the question, address every part before concluding.",
+    "Prefer a direct conclusion followed by an organized explanation, comparison table, and limitations or evidence gaps when relevant.",
+    "Preserve every supported quantitative detail: values, units, percentages, decimal precision, dataset names, metric definitions, experimental settings, baselines, and comparison directions.",
+    "When comparing methods or models, report the exact values for each method, state the metric and dataset, and do not call a result better unless the provided numbers support that comparison.",
+    `Use this answer mode when applicable: ${questionMode}.`,
+    "Do not conflate metrics, datasets, experiments, or units. AP, mAP, precision, recall, F1, accuracy, latency, and parameter count are different quantities.",
+    "Before finishing, silently check that every clause of the question is answered, every important number has a citation, and no table row or sentence is left incomplete.",
   ].join(" ");
 }
 
@@ -41,8 +59,8 @@ export function buildCitationUserPrompt(
   chunks: RankedChunk[],
   opts?: { maxCharsPerChunk?: number; maxTotalChars?: number },
 ): string {
-  const maxPer = opts?.maxCharsPerChunk ?? MAX_CHARS_PER_CHUNK;
-  const maxTotal = opts?.maxTotalChars ?? MAX_TOTAL_CONTEXT_CHARS;
+  const maxPer = opts?.maxCharsPerChunk ?? IR_DEFAULTS.llmMaxCharsPerChunk;
+  const maxTotal = opts?.maxTotalChars ?? IR_DEFAULTS.llmMaxContextChars;
 
   const blocks: string[] = [];
   let used = 0;
@@ -82,12 +100,18 @@ export function buildCitationUserPrompt(
       : "(No context snippets were retrieved.)",
     "",
     "The retrieved context is the complete evidence set for this answer; do not supplement it with outside knowledge.",
-    `Respond naturally in ${detectResponseLanguage(query)} with a professional, concise answer under 250 words.`,
+    `Answer mode: ${classifyQuestion(query)}.`,
+    `Respond naturally in ${detectResponseLanguage(query)} with a detailed academic answer, normally 400-900 words when the evidence supports that level of detail.`,
+    "Answer all explicit sub-questions. Do not stop after a brief summary when the context contains additional relevant numbers or comparisons.",
+    "For quantitative questions, include a Markdown table when there are at least two comparable values, then explain the important differences in prose.",
+    "Use the exact reported values and units from the evidence. If a calculation is necessary, show the formula and label the result as derived; never invent missing inputs.",
+    "Do not merge values from different datasets or experiments. If a value is missing, write 'not reported in the provided context' instead of filling it in.",
+    "Finish with complete sentences and complete table rows. If evidence is insufficient, state the limitation explicitly rather than ending early.",
     "Keep model names, acronyms, metric names, formulas, symbols, API names, code identifiers, and citation markers unchanged.",
     "Use inline citations like [1] or [2] for every material claim supported by context.",
     sourceDiscovery
       ? "For this document-discovery question, use this exact decision: (1) if one or more titles/snippets directly match the requested topic, list only those actual titles with one short evidence-based relevance note; (2) if none directly match, write one single sentence saying no directly relevant document was found, then optionally add a section named 'Closest retrieved sources' with up to three actual titles and explain the mismatch. Never create numbered items containing 'no document was found', never repeat that sentence, and never treat retrieval rank as proof of relevance."
-      : "If the context does not directly support the answer, say 'I don't know based on the provided documents.' Do not guess or provide an uncited alternative answer.",
+      : "If the context does not directly support the answer, say 'I don't know based on the provided documents.' Still answer any supported sub-question and identify the exact missing evidence; do not guess or provide an uncited alternative answer.",
     "If the Question asks for dataset/notebook names in a global database and the Context does not list them, say the context only covers this notebook's uploaded files and name only source titles that are actually present.",
   ].join("\n");
 }
