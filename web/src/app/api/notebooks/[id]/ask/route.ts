@@ -1,10 +1,14 @@
 import { z } from "zod";
 import { requireUserId } from "@/lib/auth";
+import { getConfig } from "@/lib/config";
 import { getNotebook, loadChunks } from "@/lib/db/notebooks-repo";
 import { addNotebookMessage } from "@/lib/db/notebook-messages-repo";
 import { runNotebookAskPipeline } from "@/lib/pipeline/notebook-ask";
 import { createSseResponse } from "@/lib/sse";
-import { RETRIEVAL_MODE_IDS } from "@/lib/ir/retrieval-modes";
+import {
+  parseRetrievalMode,
+  RETRIEVAL_MODE_IDS,
+} from "@/lib/ir/retrieval-modes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,6 +64,13 @@ export async function POST(
     return Response.json({ error: "Invalid body" }, { status: 400 });
   }
 
+  const notebookLookupStart = Date.now();
+  const notebook = await getNotebook(id);
+  const notebookLookupMs = Date.now() - notebookLookupStart;
+  if (!notebook) {
+    return Response.json({ error: "Notebook not found" }, { status: 404 });
+  }
+
   // Primary notebook + optional checked corpora for multi-dataset ask
   const extraIds = [
     ...new Set(
@@ -67,49 +78,62 @@ export async function POST(
     ),
   ].slice(0, 19);
   const corpusIds = [id, ...extraIds];
-
-  const [notebook, ...chunkLists] = await Promise.all([
-    getNotebook(id),
-    ...corpusIds.map((nid) =>
-      loadChunks(
-        nid,
-        // source filter only applies to the primary notebook workspace
-        nid === id ? parsed.data.sourceIds : undefined,
-      ),
-    ),
-  ]);
-  if (!notebook) {
-    return Response.json({ error: "Notebook not found" }, { status: 404 });
-  }
-
-  // Merge retrieval units; prefix chunk ids when multi-corpus to avoid collisions
-  const multi = corpusIds.length > 1;
-  const chunks = chunkLists.flatMap((list, i) => {
-    const nid = corpusIds[i];
-    if (!multi) return list;
-    return list.map((c) => ({
-      ...c,
-      chunkId: `${nid}:${c.chunkId}`,
-      // Keep documentId stable for source drawer within its notebook —
-      // rank UI uses document title; multi-corpus titles already differ.
-    }));
-  });
-
-  if (chunks.length === 0) {
-    return Response.json(
-      {
-        error:
-          corpusIds.length > 1
-            ? "Selected datasets have no sources. Upload documents or uncheck empty datasets."
-            : "Notebook has no sources. Store a raw document first.",
-      },
-      { status: 400 },
-    );
-  }
-
   const query = parsed.data.query.trim();
+  const cfg = getConfig();
+  const retrievalMode = parseRetrievalMode(
+    parsed.data.retrievalMode,
+    parseRetrievalMode(cfg.RETRIEVAL_MODE),
+  );
+  // BM25 and the legacy branch intentionally do not consume stored vectors.
+  const includeEmbeddings =
+    retrievalMode !== "bm25" && retrievalMode !== "legacy_rrf_ce";
 
   return createSseResponse(async (emit, { signal }) => {
+    emit({ type: "corpus_loading" });
+    const loadStart = Date.now();
+    const chunkLists = await Promise.all(
+      corpusIds.map((nid) =>
+        loadChunks(
+          nid,
+          // source filter only applies to the primary notebook workspace
+          nid === id ? parsed.data.sourceIds : undefined,
+          { includeEmbeddings },
+        ),
+      ),
+    );
+    const corpusLoadMs = Date.now() - loadStart;
+
+    // Merge retrieval units; prefix chunk ids when multi-corpus to avoid collisions
+    const mergeStart = Date.now();
+    const multi = corpusIds.length > 1;
+    const chunks = multi
+      ? chunkLists.flatMap((list, i) => {
+          const nid = corpusIds[i];
+          return list.map((c) => ({
+            ...c,
+            chunkId: `${nid}:${c.chunkId}`,
+            // Keep documentId stable for source drawer within its notebook —
+            // rank UI uses document title; multi-corpus titles already differ.
+          }));
+        })
+      : (chunkLists[0] ?? []);
+    const corpusMergeMs = Date.now() - mergeStart;
+
+    if (chunks.length === 0) {
+      throw new Error(
+        corpusIds.length > 1
+          ? "Selected datasets have no sources. Upload documents or uncheck empty datasets."
+          : "Notebook has no sources. Store a raw document first.",
+      );
+    }
+
+    emit({
+      type: "corpus_loaded",
+      chunks: chunks.length,
+      loadMs: corpusLoadMs,
+      mergeMs: corpusMergeMs,
+    });
+
     // Fire-and-forget user message so TTFT is not blocked on history I/O
     const userSave = persistHistory("save user message", () =>
       addNotebookMessage({
@@ -130,8 +154,11 @@ export async function POST(
           retrieveTopK: parsed.data.retrieveTopK,
           documentTopK: parsed.data.documentTopK ?? 10,
           generateAnswer: parsed.data.generateAnswer,
-          retrievalMode: parsed.data.retrievalMode,
+          retrievalMode,
           llmModel: parsed.data.llmModel,
+          notebookLookupMs,
+          corpusLoadMs,
+          corpusMergeMs,
           signal,
         },
         emit,

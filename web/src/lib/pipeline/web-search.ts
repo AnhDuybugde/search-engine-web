@@ -120,12 +120,23 @@ export async function runWebSearchPipeline(
     chunks,
     retrieveTopK,
     retrievalMode,
+    { signal },
   );
   assertNotAborted(signal);
   const candidates = retrieval.results;
+  const packStart = nowMs();
   const results = packContext(candidates, contextTopK, 2);
+  timing.packMs = elapsed(packStart);
   timing.retrieveMs = elapsed(retrieveStart);
   timing.embeddingMs = retrieval.diagnostics.embeddingMs;
+  timing.bm25Ms = retrieval.diagnostics.bm25Ms;
+  timing.denseMs = retrieval.diagnostics.denseMs;
+  timing.fusionMs = retrieval.diagnostics.fusionMs;
+  timing.rankMs =
+    (timing.bm25Ms ?? 0) +
+    (timing.embeddingMs ?? 0) +
+    (timing.denseMs ?? 0) +
+    (timing.fusionMs ?? 0);
   metrics.contextCount = results.length;
   metrics.sourcesUsed = new Set(results.map((r) => r.documentId)).size;
   metrics.retrievalMode = retrieval.diagnostics.mode;
@@ -133,6 +144,7 @@ export async function runWebSearchPipeline(
   metrics.denseSkippedReason = retrieval.diagnostics.denseSkippedReason;
   metrics.embeddingProvider = retrieval.diagnostics.embeddingProvider;
   metrics.embeddingModel = retrieval.diagnostics.embeddingModel;
+  metrics.embeddingInputCount = retrieval.diagnostics.embeddingInputCount;
   metrics.bm25Weight = retrieval.diagnostics.bm25Weight;
   emit({
     type: "retrieve_completed",
