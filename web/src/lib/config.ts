@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { UPLOAD_DEFAULTS } from "@/lib/upload-config";
 
 /**
  * Supabase docs often show password as [YOUR-PASSWORD].
@@ -89,7 +90,16 @@ const envSchema = z.object({
   DATABASE_URL: z.string().optional(),
   SUPABASE_URL: z.string().optional(),
   SUPABASE_PUBLIC_KEY: z.string().optional(),
+  SUPABASE_PUBLISHABLE_KEY: z.string().optional(),
   SUPABASE_SECRET_KEY: z.string().optional(),
+  SUPABASE_JWKS_URL: z.string().url().optional(),
+  DIRECT_STORAGE_UPLOADS: z
+    .enum(["0", "1"])
+    .default(UPLOAD_DEFAULTS.directStorageUploads ? "1" : "0"),
+  SUPABASE_STORAGE_BUCKET: z.string().default(UPLOAD_DEFAULTS.storageBucket),
+  UPLOAD_SIGNED_URL_TTL_SECONDS: z
+    .string()
+    .default(String(UPLOAD_DEFAULTS.signedUrlTtlSeconds)),
   APP_PASSWORD: z.string().optional(),
 });
 
@@ -99,6 +109,8 @@ export type AppConfig = z.infer<typeof envSchema> & {
   hasEmbedding: boolean;
   hasDb: boolean;
   hasSupabaseRest: boolean;
+  directStorageUploads: boolean;
+  storageBucket: string;
   supabaseUrl?: string;
   onVercel: boolean;
 };
@@ -134,8 +146,15 @@ function readRawEnv() {
     DATABASE_URL,
     SUPABASE_URL,
     SUPABASE_PUBLIC_KEY:
-      process.env.SUPABASE_PUBLIC_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      process.env.SUPABASE_PUBLIC_KEY ||
+      process.env.SUPABASE_PUBLISHABLE_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    SUPABASE_PUBLISHABLE_KEY: process.env.SUPABASE_PUBLISHABLE_KEY,
     SUPABASE_SECRET_KEY,
+    SUPABASE_JWKS_URL: process.env.SUPABASE_JWKS_URL,
+    DIRECT_STORAGE_UPLOADS: process.env.DIRECT_STORAGE_UPLOADS,
+    SUPABASE_STORAGE_BUCKET: process.env.SUPABASE_STORAGE_BUCKET,
+    UPLOAD_SIGNED_URL_TTL_SECONDS: process.env.UPLOAD_SIGNED_URL_TTL_SECONDS,
     APP_PASSWORD: process.env.APP_PASSWORD,
   };
 }
@@ -184,7 +203,15 @@ export function getConfig(): AppConfig {
         DATABASE_URL: raw.DATABASE_URL,
         SUPABASE_URL: raw.SUPABASE_URL,
         SUPABASE_PUBLIC_KEY: raw.SUPABASE_PUBLIC_KEY,
+        SUPABASE_PUBLISHABLE_KEY: raw.SUPABASE_PUBLISHABLE_KEY,
         SUPABASE_SECRET_KEY: raw.SUPABASE_SECRET_KEY,
+        SUPABASE_JWKS_URL: raw.SUPABASE_JWKS_URL,
+        DIRECT_STORAGE_UPLOADS: raw.DIRECT_STORAGE_UPLOADS === "0" ? "0" : "1",
+        SUPABASE_STORAGE_BUCKET:
+          raw.SUPABASE_STORAGE_BUCKET || UPLOAD_DEFAULTS.storageBucket,
+        UPLOAD_SIGNED_URL_TTL_SECONDS:
+          raw.UPLOAD_SIGNED_URL_TTL_SECONDS ||
+          String(UPLOAD_DEFAULTS.signedUrlTtlSeconds),
         APP_PASSWORD: raw.APP_PASSWORD,
       };
 
@@ -206,6 +233,8 @@ export function getConfig(): AppConfig {
         : Boolean(data.EMBEDDING_API_URL),
     hasDb: hasSupabaseRest || hasSql,
     hasSupabaseRest,
+    directStorageUploads: data.DIRECT_STORAGE_UPLOADS === "1" && hasSupabaseRest,
+    storageBucket: data.SUPABASE_STORAGE_BUCKET,
     onVercel,
   };
 }
