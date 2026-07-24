@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { getSessionClaimsFromRequest } from "@/lib/auth";
+import { requireUserId } from "@/lib/auth";
 import { evaluateRAG } from "@/lib/llm/evaluator";
 import { updateSearchMessageMetrics } from "@/lib/db/sessions-repo";
 import { updateNotebookMessageMetrics } from "@/lib/db/notebook-messages-repo";
@@ -9,9 +9,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const claims = getSessionClaimsFromRequest(req);
-  if (!claims) {
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = requireUserId(req);
+  if ("error" in auth) {
+    return auth.error;
   }
 
   try {
