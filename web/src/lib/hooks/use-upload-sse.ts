@@ -388,7 +388,84 @@ export function useUploadSse() {
     return () => window.clearInterval(timer);
   }, [state.status, state.startedAt]);
 
-  return { state, upload, uploadDirect, reset };
+  const buildIndex = useCallback(async (notebookId: string) => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setState({
+      status: "running",
+      filename: "Dataset Index",
+      error: null,
+      logs: ["Starting embedding indexing for dataset…"],
+      timing: null,
+      elapsedMs: 0,
+      startedAt: Date.now(),
+      steps: {
+        receive: "success",
+        extract: "success",
+        store: "success",
+        chunk: "running",
+        embed: "pending",
+        persist: "pending",
+      },
+      stepMs: {},
+      indexPercent: null,
+      indexMessage: "Initializing index process…",
+      result: null,
+      metrics: null,
+    });
+
+    try {
+      const processRes = await fetch(`/api/notebooks/${notebookId}/index`, {
+        method: "POST",
+        headers: {
+          Accept: "text/event-stream",
+          "x-upload-stream": "1",
+        },
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      if (!processRes.ok) {
+        const body = await processRes.text();
+        throw new Error(body || `Indexing failed (${processRes.status})`);
+      }
+      if (!processRes.body) throw new Error("No indexing stream body");
+      const reader = processRes.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+        for (const part of parts) {
+          const line = part.split("\n").map((l) => l.trim()).find((l) => l.startsWith("data:"));
+          if (!line) continue;
+          const payload = line.slice(5).trim();
+          if (!payload) continue;
+          try {
+            const event = JSON.parse(payload) as UploadStreamEvent;
+            setState((prev) => applyUploadEvent(prev, event));
+          } catch {
+            continue;
+          }
+        }
+      }
+    } catch (err) {
+      if ((err as Error).name === "AbortError") return null;
+      setState((prev) => ({
+        ...prev,
+        status: "failed",
+        error: err instanceof Error ? err.message : "Indexing failed",
+        logs: [...prev.logs, `Error: ${err instanceof Error ? err.message : "failed"}`],
+      }));
+      throw err;
+    }
+  }, []);
+
+  return { state, upload, uploadDirect, buildIndex, reset };
 }
 
 function applyUploadEvent(

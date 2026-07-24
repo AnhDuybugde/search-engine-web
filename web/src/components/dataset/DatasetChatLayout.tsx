@@ -69,6 +69,7 @@ export function DatasetChatLayout({
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
   const [datasetsLoading, setDatasetsLoading] = useState(true);
   const [title, setTitle] = useState("");
+  const [notebook, setNotebook] = useState<any>(null);
   const [sources, setSources] = useState<Source[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [uiError, setUiError] = useState<string | null>(null);
@@ -151,6 +152,7 @@ export function DatasetChatLayout({
       if (!res.ok) throw new Error(data.error || "Notebook not found");
       setTitle(data.notebook?.title || "Dataset");
       setSources(data.sources || []);
+      setNotebook(data.notebook || null);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : "Failed to load");
     }
@@ -428,6 +430,19 @@ export function DatasetChatLayout({
     }
   };
 
+  const handleBuildIndex = useCallback(async () => {
+    if (!notebookId) return;
+    setUiError(null);
+    setRightTab("process");
+    try {
+      await uploadSse.buildIndex(notebookId);
+      await loadNotebook(notebookId);
+      await loadDatasets();
+    } catch (err) {
+      setUiError(err instanceof Error ? err.message : "Failed to build index");
+    }
+  }, [notebookId, loadNotebook, loadDatasets, uploadSse]);
+
   const onSend = async (
     query: string,
     opts: { retrievalMode: RetrievalModeId; llmModel?: string },
@@ -674,10 +689,26 @@ export function DatasetChatLayout({
                 </div>
               </div>
               {notebookId ? (
-                <div className="truncate text-[11px] text-[var(--fg-subtle)]">
-                  {sources.length} raw source
-                  {sources.length === 1 ? "" : "s"} · full-text at query time ·
-                  no pre-index
+                <div className="truncate text-[11px] text-[var(--fg-subtle)] flex flex-wrap items-center gap-2">
+                  <span>
+                    {sources.length} raw source{sources.length === 1 ? "" : "s"}
+                    {notebook?.indexStatus === "ready" ? (
+                      <> · {notebook.embeddedCount} vectors · indexed</>
+                    ) : notebook?.indexStatus === "indexing" || uploadSse.state.status === "running" ? (
+                      <> · indexing embeddings...</>
+                    ) : (
+                      <> · full-text at query time · no pre-index</>
+                    )}
+                  </span>
+                  {sources.length > 0 && notebook?.indexStatus !== "indexing" && uploadSse.state.status !== "running" && (
+                    <button
+                      type="button"
+                      onClick={handleBuildIndex}
+                      className="ml-1 inline-flex items-center gap-1 rounded bg-[var(--primary)] px-1.5 py-0.5 text-[9px] font-semibold text-white hover:bg-[var(--primary-hover)] transition-all cursor-pointer shadow-sm"
+                    >
+                      {notebook?.indexStatus === "ready" ? "Re-index embeddings" : "Index embeddings"}
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="truncate text-[11px] text-[var(--fg-subtle)]">
