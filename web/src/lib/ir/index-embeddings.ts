@@ -16,7 +16,7 @@ import {
 import { expandRawSourcesToUnits } from "@/lib/ir/raw-units";
 import { embedTexts } from "@/lib/ir/embedding";
 
-const EMBED_BATCH = 16;
+const EMBED_BATCH = 128;
 /** Cap stored units per notebook (dense index size). */
 const MAX_INDEX_UNITS = Math.max(IR_DEFAULTS.maxChunksPerNotebook, 800);
 

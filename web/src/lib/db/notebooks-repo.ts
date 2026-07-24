@@ -733,7 +733,7 @@ export async function replaceNotebookChunks(
       embedding_json: r.embedding,
       embedding_model: r.embeddingModel,
     }));
-    const BS = 40;
+    const BS = 250;
     for (let i = 0; i < payload.length; i += BS) {
       const { error } = await sb.from("chunks").insert(payload.slice(i, i + BS));
       if (error) {
