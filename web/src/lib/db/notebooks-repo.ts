@@ -1275,84 +1275,109 @@ async function loadChunksUncached(
 
   // --- OPTIMIZATION: Prefer Drizzle direct Postgres TCP connection over Supabase REST client ---
   if (process.env.DATABASE_URL) {
-    const db = getDb();
-    const rowFilter = sourceIds?.length
-      ? and(eq(chunks.notebookId, notebookId), inArray(chunks.sourceId, sourceIds))
-      : eq(chunks.notebookId, notebookId);
-    const rows = options.includeEmbeddings === false
-      ? await db
-          .select({
-            id: chunks.id,
-            sourceId: chunks.sourceId,
-            chunkIndex: chunks.chunkIndex,
-            text: chunks.text,
-          })
-          .from(chunks)
-          .where(rowFilter)
-      : await db
-          .select({
-            id: chunks.id,
-            sourceId: chunks.sourceId,
-            chunkIndex: chunks.chunkIndex,
-            text: chunks.text,
-            embeddingJson: chunks.embeddingJson,
-            embeddingModel: chunks.embeddingModel,
-          })
-          .from(chunks)
-          .where(rowFilter);
-
-    if (rows.length > 0) {
-      const sourceIdsNeeded = [...new Set(rows.map((r) => r.sourceId))];
-      const sourceRows =
-        sourceIdsNeeded.length === 0
-          ? []
+    try {
+      const db = getDb();
+      const rowFilter = sourceIds?.length
+        ? and(eq(chunks.notebookId, notebookId), inArray(chunks.sourceId, sourceIds))
+        : eq(chunks.notebookId, notebookId);
+      
+      let rows;
+      let hasEmbeddingColumns = includeEmbeddings;
+      
+      try {
+        rows = options.includeEmbeddings === false
+          ? await db
+              .select({
+                id: chunks.id,
+                sourceId: chunks.sourceId,
+                chunkIndex: chunks.chunkIndex,
+                text: chunks.text,
+              })
+              .from(chunks)
+              .where(rowFilter)
           : await db
-              .select()
-              .from(sources)
-              .where(inArray(sources.id, sourceIdsNeeded));
-      const sourceMap = new Map(sourceRows.map((s) => [s.id, s] as const));
-
-      const bySource = new Map<string, number>();
-      for (const c of rows) {
-        bySource.set(c.sourceId, (bySource.get(c.sourceId) || 0) + 1);
+              .select({
+                id: chunks.id,
+                sourceId: chunks.sourceId,
+                chunkIndex: chunks.chunkIndex,
+                text: chunks.text,
+                embeddingJson: chunks.embeddingJson,
+                embeddingModel: chunks.embeddingModel,
+              })
+              .from(chunks)
+              .where(rowFilter);
+      } catch (dbErr) {
+        if (includeEmbeddings && isMissingEmbeddingColumn(dbErr)) {
+          hasEmbeddingColumns = false;
+          rows = await db
+            .select({
+              id: chunks.id,
+              sourceId: chunks.sourceId,
+              chunkIndex: chunks.chunkIndex,
+              text: chunks.text,
+            })
+            .from(chunks)
+            .where(rowFilter);
+        } else {
+          throw dbErr;
+        }
       }
-      return rows.map((c) => {
-        const multi = (bySource.get(c.sourceId) || 0) > 1;
-        const baseTitle = sourceMap.get(c.sourceId)?.title || "Source";
-        return {
-          chunkId: c.id,
-          documentId: multi ? `${c.sourceId}#c${c.chunkIndex}` : c.sourceId,
-          title: multi ? `${baseTitle} · #${c.chunkIndex + 1}` : baseTitle,
-          text: c.text,
-          chunkIndex: c.chunkIndex,
-          embedding: includeEmbeddings
-            ? vectorOrNull((c as { embeddingJson?: unknown }).embeddingJson)
-            : null,
-          embeddingModel: includeEmbeddings
-            ? ((c as { embeddingModel?: string | null }).embeddingModel ?? null)
-            : null,
-        };
-      });
-    }
 
-    // RAW: expand multi-record / long sources at query time
-    let sourceRows = await db
-      .select()
-      .from(sources)
-      .where(eq(sources.notebookId, notebookId));
-    if (sourceIds?.length) {
-      const set = new Set(sourceIds);
-      sourceRows = sourceRows.filter((s) => set.has(s.id));
-    }
-    if (sourceRows.length > 0) {
-      return expandRawSourcesToUnits(
-        sourceRows.map((s) => ({
-          id: s.id,
-          title: s.title,
-          text: s.text,
-          mime: s.mime,
-        })),
-      );
+      if (rows.length > 0) {
+        const sourceIdsNeeded = [...new Set(rows.map((r) => r.sourceId))];
+        const sourceRows =
+          sourceIdsNeeded.length === 0
+            ? []
+            : await db
+                .select()
+                .from(sources)
+                .where(inArray(sources.id, sourceIdsNeeded));
+        const sourceMap = new Map(sourceRows.map((s) => [s.id, s] as const));
+
+        const bySource = new Map<string, number>();
+        for (const c of rows) {
+          bySource.set(c.sourceId, (bySource.get(c.sourceId) || 0) + 1);
+        }
+        return rows.map((c) => {
+          const multi = (bySource.get(c.sourceId) || 0) > 1;
+          const baseTitle = sourceMap.get(c.sourceId)?.title || "Source";
+          return {
+            chunkId: c.id,
+            documentId: multi ? `${c.sourceId}#c${c.chunkIndex}` : c.sourceId,
+            title: multi ? `${baseTitle} · #${c.chunkIndex + 1}` : baseTitle,
+            text: c.text,
+            chunkIndex: c.chunkIndex,
+            embedding: hasEmbeddingColumns
+              ? vectorOrNull((c as { embeddingJson?: unknown }).embeddingJson)
+              : null,
+            embeddingModel: hasEmbeddingColumns
+              ? ((c as { embeddingModel?: string | null }).embeddingModel ?? null)
+              : null,
+          };
+        });
+      }
+
+      // RAW: expand multi-record / long sources at query time
+      let sourceRows = await db
+        .select()
+        .from(sources)
+        .where(eq(sources.notebookId, notebookId));
+      if (sourceIds?.length) {
+        const set = new Set(sourceIds);
+        sourceRows = sourceRows.filter((s) => set.has(s.id));
+      }
+      if (sourceRows.length > 0) {
+        return expandRawSourcesToUnits(
+          sourceRows.map((s) => ({
+            id: s.id,
+            title: s.title,
+            text: s.text,
+            mime: s.mime,
+          })),
+        );
+      }
+    } catch (err) {
+      console.warn("Drizzle direct load chunks failed, falling back to Supabase REST:", err);
     }
   }
 
