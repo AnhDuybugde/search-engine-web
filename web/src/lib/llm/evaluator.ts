@@ -1,6 +1,6 @@
 import { generateText } from "ai";
-import { createLlmProvider } from "./client";
-import { getConfig } from "@/lib/config";
+import { createOpenAI } from "@ai-sdk/openai";
+import { getConfig, resolveLlmConfig } from "@/lib/config";
 import type { RankedChunk } from "@/lib/ir/types";
 
 export interface EvalMetrics {
@@ -16,15 +16,29 @@ export async function evaluateRAG(params: {
   query: string;
   context: RankedChunk[];
   answer: string;
+  model?: string;
 }): Promise<EvalMetrics> {
   const cfg = getConfig();
-  if (!cfg.hasLlm || !cfg.LLM_API_KEY) {
+  const modelName = params.model || cfg.LLM_MODEL;
+
+  let resolved;
+  try {
+    resolved = resolveLlmConfig(modelName, cfg);
+  } catch (err) {
+    // Model not supported or key not configured
+  }
+
+  if (!resolved || !resolved.apiKey) {
     return computeFallbackMetrics(params.query, params.context, params.answer);
   }
 
   try {
-    const openai = createLlmProvider();
-    const model = openai.chat(cfg.LLM_MODEL);
+    const openai = createOpenAI({
+      baseURL: resolved.baseUrl,
+      apiKey: resolved.apiKey,
+      name: resolved.model === cfg.VILAO_MODEL ? "vilao-compatible" : "groq-compatible",
+    });
+    const model = openai.chat(resolved.model);
 
     const contextText = params.context
       .map((c, i) => `[Source ${i + 1}] Title: ${c.title}\nContent: ${c.text}`)

@@ -617,7 +617,7 @@ export async function updateSearchMessageMetrics(
   if (!hasDb()) {
     const existing = memMessages.get(id);
     if (!existing) return null;
-    const next = { ...existing, metrics };
+    const next = { ...existing, metrics: { ...(existing.metrics || {}), ...metrics } };
     memMessages.set(id, next);
     return next;
   }
@@ -627,9 +627,14 @@ export async function updateSearchMessageMetrics(
     const { data, error: getErr } = await sb.from("search_messages").select("*").eq("id", id).maybeSingle();
     if (getErr || !data) return null;
     
+    const mergedMetrics = {
+      ...(data.metrics_json as object || {}),
+      ...metrics,
+    };
+    
     const { error } = await sb
       .from("search_messages")
-      .update({ metrics_json: metrics })
+      .update({ metrics_json: mergedMetrics })
       .eq("id", id);
     if (error) {
       throw new Error(`Update search message metrics failed: ${sbError(error)}`);
@@ -643,7 +648,7 @@ export async function updateSearchMessageMetrics(
       expandedQuery: data.expanded_query,
       results: data.results_json as RankedChunk[] | null,
       timing: data.timing_json as Timing | null,
-      metrics,
+      metrics: mergedMetrics,
       status: data.status,
       createdAt: toIso(data.created_at),
     };
@@ -658,9 +663,14 @@ export async function updateSearchMessageMetrics(
       .then((rows) => rows[0]);
     if (!existing) return null;
 
+    const mergedMetrics = {
+      ...(existing.metricsJson as object || {}),
+      ...metrics,
+    };
+
     await db
       .update(searchMessages)
-      .set({ metricsJson: metrics })
+      .set({ metricsJson: mergedMetrics })
       .where(eq(searchMessages.id, id));
 
     return {
@@ -671,7 +681,7 @@ export async function updateSearchMessageMetrics(
       expandedQuery: existing.expandedQuery,
       results: existing.resultsJson as RankedChunk[] | null,
       timing: existing.timingJson as Timing | null,
-      metrics,
+      metrics: mergedMetrics,
       status: existing.status,
       createdAt: existing.createdAt.toISOString(),
     };

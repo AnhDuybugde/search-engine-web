@@ -16,14 +16,14 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { messageId, messageType, query, context, answer } = body;
+    const { messageId, messageType, query, context, answer, model } = body;
 
     if (!query || !context || !answer) {
       return Response.json({ error: "Missing required fields" }, { status: 400 });
     }
 
     const start = nowMs();
-    const metrics = await evaluateRAG({ query, context, answer });
+    const metrics = await evaluateRAG({ query, context, answer, model });
     const evaluationMs = elapsed(start);
 
     // Save metrics if messageId and messageType are provided

@@ -342,7 +342,7 @@ export async function updateNotebookMessageMetrics(
   if (!hasDb()) {
     const existing = memNotebookMessages.get(id);
     if (!existing) return null;
-    const next = { ...existing, metrics };
+    const next = { ...existing, metrics: { ...(existing.metrics || {}), ...metrics } };
     memNotebookMessages.set(id, next);
     return memToDto(next);
   }
@@ -352,9 +352,14 @@ export async function updateNotebookMessageMetrics(
     const { data, error: getErr } = await sb.from("notebook_messages").select("*").eq("id", id).maybeSingle();
     if (getErr || !data) return null;
 
+    const mergedMetrics = {
+      ...(data.metrics_json as object || {}),
+      ...metrics,
+    };
+
     const { error } = await sb
       .from("notebook_messages")
-      .update({ metrics_json: metrics })
+      .update({ metrics_json: mergedMetrics })
       .eq("id", id);
     if (error) {
       throw new Error(`Update notebook message metrics failed: ${sbError(error)}`);
@@ -368,7 +373,7 @@ export async function updateNotebookMessageMetrics(
       content: data.content,
       results: data.results_json as RankedChunk[] | null,
       timing: data.timing_json as Timing | null,
-      metrics,
+      metrics: mergedMetrics,
       documents: data.documents_json as RankedDocument[] | null,
       status: data.status,
       createdAt: toIso(data.created_at),
@@ -384,9 +389,14 @@ export async function updateNotebookMessageMetrics(
       .then((rows) => rows[0]);
     if (!existing) return null;
 
+    const mergedMetrics = {
+      ...(existing.metricsJson as object || {}),
+      ...metrics,
+    };
+
     await db
       .update(notebookMessages)
-      .set({ metricsJson: metrics })
+      .set({ metricsJson: mergedMetrics })
       .where(eq(notebookMessages.id, id));
 
     return {
@@ -397,7 +407,7 @@ export async function updateNotebookMessageMetrics(
       content: existing.content,
       results: existing.resultsJson as RankedChunk[] | null,
       timing: existing.timingJson as Timing | null,
-      metrics,
+      metrics: mergedMetrics,
       documents: existing.documentsJson as RankedDocument[] | null,
       status: existing.status,
       createdAt: existing.createdAt.toISOString(),

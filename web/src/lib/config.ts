@@ -57,6 +57,9 @@ export function resolveSupabaseUrl(databaseUrl?: string | null): string | undefi
   );
 }
 
+const optionalUrl = () =>
+  z.preprocess((val) => (val === "" ? undefined : val), z.string().url().optional());
+
 const envSchema = z.object({
   LLM_BASE_URL: z.string().url().default("https://api.groq.com/openai/v1"),
   LLM_API_KEY: z.string().optional(),
@@ -71,17 +74,17 @@ const envSchema = z.object({
   EMBEDDING_PROVIDER: z
     .enum(["openai", "huggingface", "tei"])
     .default("tei"),
-  EMBEDDING_API_URL: z.string().url().optional(),
+  EMBEDDING_API_URL: optionalUrl(),
   EMBEDDING_API_KEY: z.string().optional(),
   EMBEDDING_MODEL: z.string().default("BAAI/bge-base-en-v1.5"),
   LEGACY_DENSE_MODEL: z.string().default("malteos/scincl"),
   LEGACY_RRF_K: z.string().default("60"),
-  LEGACY_RERANKER_URL: z.string().url().optional(),
+  LEGACY_RERANKER_URL: optionalUrl(),
   LEGACY_RERANKER_MODEL: z
     .string()
     .default("cross-encoder/ms-marco-MiniLM-L-6-v2"),
   SPECIALIST_EMBEDDING_MODEL: z.string().optional(),
-  SPECIALIST_EMBEDDING_API_URL: z.string().url().optional(),
+  SPECIALIST_EMBEDDING_API_URL: optionalUrl(),
   SGAF_SHIFT_THRESHOLD: z.string().default("2.0"),
   P3_WINDOW: z.string().default("20"),
   P3_ALPHA: z.string().default("0.10"),
@@ -92,7 +95,7 @@ const envSchema = z.object({
   SUPABASE_PUBLIC_KEY: z.string().optional(),
   SUPABASE_PUBLISHABLE_KEY: z.string().optional(),
   SUPABASE_SECRET_KEY: z.string().optional(),
-  SUPABASE_JWKS_URL: z.string().url().optional(),
+  SUPABASE_JWKS_URL: optionalUrl(),
   DIRECT_STORAGE_UPLOADS: z
     .enum(["0", "1"])
     .default(UPLOAD_DEFAULTS.directStorageUploads ? "1" : "0"),
@@ -225,7 +228,7 @@ export function getConfig(): AppConfig {
   return {
     ...data,
     supabaseUrl,
-    hasLlm: Boolean(data.LLM_API_KEY),
+    hasLlm: Boolean(data.LLM_API_KEY || data.VILAO_API_KEY),
     hasSearch: Boolean(data.TAVILY_API_KEY || data.BRAVE_API_KEY),
     hasEmbedding:
       data.EMBEDDING_PROVIDER === "huggingface"

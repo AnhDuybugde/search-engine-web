@@ -50,7 +50,8 @@ export function ChatThread({
     msgId: string,
     query: string,
     context: RankedChunk[],
-    answer: string
+    answer: string,
+    model?: string
   ) => {
     onUpdateMessage?.(msgId, { evaluationStatus: "evaluating" });
     try {
@@ -63,15 +64,17 @@ export function ChatThread({
           query,
           context,
           answer,
+          model,
         }),
       });
       if (!res.ok) throw new Error("Evaluation request failed");
       const data = await res.json();
       
+      const currentMsg = messages.find((msg) => msg.id === msgId);
       onUpdateMessage?.(msgId, {
         evaluationStatus: "completed",
         evaluationMs: data.evaluationMs,
-        metrics: data.metrics,
+        metrics: { ...currentMsg?.metrics, ...data.metrics },
       });
     } catch (err) {
       console.error("Failed to run accuracy evaluation:", err);
@@ -187,7 +190,7 @@ export function ChatThread({
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleEvaluate(m.id, queryText, m.results || [], m.content);
+                               handleEvaluate(m.id, queryText, m.results || [], m.content, m.metrics?.llmModel);
                             }}
                             className="rounded-md bg-[var(--primary)] px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-[var(--primary-hover)] transition-all cursor-pointer"
                           >
