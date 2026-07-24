@@ -800,6 +800,22 @@ export function DatasetChatLayout({
                       : "Attach PDF, TXT, MD, CSV or JSON. Text is extracted and stored raw; ranking starts when you ask."
                     : "Collect source material, inspect the ranking pipeline, and ask grounded questions from one focused canvas."}
                 </p>
+                {notebookId && sources.length > 0 && (
+                  <div className="mt-4 flex flex-col items-center gap-2 anim-stagger">
+                    <button
+                      type="button"
+                      onClick={handleBuildIndex}
+                      disabled={notebook?.indexStatus === "indexing" || uploadSse.state.status === "running"}
+                      className="rounded-lg bg-[var(--primary)] px-4 py-2 text-xs font-semibold text-white hover:bg-[var(--primary-hover)] disabled:bg-opacity-50 transition-all cursor-pointer shadow-md flex items-center gap-1.5"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {notebook?.indexStatus === "ready" ? "Re-index dataset embeddings" : "Index dataset embeddings"}
+                    </button>
+                    <span className="text-[10px] text-[var(--fg-subtle)]">
+                      Speeds up retrieval and enables dense vector matching (currently: {notebook?.indexStatus === "ready" ? "Indexed" : "Raw BM25 fallback"})
+                    </span>
+                  </div>
+                )}
                 <div className="workspace-kpis anim-stagger" aria-label="Workspace overview">
                   <div className="workspace-kpi workspace-kpi--violet">
                     <span className="workspace-kpi-icon"><Database className="h-4 w-4" /></span>
@@ -1021,6 +1037,21 @@ export function DatasetChatLayout({
                         ? "Durable store is full document text only. Chunking and embedding are not written at upload; ranking builds units at query time."
                         : "Retrieval runs across the checked datasets. Raw documents remain stored in each dataset and ranking builds units at query time."}
                     </p>
+                    {notebookId && sources.length > 0 && (
+                      <div className="mt-2.5 pt-2 border-t border-[var(--border-subtle)] flex items-center justify-between">
+                        <span className="text-[10px] text-[var(--fg-subtle)]">
+                          {notebook?.indexStatus === "ready" ? "Indexed" : "No pre-index"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleBuildIndex}
+                          disabled={notebook?.indexStatus === "indexing" || uploadSse.state.status === "running"}
+                          className="rounded bg-[var(--primary)] px-2 py-1 text-[10px] font-semibold text-white hover:bg-[var(--primary-hover)] disabled:bg-opacity-50 transition-all cursor-pointer shadow-sm"
+                        >
+                          {notebook?.indexStatus === "ready" ? "Re-index embeddings" : "Index embeddings"}
+                        </button>
+                      </div>
+                    )}
                   </div>
                   {notebookId && (
                     <>
